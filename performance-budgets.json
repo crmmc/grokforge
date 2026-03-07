@@ -1,0 +1,68 @@
+{
+  "name": "GrokForge Frontend Performance Budget",
+  "version": "2026-03-18",
+  "budgets": {
+    "root_main_js_kb": {
+      "warning": 350,
+      "critical": 365
+    },
+    "largest_lazy_chunk_js_kb": {
+      "warning": 390,
+      "critical": 420
+    },
+    "css_total_kb": {
+      "warning": 64,
+      "critical": 70
+    },
+    "routes": {
+      "/": {
+        "total_js_kb": {
+          "warning": 640,
+          "critical": 675
+        }
+      },
+      "/apikeys": {
+        "total_js_kb": {
+          "warning": 635,
+          "critical": 665
+        }
+      },
+      "/cache": {
+        "total_js_kb": {
+          "warning": 635,
+          "critical": 665
+        }
+      },
+      "/function": {
+        "total_js_kb": {
+          "warning": 620,
+          "critical": 650
+        }
+      },
+      "/login": {
+        "total_js_kb": {
+          "warning": 405,
+          "critical": 430
+        }
+      },
+      "/settings": {
+        "total_js_kb": {
+          "warning": 630,
+          "critical": 660
+        }
+      },
+      "/tokens": {
+        "total_js_kb": {
+          "warning": 650,
+          "critical": 680
+        }
+      },
+      "/usage": {
+        "total_js_kb": {
+          "warning": 635,
+          "critical": 665
+        }
+      }
+    }
+  }
+}

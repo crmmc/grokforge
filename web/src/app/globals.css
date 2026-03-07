@@ -1,0 +1,195 @@
+@import 'tailwindcss';
+
+@theme {
+  /* Fluent 2 Color System */
+  --color-background: #F3F3F3;
+  --color-foreground: #1D1D1D;
+
+  --color-surface: rgba(255, 255, 255, 0.7);
+  --color-surface-hover: rgba(255, 255, 255, 0.9);
+  --color-surface-active: rgba(245, 245, 245, 0.8);
+
+  /* Windows 11 Fluent Blue */
+  --color-primary: #005FB8;
+  --color-primary-hover: #0056A6;
+  --color-primary-active: #004D94;
+  --color-primary-foreground: #FFFFFF;
+
+  --color-secondary: #F3F3F3;
+  --color-secondary-foreground: #1D1D1D;
+
+  --color-muted: #5D5D5D;
+  --color-muted-foreground: #5D5D5D;
+
+  --color-accent: rgba(0, 0, 0, 0.03);
+  --color-accent-foreground: #1D1D1D;
+
+  --color-popover: rgba(255, 255, 255, 0.95);
+  --color-popover-foreground: #1D1D1D;
+
+  --color-card: rgba(255, 255, 255, 0.7);
+  --color-card-foreground: #1D1D1D;
+
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-card: rgba(0, 0, 0, 0.08);
+  --color-input: rgba(0, 0, 0, 0.06);
+  --color-ring: #005FB8;
+
+  --color-destructive: #C42B1C;
+  --color-destructive-foreground: #FFFFFF;
+
+  --color-success: #0F7B0F;
+  --color-warning: #9D5D00;
+
+  /* Fluent 2 Typography */
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, "Roboto", sans-serif;
+  --font-display: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+
+  /* Fluent 2 Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+
+  /* Chart colors */
+  --color-chart-1: #005FB8;
+  --color-chart-2: #0091FF;
+  --color-chart-3: #0F7B0F;
+  --color-chart-4: #9D5D00;
+  --color-chart-5: #C42B1C;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+::selection {
+  background-color: rgba(0, 95, 184, 0.2);
+  color: var(--color-foreground);
+}
+
+/* Windows 11 style scrollbar */
+::-webkit-scrollbar {
+  width: 14px;
+  height: 14px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background-clip: padding-box;
+  background-color: rgba(0, 0, 0, 0.2);
+  border: 4px solid transparent;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.35);
+  border-width: 3px;
+}
+
+/* Fluent 2 Buttons */
+.btn-fluent {
+  background: #FBFBFB;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom-color: rgba(0, 0, 0, 0.15);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-sm);
+  transition: all 150ms ease-out;
+}
+.btn-fluent:hover {
+  background: #F6F6F6;
+}
+.btn-fluent:active {
+  background: #EDEDED;
+  border-color: rgba(0, 0, 0, 0.06);
+  transform: scale(0.98);
+}
+
+.btn-fluent-primary {
+  background: var(--color-primary);
+  color: white;
+  border: 1px solid transparent;
+  border-bottom-color: rgba(0, 0, 0, 0.2);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-sm);
+  transition: all 150ms ease-out;
+}
+.btn-fluent-primary:hover {
+  background: var(--color-primary-hover);
+}
+.btn-fluent-primary:active {
+  background: var(--color-primary-active);
+  border-color: transparent;
+  transform: scale(0.98);
+}
+
+/* Fluent 2 Acrylic Card */
+.fluent-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid var(--color-border-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+  transition: transform 300ms cubic-bezier(0.1, 0.9, 0.2, 1), box-shadow 300ms cubic-bezier(0.1, 0.9, 0.2, 1);
+}
+
+/* Top highlight border simulating light on glass */
+.fluent-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0) 100%);
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.fluent-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06), 0 2px 4px rgba(0, 0, 0, 0.03);
+}
+
+/* Static card variant (no hover lift) */
+.fluent-card-static {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px) saturate(120%);
+  -webkit-backdrop-filter: blur(20px) saturate(120%);
+  border: 1px solid var(--color-border-card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Item List / Settings Row Hover */
+.fluent-row {
+  transition: background-color 150ms ease-out;
+  border-radius: var(--radius-md);
+}
+.fluent-row:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+/* Soft focus rings */
+*:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

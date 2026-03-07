@@ -1,0 +1,163 @@
+# GrokForge Configuration Template
+# Copy to config.toml and modify as needed
+
+# ==================== Application Settings ====================
+[app]
+# Admin password (change this in production!)
+app_key = "grokforge"
+# Static login key for /v1 access (empty = use API Key database)
+loginKey = ""
+# Enable media generation (image/video) endpoints
+media_generation_enabled = true
+# Enable temporary conversation mode
+temporary = true
+# Disable Grok memory feature
+disable_memory = true
+# Enable streaming response by default
+stream = true
+# Enable thinking chain output by default
+thinking = true
+# Dynamic Statsig fingerprint
+dynamic_statsig = true
+# Custom instruction
+custom_instruction = ""
+# Filter special tags
+filter_tags = ["xaiartifact", "xai:tool_usage_card", "grok:render"]
+# Server host
+host = "0.0.0.0"
+# Server port
+port = 8080
+# Log format: true for JSON, false for text
+log_json = false
+# Log level: debug, info, warn, error
+log_level = "info"
+# Log file path
+log_file_path = "logs/grokforge.log"
+# Log file max size (MB)
+log_max_size_mb = 50
+# Log file max backup count
+log_max_backups = 3
+# Database driver: sqlite or postgres
+db_driver = "sqlite"
+# SQLite database path
+db_path = "data/grokforge.db"
+# PostgreSQL DSN (when db_driver = "postgres")
+db_dsn = ""
+# Default request timeout in seconds (non-LLM routes)
+request_timeout = 60
+# Max time to read request headers (seconds), prevents slowloris attacks
+read_header_timeout = 10
+# Max size of request headers in bytes (default 1MB)
+max_header_bytes = 1048576
+# Default max request body size in bytes (default 1MB)
+body_limit = 1048576
+# Max body size for POST /v1/chat/completions in bytes (default 10MB, for base64 images)
+chat_body_limit = 10485760
+# Max failed admin auth attempts before temporary IP lockout
+admin_max_fails = 10
+# Time window for counting admin auth failures (seconds)
+admin_window_sec = 300
+
+# ==================== Image Generation ====================
+[image]
+# Allow NSFW content
+nsfw = false
+# Parallel attempts when image is blocked
+blocked_parallel_attempts = 5
+# Enable blocked parallel retry
+blocked_parallel_enabled = true
+
+# ==================== Imagine Fast Defaults ====================
+[imagine_fast]
+# Default number of images for grok-imagine-1.0-fast
+n = 1
+# Default image size
+size = "1024x1024"
+
+# ==================== Proxy Configuration ====================
+[proxy]
+# Base proxy URL (proxy to Grok)
+base_proxy_url = ""
+# Asset proxy URL (proxy static resources)
+asset_proxy_url = ""
+# Full CF Cookies (auto-refresh writes here)
+cf_cookies = ""
+# Skip proxy SSL verification (for self-signed certs)
+skip_proxy_ssl_verify = false
+# Enable CF auto-refresh
+enabled = false
+# FlareSolverr service URL
+flaresolverr_url = ""
+# Refresh interval (seconds)
+refresh_interval = 3600
+# CF challenge timeout (seconds)
+timeout = 300
+# Cloudflare Clearance Cookie
+cf_clearance = ""
+# TLS fingerprint browser profile
+browser = "chrome_146"
+# User-Agent string (must match browser profile)
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+
+# ==================== Retry Policy ====================
+[retry]
+# Maximum number of tokens to try
+max_tokens = 5
+# Maximum retries per token before switching
+per_token_retries = 2
+# HTTP status codes that trigger session reset
+reset_session_status_codes = [403]
+# HTTP status codes that trigger token cooling (rate limit marking)
+# Note: 403 is NOT included — CF challenges and token-level 403 are handled separately
+cooling_status_codes = [429]
+# Backoff base delay (seconds)
+retry_backoff_base = 0.5
+# Backoff multiplier
+retry_backoff_factor = 2.0
+# Maximum single retry delay (seconds)
+retry_backoff_max = 20.0
+# Total retry budget time (seconds)
+retry_budget = 60.0
+
+# ==================== Token Pool Management ====================
+[token]
+# Token consecutive failure threshold (marks expired)
+fail_threshold = 5
+# Usage write minimum interval (seconds)
+usage_flush_interval_sec = 30
+# Cooling check interval (seconds)
+cool_check_interval_sec = 30
+# Models assigned to Basic pool (format: "model#cost", cost defaults to 1)
+basic_models = [
+    "grok-3", "grok-3-mini", "grok-3-thinking#4",
+    "grok-4", "grok-4-mini", "grok-4-thinking#4",
+    "grok-4.1-expert#4", "grok-4.1-fast", "grok-4.1-mini", "grok-4.1-thinking#4",
+    "grok-4.20-beta#4",
+    "grok-imagine-1.0", "grok-imagine-1.0-edit", "grok-imagine-1.0-fast",
+    "grok-imagine-1.0-video",
+]
+# Models assigned to Super pool
+super_models = [
+    "grok-3", "grok-3-mini", "grok-3-thinking#4",
+    "grok-4", "grok-4-heavy#4", "grok-4-mini", "grok-4-thinking#4",
+    "grok-4.1-expert#4", "grok-4.1-fast", "grok-4.1-mini", "grok-4.1-thinking#4",
+    "grok-4.20-beta#4",
+    "grok-imagine-1.0", "grok-imagine-1.0-edit", "grok-imagine-1.0-fast",
+    "grok-imagine-1.0-video",
+]
+# Preferred pool when model exists in both pools
+preferred_pool = "ssoBasic"
+# Basic pool cooling duration (minutes)
+basic_cool_duration_min = 240
+# Super pool cooling duration (minutes)
+super_cool_duration_min = 120
+# Default chat quota per token
+default_chat_quota = 50
+# Default image quota per token
+default_image_quota = 20
+# Default video quota per token
+default_video_quota = 10
+# Quota recovery mode: "auto" (restore defaults on cooldown expiry) or "upstream" (sync from Grok API)
+quota_recovery_mode = "auto"
+# Token selection algorithm: high_quota_first / random / round_robin
+selection_algorithm = "high_quota_first"

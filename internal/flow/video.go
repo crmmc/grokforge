@@ -1,0 +1,179 @@
+package flow
+
+import (
+	"context"
+	"log/slog"
+	"time"
+
+	"github.com/crmmc/grokforge/internal/cache"
+	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/store"
+	tkn "github.com/crmmc/grokforge/internal/token"
+	"github.com/crmmc/grokforge/internal/xai"
+)
+
+// VideoClient defines the interface for video generation API calls.
+type VideoClient interface {
+	Chat(ctx context.Context, req *xai.ChatRequest) (<-chan xai.StreamEvent, error)
+	CreateImagePost(ctx context.Context, imageURL string) (string, error)
+	CreateVideoPost(ctx context.Context, prompt string) (string, error)
+	PollUpscale(ctx context.Context, videoID string, interval time.Duration) (string, error)
+	DownloadURL(ctx context.Context, url string) ([]byte, error)
+	UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error)
+}
+
+// VideoFlowConfig holds configuration for video processing.
+type VideoFlowConfig struct {
+	TimeoutSeconds      int
+	PollIntervalSeconds int
+	TokenConfig         *config.TokenConfig
+}
+
+// VideoRequest represents a video generation request.
+type VideoRequest struct {
+	Prompt         string
+	Model          string
+	Size           string
+	AspectRatio    string // e.g. "16:9", "3:2" — passed directly to xAI
+	Seconds        int
+	Quality        string
+	Preset         string
+	ReferenceImage []byte
+}
+
+// VideoFlow handles async video generation.
+type VideoFlow struct {
+	tokenSvc      TokenServicer
+	clientFactory func(token string) VideoClient
+	cfg           *VideoFlowConfig
+	usageLog      UsageRecorder
+	cacheSvc      *cache.Service
+	appCfg        *config.AppConfig
+}
+
+// NewVideoFlow creates a new VideoFlow.
+func NewVideoFlow(
+	tokenSvc TokenServicer,
+	clientFactory func(token string) VideoClient,
+	cfg *VideoFlowConfig,
+) *VideoFlow {
+	if cfg == nil {
+		cfg = &VideoFlowConfig{
+			TimeoutSeconds:      300,
+			PollIntervalSeconds: 5,
+		}
+	}
+	return &VideoFlow{
+		tokenSvc:      tokenSvc,
+		clientFactory: clientFactory,
+		cfg:           cfg,
+	}
+}
+
+// SetUsageRecorder sets the usage recorder for logging API usage.
+func (f *VideoFlow) SetUsageRecorder(ur UsageRecorder) {
+	f.usageLog = ur
+}
+
+// SetCacheService sets the cache service for video download proxy.
+func (f *VideoFlow) SetCacheService(svc *cache.Service) {
+	f.cacheSvc = svc
+}
+
+// SetAppConfig sets app-level defaults for app-chat based video generation.
+func (f *VideoFlow) SetAppConfig(cfg *config.AppConfig) {
+	f.appCfg = cfg
+}
+
+// GenerateSync runs video generation synchronously and returns the final URL.
+func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string, error) {
+	apiKeyID := FlowAPIKeyIDFromContext(ctx)
+	tok, err := f.pickTokenForModel(req.Model)
+	if err != nil {
+		return "", err
+	}
+
+	start := time.Now()
+	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(f.cfg.TimeoutSeconds)*time.Second)
+	defer cancel()
+
+	videoURL, err := f.generateVideoViaChat(timeoutCtx, tok, req)
+	if err != nil {
+		f.reportTokenError(tok.ID, err)
+		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
+		return "", err
+	}
+
+	if _, err := f.tokenSvc.Consume(tok.ID, tkn.CategoryVideo, 1); err != nil {
+		return "", err
+	}
+	f.tokenSvc.ReportSuccess(tok.ID)
+	f.recordUsage(apiKeyID, tok.ID, req.Model, 200, time.Since(start))
+	return videoURL, nil
+}
+
+// reportTokenError reports the appropriate token error based on error type.
+func (f *VideoFlow) reportTokenError(tokenID uint, err error) {
+	if isTransportError(err) {
+		return
+	}
+	reason := truncateReason(err.Error())
+	if ShouldCoolToken(err, nil) {
+		f.tokenSvc.ReportRateLimit(tokenID, reason)
+	} else {
+		f.tokenSvc.ReportError(tokenID, reason)
+	}
+}
+
+// recordUsage records a video API usage log entry via the buffer (non-blocking).
+func (f *VideoFlow) recordUsage(apiKeyID, tokenID uint, model string, status int, latency time.Duration) {
+	if f.usageLog == nil {
+		return
+	}
+	_ = f.usageLog.Record(context.Background(), &store.UsageLog{
+		APIKeyID:    apiKeyID,
+		TokenID:     tokenID,
+		Model:       model,
+		Endpoint:    "video",
+		Status:      status,
+		DurationMs:  latency.Milliseconds(),
+		TTFTMs:      0,
+		CacheTokens: 0,
+		CreatedAt:   time.Now(),
+	})
+}
+
+func (f *VideoFlow) pickTokenForModel(model string) (*store.Token, error) {
+	cfg := f.cfg
+	if cfg != nil && cfg.TokenConfig != nil {
+		primary, fallback, ok := tkn.GetPoolsForModel(model, cfg.TokenConfig)
+		if ok {
+			tok, err := f.tokenSvc.Pick(primary, tkn.CategoryVideo)
+			if err == nil {
+				return tok, nil
+			}
+			if fallback != "" {
+				return f.tokenSvc.Pick(fallback, tkn.CategoryVideo)
+			}
+			return nil, err
+		}
+	}
+	return f.tokenSvc.Pick(tkn.PoolBasic, tkn.CategoryVideo)
+}
+
+func (f *VideoFlow) cacheVideo(ctx context.Context, client VideoClient, videoURL string) string {
+	if f.cacheSvc == nil {
+		return videoURL
+	}
+	videoData, dlErr := client.DownloadURL(ctx, videoURL)
+	if dlErr != nil {
+		slog.Warn("video: download failed, using original URL", "error", dlErr)
+		return videoURL
+	}
+	filename, saveErr := f.cacheSvc.SaveFile("video", videoData, ".mp4")
+	if saveErr != nil {
+		slog.Warn("video: cache save failed, using original URL", "error", saveErr)
+		return videoURL
+	}
+	return "/api/files/video/" + filename
+}
