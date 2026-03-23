@@ -10,16 +10,19 @@ import (
 	"github.com/crmmc/grokforge/web"
 )
 
-// SPAHandler serves static files with SPA fallback for client-side routing.
+// SPAHandler serves the embedded frontend with SPA fallback.
 func SPAHandler() http.Handler {
 	sub, err := fs.Sub(web.StaticFS, "out")
 	if err != nil {
-		// Return a handler that always responds 500 if static assets are missing.
 		return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 			http.Error(w, "static assets unavailable", http.StatusInternalServerError)
 		})
 	}
+	return NewSPAHandler(sub)
+}
 
+// NewSPAHandler serves static files from the given filesystem with SPA fallback for client-side routing.
+func NewSPAHandler(sub fs.FS) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Clean path, remove leading slash
 		p := strings.TrimPrefix(r.URL.Path, "/")

@@ -5,10 +5,21 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
+func testSPAHandler() http.Handler {
+	fs := fstest.MapFS{
+		"index.html":                                    {Data: []byte("<!DOCTYPE html><html><body>app</body></html>")},
+		"404.html":                                      {Data: []byte("<!DOCTYPE html><html><body>404</body></html>")},
+		"tokens/index.html":                             {Data: []byte("<!DOCTYPE html><html><body>tokens</body></html>")},
+		"_next/static/chunks/webpack-4c5ae21e88beec46.js": {Data: []byte("/* chunk */")},
+	}
+	return NewSPAHandler(fs)
+}
+
 func TestSPAHandler_IndexHTML(t *testing.T) {
-	handler := SPAHandler()
+	handler := testSPAHandler()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -26,9 +37,8 @@ func TestSPAHandler_IndexHTML(t *testing.T) {
 }
 
 func TestSPAHandler_StaticFile(t *testing.T) {
-	handler := SPAHandler()
+	handler := testSPAHandler()
 
-	// Test 404.html exists as static file
 	req := httptest.NewRequest(http.MethodGet, "/404.html", nil)
 	rec := httptest.NewRecorder()
 
@@ -40,23 +50,20 @@ func TestSPAHandler_StaticFile(t *testing.T) {
 }
 
 func TestSPAHandler_DirectoryWithIndex(t *testing.T) {
-	handler := SPAHandler()
+	handler := testSPAHandler()
 
-	// Test directory route (Next.js trailingSlash creates dir/index.html)
-	// Request with trailing slash to avoid redirect
 	req := httptest.NewRequest(http.MethodGet, "/tokens/", nil)
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
 
-	// Should serve tokens/index.html
 	if rec.Code != http.StatusOK {
 		t.Errorf("expected status 200 for /tokens/, got %d", rec.Code)
 	}
 }
 
 func TestSPAHandler_CacheHeaders(t *testing.T) {
-	handler := SPAHandler()
+	handler := testSPAHandler()
 
 	// Hashed static asset should get immutable cache header
 	req := httptest.NewRequest(http.MethodGet, "/_next/static/chunks/webpack-4c5ae21e88beec46.js", nil)
@@ -78,10 +85,8 @@ func TestSPAHandler_CacheHeaders(t *testing.T) {
 }
 
 func TestSPAHandler_SPAFallback(t *testing.T) {
-	handler := SPAHandler()
+	handler := testSPAHandler()
 
-	// Non-existent path should fallback to index.html (SPA routing)
-	// Use a path that won't trigger directory redirect
 	req := httptest.NewRequest(http.MethodGet, "/nonexistent-page", nil)
 	rec := httptest.NewRecorder()
 
