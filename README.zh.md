@@ -15,6 +15,18 @@
   <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go" alt="Go Version"></a>
 </p>
 
+<p align="center">
+  <img src="docs/screenshots/dashboard.png" width="800" alt="仪表盘" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/tokens.png" width="400" alt="令牌管理" />&nbsp;
+  <img src="docs/screenshots/apikeys.png" width="400" alt="API 密钥" />
+</p>
+<p align="center">
+  <img src="docs/screenshots/usage.png" width="400" alt="使用统计" />&nbsp;
+  <img src="docs/screenshots/settings.png" width="400" alt="系统设置" />
+</p>
+
 ---
 
 ## 这是什么
