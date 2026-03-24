@@ -45,6 +45,9 @@ Thumbs.db
 coverage.out
 *.test
 
+# Stale build artifacts
+internal/httpapi/static/
+
 # Temp
 tmp/
 *.tmp

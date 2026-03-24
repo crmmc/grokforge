@@ -5,8 +5,6 @@
 [app]
 # Admin password (change this in production!)
 app_key = "grokforge"
-# Static login key for /v1 access (empty = use API Key database)
-loginKey = ""
 # Enable media generation (image/video) endpoints
 media_generation_enabled = true
 # Enable temporary conversation mode

@@ -204,7 +204,6 @@ Admin panel changes take effect immediately without restart.
 | Key | Default | Description |
 |-----|---------|-------------|
 | `app_key` | `""` | Admin password (empty rejects all admin requests) |
-| `loginKey` | `""` | Static login key for `/v1` access (empty uses API Key database) |
 | `port` | `8080` | Server port |
 | `host` | `"0.0.0.0"` | Listen address |
 | `db_driver` | `"sqlite"` | Database driver: `sqlite` / `postgres` |
