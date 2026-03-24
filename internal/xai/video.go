@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 const (
 	MediaPostAPI    = "https://grok.com/rest/media/post/create"
 	VideoUpscaleAPI = "https://grok.com/rest/media/video/upscale"
+	maxPollAttempts = 120
 )
 
 // Response size limits for io.LimitReader.
@@ -182,12 +182,17 @@ func (c *client) VideoUpscale(ctx context.Context, videoID string) (string, erro
 func (c *client) PollUpscale(ctx context.Context, videoID string, interval time.Duration) (string, error) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
+	attempts := 0
 
 	for {
+		if attempts >= maxPollAttempts {
+			return "", fmt.Errorf("video upscale polling exceeded %d attempts", maxPollAttempts)
+		}
 		select {
 		case <-ctx.Done():
 			return "", ctx.Err()
 		case <-ticker.C:
+			attempts++
 			videoURL, err := c.VideoUpscale(ctx, videoID)
 			if err != nil {
 				// Fatal errors: stop polling immediately
@@ -218,52 +223,34 @@ func normalizeAssetURL(rawURL string) string {
 
 // DownloadURL downloads the content at the given URL using the client's session (cookies/proxy).
 func (c *client) DownloadURL(ctx context.Context, rawURL string) ([]byte, error) {
-	rawURL = normalizeAssetURL(rawURL)
-	c.mu.Lock()
-	if c.closed {
-		c.mu.Unlock()
-		return nil, ErrStreamClosed
+	var buf bytes.Buffer
+	if err := c.DownloadTo(ctx, rawURL, &buf); err != nil {
+		return nil, err
 	}
-	httpClient := c.http
-	c.mu.Unlock()
-	if httpClient == nil {
-		return nil, ErrStreamClosed
-	}
+	return buf.Bytes(), nil
+}
 
-	var restoreProxy string
-	restoreNeeded := false
-	if c.opts.AssetProxyURL != "" {
-		currentProxy := httpClient.GetProxy()
-		if currentProxy != c.opts.AssetProxyURL {
-			if err := c.setProxy(c.opts.AssetProxyURL); err != nil {
-				return nil, fmt.Errorf("set asset proxy: %w", err)
-			}
-			restoreProxy = currentProxy
-			restoreNeeded = true
-		}
-	}
-	if restoreNeeded {
-		defer func() {
-			if err := c.setProxy(restoreProxy); err != nil {
-				slog.Warn("failed to restore proxy", "error", err)
-			}
-		}()
-	}
+// DownloadTo streams the asset into w using the dedicated asset client.
+func (c *client) DownloadTo(ctx context.Context, rawURL string, w io.Writer) error {
+	rawURL = normalizeAssetURL(rawURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
+		return fmt.Errorf("create request: %w", err)
 	}
-	resp, err := c.doRequest(req)
+	resp, err := c.doAssetRequest(req)
 	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
+		return fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("download failed: status %d", resp.StatusCode)
+		return fmt.Errorf("download failed: status %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxAssetDownloadSize))
+	written, err := io.Copy(w, io.LimitReader(resp.Body, maxAssetDownloadSize))
 	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
+		return fmt.Errorf("read body: %w", err)
 	}
-	return data, nil
+	if written >= maxAssetDownloadSize {
+		return fmt.Errorf("asset body exceeds %d bytes", maxAssetDownloadSize)
+	}
+	return nil
 }

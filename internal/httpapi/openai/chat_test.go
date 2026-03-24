@@ -3,6 +3,7 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -261,6 +262,10 @@ func (m *chatVideoClientMock) PollUpscale(_ context.Context, _ string, _ time.Du
 }
 func (m *chatVideoClientMock) DownloadURL(_ context.Context, _ string) ([]byte, error) {
 	return nil, nil
+}
+func (m *chatVideoClientMock) DownloadTo(_ context.Context, _ string, w io.Writer) error {
+	_, err := io.WriteString(w, "video-data")
+	return err
 }
 func (m *chatVideoClientMock) UploadFile(_ context.Context, _, _, _ string) (string, string, error) {
 	return "file-1", "generated/ref", nil

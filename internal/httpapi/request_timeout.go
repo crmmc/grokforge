@@ -29,6 +29,19 @@ func requestTimeoutMiddleware(cfg *config.Config) func(http.Handler) http.Handle
 	}
 }
 
+func requestTimeoutRuntimeMiddleware(runtime *config.Runtime) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			timeout := routeTimeout(runtime.Get(), r.Method, r.URL.Path)
+
+			ctx, cancel := context.WithTimeout(r.Context(), timeout)
+			defer cancel()
+
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
 // routeTimeout returns the request timeout for the given route.
 // Chat completions use the configurable proxy.timeout (default 300s);
 // all other routes use the configurable app.request_timeout (default 60s).

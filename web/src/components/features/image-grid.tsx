@@ -26,6 +26,12 @@ export function ImageGrid({ images, className }: ImageGridProps) {
     return ''
   }
 
+  const getImageKey = (image: GeneratedImage, index: number): string => {
+    if (image.url) return image.url
+    if (image.b64_json) return `b64:${image.b64_json.slice(0, 24)}:${image.b64_json.length}`
+    return `image:${index}`
+  }
+
   const handleDownload = async (image: GeneratedImage, index: number) => {
     const src = getImageSrc(image)
     if (!src) return
@@ -131,7 +137,7 @@ export function ImageGrid({ images, className }: ImageGridProps) {
     <>
       <div className={cn('grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4', className)}>
         {images.map((image, index) => (
-          <div key={index} className="group relative aspect-square rounded-lg overflow-hidden bg-[rgba(0,0,0,0.04)]">
+          <div key={getImageKey(image, index)} className="group relative aspect-square rounded-lg overflow-hidden bg-[rgba(0,0,0,0.04)]">
             <button type="button" className="h-full w-full" onClick={() => openLightbox(index)} aria-label={`${t.common.expand} ${t.function.generatedImages} ${index + 1}`}>
               <img
                 src={getImageSrc(image)}

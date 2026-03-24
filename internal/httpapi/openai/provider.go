@@ -13,7 +13,11 @@ import (
 
 // SetupRoutes registers OpenAI-compatible API endpoints on the given router.
 func (h *Handler) SetupRoutes(r chi.Router) {
-	r.Get("/models", HandleModelsFromConfig(h.Cfg))
+	if h.Runtime != nil {
+		r.Get("/models", HandleModelsFromRuntime(h.Runtime))
+	} else {
+		r.Get("/models", HandleModelsFromConfig(h.Cfg))
+	}
 	r.Post("/chat/completions", h.handleChat)
 }
 
@@ -22,7 +26,7 @@ func (h *Handler) handleChat(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	normalized, valErr := normalizeChatRequest(req, h.Cfg)
+	normalized, valErr := normalizeChatRequest(req, h.currentConfig())
 	if valErr != nil {
 		httpapi.WriteError(w, valErr.status, valErr.errType, valErr.code, valErr.message)
 		return
@@ -48,8 +52,8 @@ func (h *Handler) decodeChatRequest(w http.ResponseWriter, r *http.Request) (*Ch
 }
 
 func (h *Handler) validateModel(r *http.Request, model string) *httpapi.APIError {
-	if h.Cfg != nil {
-		if _, ok := token.GetPoolForModel(model, &h.Cfg.Token); !ok {
+	if cfg := h.currentConfig(); cfg != nil {
+		if _, ok := token.GetPoolForModel(model, &cfg.Token); !ok {
 			return httpapi.NewAPIError(http.StatusNotFound, "not_found", "model_not_found",
 				"The model `"+model+"` does not exist")
 		}
@@ -62,7 +66,7 @@ func (h *Handler) validateModel(r *http.Request, model string) *httpapi.APIError
 }
 
 func (h *Handler) handleMediaRoutes(w http.ResponseWriter, r *http.Request, req *ChatRequest) bool {
-	if h.Cfg != nil && !h.Cfg.App.MediaGenerationEnabled && isMediaModel(req.Model) {
+	if cfg := h.currentConfig(); cfg != nil && !cfg.App.MediaGenerationEnabled && isMediaModel(req.Model) {
 		httpapi.WriteError(w, http.StatusForbidden, "forbidden", "media_generation_disabled",
 			"Image and video generation is disabled by the administrator")
 		return true

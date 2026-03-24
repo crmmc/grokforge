@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -28,12 +28,12 @@ func TestUsageLogStore_Record(t *testing.T) {
 	ctx := context.Background()
 
 	log := &UsageLog{
-		TokenID:   1,
-		Model:     "grok-3",
-		Endpoint:  "chat",
-		Status:    200,
-		DurationMs:   150,
-		CreatedAt: time.Now(),
+		TokenID:    1,
+		Model:      "grok-3",
+		Endpoint:   "chat",
+		Status:     200,
+		DurationMs: 150,
+		CreatedAt:  time.Now(),
 	}
 	err := s.Record(ctx, log)
 	require.NoError(t, err)
@@ -113,10 +113,10 @@ func TestUsageLogStore_PeriodUsage_Day(t *testing.T) {
 
 	result, err := s.PeriodUsage(ctx, "day")
 	require.NoError(t, err)
-	assert.Equal(t, 2, result.Requests)          // only status < 400
-	assert.Equal(t, 80, result.TokensInput)       // 50 + 30
-	assert.Equal(t, 160, result.TokensOutput)     // 100 + 60
-	assert.Equal(t, 1, result.Errors)             // status >= 400
+	assert.Equal(t, 2, result.Requests)       // only status < 400
+	assert.Equal(t, 80, result.TokensInput)   // 50 + 30
+	assert.Equal(t, 160, result.TokensOutput) // 100 + 60
+	assert.Equal(t, 1, result.Errors)         // status >= 400
 	assert.Len(t, result.ByModel, 2)
 	assert.Equal(t, 1, result.ByModel["grok-3"].Requests)
 	assert.Equal(t, 1, result.ByModel["grok-3-mini"].Requests)
@@ -158,7 +158,7 @@ func TestUsageLogStore_PeriodUsage_Errors(t *testing.T) {
 
 	result, err := s.PeriodUsage(ctx, "day")
 	require.NoError(t, err)
-	assert.Equal(t, 3, result.Errors) // 400, 429, 500
+	assert.Equal(t, 3, result.Errors)   // 400, 429, 500
 	assert.Equal(t, 1, result.Requests) // only 200
 }
 

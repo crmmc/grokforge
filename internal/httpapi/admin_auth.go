@@ -1,13 +1,50 @@
 package httpapi
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/crmmc/grokforge/internal/config"
 )
 
 const adminCookieName = "gf_session"
 const adminCookieMaxAge = 30 * 24 * 60 * 60 // 30 days
+
+func signAdminSession(appKey string, issuedAt time.Time) string {
+	payload := strconv.FormatInt(issuedAt.UTC().Unix(), 10)
+	mac := hmac.New(sha256.New, []byte(appKey))
+	mac.Write([]byte(payload))
+	sig := base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return payload + "." + sig
+}
+
+func verifyAdminSession(appKey, value string) bool {
+	if strings.TrimSpace(appKey) == "" || strings.TrimSpace(value) == "" {
+		return false
+	}
+	parts := strings.Split(value, ".")
+	if len(parts) != 2 {
+		return false
+	}
+	if _, err := strconv.ParseInt(parts[0], 10, 64); err != nil {
+		return false
+	}
+	expected := signAdminSession(appKey, time.Unix(parseUnix(parts[0]), 0))
+	return subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
+}
+
+func parseUnix(value string) int64 {
+	ts, _ := strconv.ParseInt(value, 10, 64)
+	return ts
+}
 
 // setAdminCookie writes the httpOnly session cookie.
 // Secure flag is set when the request arrives over TLS or behind a TLS-terminating proxy.
@@ -50,8 +87,19 @@ func handleAdminLogin(appKey string) http.HandlerFunc {
 			return
 		}
 
-		setAdminCookie(w, r, req.Key, adminCookieMaxAge)
+		setAdminCookie(w, r, signAdminSession(appKey, time.Now().UTC()), adminCookieMaxAge)
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+func handleAdminLoginRuntime(runtime *config.Runtime) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := runtime.Get()
+		appKey := ""
+		if cfg != nil {
+			appKey = cfg.App.AppKey
+		}
+		handleAdminLogin(appKey).ServeHTTP(w, r)
 	}
 }
 
@@ -62,4 +110,12 @@ func handleAdminLogout() http.HandlerFunc {
 		setAdminCookie(w, r, "", -1)
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
+}
+
+func issueAdminSession(appKey string) string {
+	return signAdminSession(appKey, time.Now().UTC())
+}
+
+func formatSessionPayload(ts int64) string {
+	return fmt.Sprintf("%d", ts)
 }

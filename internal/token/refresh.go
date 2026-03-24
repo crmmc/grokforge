@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
-	"github.com/crmmc/grokforge/internal/store"
 )
 
 const (
@@ -28,14 +27,15 @@ const (
 //   - "upstream": fetches quota from upstream API
 //   - "auto": restores to configured default quotas
 type Scheduler struct {
-	manager  *TokenManager
-	cfg      *config.TokenConfig
-	baseURL  string
-	interval time.Duration
-	sem      chan struct{}
-	wg       sync.WaitGroup
-	stopOnce sync.Once
-	stopped  chan struct{}
+	manager    *TokenManager
+	cfg        *config.TokenConfig
+	configFunc func() *config.TokenConfig
+	baseURL    string
+	interval   time.Duration
+	sem        chan struct{}
+	wg         sync.WaitGroup
+	stopOnce   sync.Once
+	stopped    chan struct{}
 }
 
 // NewScheduler creates a new quota recovery scheduler.
@@ -50,10 +50,17 @@ func NewScheduler(manager *TokenManager, cfg *config.TokenConfig, baseURL string
 	}
 }
 
+// SetConfigProvider sets a dynamic token config provider.
+func (s *Scheduler) SetConfigProvider(fn func() *config.TokenConfig) {
+	s.configFunc = fn
+}
+
 // Start begins the periodic refresh loop.
 func (s *Scheduler) Start(ctx context.Context) {
 	s.wg.Add(1)
-	go s.run(ctx)
+	safeGo("token_refresh_scheduler", func() {
+		s.run(ctx)
+	})
 }
 
 // Stop waits for all refresh operations to complete.
@@ -93,7 +100,7 @@ func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 	tokens := s.manager.GetCoolingTokens()
 	now := time.Now()
 
-	var toRefresh []*store.Token
+	var toRefresh []TokenSnapshot
 	for _, t := range tokens {
 		if t.CoolUntil != nil && t.CoolUntil.Before(now) {
 			toRefresh = append(toRefresh, t)
@@ -104,7 +111,7 @@ func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 		return
 	}
 
-	mode := s.cfg.QuotaRecoveryMode
+	mode := s.currentConfig().QuotaRecoveryMode
 	if mode == "" {
 		mode = RecoveryModeAuto
 	}
@@ -119,25 +126,30 @@ func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 		case <-s.stopped:
 			return
 		case s.sem <- struct{}{}:
+			tokenSnapshot := token
 			wg.Add(1)
-			go func(t *store.Token) {
+			safeGo("token_refresh_token", func() {
 				defer wg.Done()
 				defer func() { <-s.sem }()
 				switch mode {
 				case RecoveryModeUpstream:
-					s.refreshToken(ctx, t)
+					s.refreshToken(ctx, tokenSnapshot)
 				default: // auto
-					s.autoRestoreToken(t)
+					s.autoRestoreToken(tokenSnapshot)
 				}
-			}(token)
+			})
 		}
 	}
 	wg.Wait()
 }
 
 // refreshToken syncs quota for a single token from upstream API.
-func (s *Scheduler) refreshToken(ctx context.Context, token *store.Token) {
-	if err := s.manager.SyncQuota(ctx, token, s.baseURL); err != nil {
+func (s *Scheduler) refreshToken(ctx context.Context, token TokenSnapshot) {
+	storeToken := s.manager.GetToken(token.ID)
+	if storeToken == nil {
+		return
+	}
+	if err := s.manager.SyncQuota(ctx, storeToken, s.baseURL); err != nil {
 		slog.Warn("failed to refresh token quota",
 			"token_id", token.ID,
 			"error", err,
@@ -149,10 +161,11 @@ func (s *Scheduler) refreshToken(ctx context.Context, token *store.Token) {
 }
 
 // autoRestoreToken restores a single token to configured default quotas.
-func (s *Scheduler) autoRestoreToken(t *store.Token) {
-	chatQ := s.cfg.DefaultChatQuota
-	imageQ := s.cfg.DefaultImageQuota
-	videoQ := s.cfg.DefaultVideoQuota
+func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
+	cfg := s.currentConfig()
+	chatQ := cfg.DefaultChatQuota
+	imageQ := cfg.DefaultImageQuota
+	videoQ := cfg.DefaultVideoQuota
 	if chatQ <= 0 {
 		chatQ = 50
 	}
@@ -166,4 +179,11 @@ func (s *Scheduler) autoRestoreToken(t *store.Token) {
 	s.manager.RestoreToken(t.ID, chatQ, imageQ, videoQ)
 	slog.Debug("auto-restored token quota",
 		"token_id", t.ID, "chat", chatQ, "image", imageQ, "video", videoQ)
+}
+
+func (s *Scheduler) currentConfig() *config.TokenConfig {
+	if s.configFunc != nil {
+		return s.configFunc()
+	}
+	return s.cfg
 }

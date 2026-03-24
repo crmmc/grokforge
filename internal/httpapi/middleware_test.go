@@ -111,7 +111,7 @@ func TestAppKeyAuth_ValidCookie(t *testing.T) {
 	}))
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
-	req.AddCookie(&http.Cookie{Name: "gf_session", Value: "test-app-key"})
+	req.AddCookie(&http.Cookie{Name: "gf_session", Value: signAdminSession("test-app-key", time.Now().UTC())})
 	rec := httptest.NewRecorder()
 
 	handler.ServeHTTP(rec, req)
@@ -441,5 +441,35 @@ func TestAdminRateLimit_DisabledWhenZero(t *testing.T) {
 		if rec.Code != 401 {
 			t.Fatalf("request %d: expected 401, got %d", i, rec.Code)
 		}
+	}
+}
+
+func TestAdminRateLimitRuntime_PersistsFailuresAcrossRequests(t *testing.T) {
+	runtime := config.NewRuntime(&config.Config{
+		App: config.AppConfig{
+			AdminMaxFails:  2,
+			AdminWindowSec: 60,
+		},
+	})
+	handler := AdminRateLimitRuntime(runtime)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+	}))
+
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("request %d: expected 401, got %d", i+1, rec.Code)
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected runtime rate limit to persist, got %d", rec.Code)
 	}
 }

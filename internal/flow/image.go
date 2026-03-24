@@ -118,9 +118,9 @@ type ImageFlow struct {
 	clientFactory     ImagineClientFactory
 	editClientFactory ImageEditClientFactory
 	usageLog          UsageRecorder
-	tokenCfg          *config.TokenConfig
-	appCfg            *config.AppConfig
-	imageCfg          *config.ImageConfig
+	tokenConfigFn     func() *config.TokenConfig
+	appConfigFn       func() *config.AppConfig
+	imageConfigFn     func() *config.ImageConfig
 }
 
 // NewImageFlow creates a new image flow with per-request token selection.
@@ -138,7 +138,12 @@ func (f *ImageFlow) SetUsageRecorder(ur UsageRecorder) {
 
 // SetTokenConfig sets model-to-pool mapping config for token selection.
 func (f *ImageFlow) SetTokenConfig(cfg *config.TokenConfig) {
-	f.tokenCfg = cfg
+	f.tokenConfigFn = func() *config.TokenConfig { return cfg }
+}
+
+// SetTokenConfigProvider sets a dynamic token config provider.
+func (f *ImageFlow) SetTokenConfigProvider(fn func() *config.TokenConfig) {
+	f.tokenConfigFn = fn
 }
 
 // SetEditClientFactory sets the app-chat client factory used by image edits.
@@ -148,12 +153,22 @@ func (f *ImageFlow) SetEditClientFactory(factory ImageEditClientFactory) {
 
 // SetAppConfig sets app-level defaults for app-chat based image edits.
 func (f *ImageFlow) SetAppConfig(cfg *config.AppConfig) {
-	f.appCfg = cfg
+	f.appConfigFn = func() *config.AppConfig { return cfg }
+}
+
+// SetAppConfigProvider sets a dynamic app config provider.
+func (f *ImageFlow) SetAppConfigProvider(fn func() *config.AppConfig) {
+	f.appConfigFn = fn
 }
 
 // SetImageConfig sets image-generation defaults and retry behavior.
 func (f *ImageFlow) SetImageConfig(cfg *config.ImageConfig) {
-	f.imageCfg = cfg
+	f.imageConfigFn = func() *config.ImageConfig { return cfg }
+}
+
+// SetImageConfigProvider sets a dynamic image config provider.
+func (f *ImageFlow) SetImageConfigProvider(fn func() *config.ImageConfig) {
+	f.imageConfigFn = fn
 }
 
 // Generate generates images based on the request.
@@ -174,7 +189,7 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 
 	// Generate N images (consume quota per image, only after success)
 	images := make([]ImageData, 0, req.N)
-	enableNSFW := resolveEnableNSFW(req.EnableNSFW, f.imageCfg)
+	enableNSFW := resolveEnableNSFW(req.EnableNSFW, f.imageConfig())
 	usedTokenIDs := make(map[uint]struct{})
 	for i := 0; i < req.N; i++ {
 		result, err := f.generateWithRecovery(ctx, req.Model, tok, req.Prompt, aspectRatio, enableNSFW)
@@ -229,8 +244,8 @@ func (f *ImageFlow) pickTokenForModel(model string) (*store.Token, error) {
 }
 
 func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]struct{}) (*store.Token, error) {
-	if f.tokenCfg != nil {
-		primary, fallback, ok := tkn.GetPoolsForModel(model, f.tokenCfg)
+	if tokenCfg := f.tokenConfig(); tokenCfg != nil {
+		primary, fallback, ok := tkn.GetPoolsForModel(model, tokenCfg)
 		if ok {
 			tok, err := f.tokenSvc.PickExcluding(primary, tkn.CategoryImage, exclude)
 			if err == nil {
@@ -243,4 +258,25 @@ func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]st
 		}
 	}
 	return f.tokenSvc.PickExcluding(tkn.PoolBasic, tkn.CategoryImage, exclude)
+}
+
+func (f *ImageFlow) tokenConfig() *config.TokenConfig {
+	if f.tokenConfigFn == nil {
+		return nil
+	}
+	return f.tokenConfigFn()
+}
+
+func (f *ImageFlow) appConfig() *config.AppConfig {
+	if f.appConfigFn == nil {
+		return nil
+	}
+	return f.appConfigFn()
+}
+
+func (f *ImageFlow) imageConfig() *config.ImageConfig {
+	if f.imageConfigFn == nil {
+		return nil
+	}
+	return f.imageConfigFn()
 }

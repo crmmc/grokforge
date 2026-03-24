@@ -46,11 +46,10 @@ func (s *SSEWriter) WriteSSEDone() {
 	}
 }
 
-// WriteSSEError writes an error event followed by [DONE].
-// Format: event: error\ndata: {error json}\n\ndata: [DONE]\n\n
+// WriteSSEError writes an OpenAI-compatible error payload followed by [DONE].
 func (s *SSEWriter) WriteSSEError(apiErr *APIError) {
 	bytes, _ := json.Marshal(apiErr)
-	fmt.Fprintf(s.w, "event: error\ndata: %s\n\n", bytes)
+	fmt.Fprintf(s.w, "data: %s\n\n", bytes)
 	if s.flusher != nil {
 		s.flusher.Flush()
 	}

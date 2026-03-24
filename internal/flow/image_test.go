@@ -237,9 +237,10 @@ func TestImageFlow_Generate_BlockedRecoverySuccess(t *testing.T) {
 			return ch, nil
 		})
 	})
+	enabled := true
 	flow.SetImageConfig(&config.ImageConfig{
 		BlockedParallelAttempts: 1,
-		BlockedParallelEnabled:  true,
+		BlockedParallelEnabled:  &enabled,
 	})
 
 	resp, err := flow.Generate(context.Background(), &ImageRequest{
@@ -671,9 +672,10 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 			return ch, nil
 		})
 	})
+	enabled := true
 	flow.SetImageConfig(&config.ImageConfig{
 		BlockedParallelAttempts: 1,
-		BlockedParallelEnabled:  true,
+		BlockedParallelEnabled:  &enabled,
 	})
 
 	resp, err := flow.Generate(context.Background(), &ImageRequest{

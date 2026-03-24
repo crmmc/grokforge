@@ -42,6 +42,23 @@ type APIKeyCreateResponse struct {
 	Name string `json:"name"`
 }
 
+// APIKeyResponse is the masked API key view returned by read endpoints.
+type APIKeyResponse struct {
+	ID             uint              `json:"id"`
+	Key            string            `json:"key"`
+	Name           string            `json:"name"`
+	Status         string            `json:"status"`
+	ModelWhitelist store.StringSlice `json:"model_whitelist"`
+	RateLimit      int               `json:"rate_limit"`
+	DailyLimit     int               `json:"daily_limit"`
+	DailyUsed      int               `json:"daily_used"`
+	TotalUsed      int               `json:"total_used"`
+	LastUsedAt     *time.Time        `json:"last_used_at"`
+	ExpiresAt      *time.Time        `json:"expires_at"`
+	CreatedAt      time.Time         `json:"created_at"`
+	UpdatedAt      time.Time         `json:"updated_at"`
+}
+
 // APIKeyCreateRequest is the request body for creating an API key.
 type APIKeyCreateRequest struct {
 	Name           string            `json:"name"`
@@ -98,8 +115,13 @@ func handleListAPIKeys(aks APIKeyStoreInterface) http.HandlerFunc {
 			totalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
 		}
 
+		respKeys := make([]APIKeyResponse, 0, len(keys))
+		for _, key := range keys {
+			respKeys = append(respKeys, toAPIKeyResponse(key))
+		}
+
 		WriteJSON(w, http.StatusOK, PaginatedResponse{
-			Data:       keys,
+			Data:       respKeys,
 			Total:      total,
 			Page:       page,
 			PageSize:   pageSize,
@@ -127,7 +149,7 @@ func handleGetAPIKey(aks APIKeyStoreInterface) http.HandlerFunc {
 			return
 		}
 
-		WriteJSON(w, http.StatusOK, ak)
+		WriteJSON(w, http.StatusOK, toAPIKeyResponse(ak))
 	}
 }
 
@@ -231,7 +253,7 @@ func handleUpdateAPIKey(aks APIKeyStoreInterface) http.HandlerFunc {
 			return
 		}
 
-		WriteJSON(w, http.StatusOK, ak)
+		WriteJSON(w, http.StatusOK, toAPIKeyResponse(ak))
 	}
 }
 
@@ -313,4 +335,29 @@ func parseIDParam(r *http.Request) (uint, error) {
 		return 0, err
 	}
 	return uint(id), nil
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "..." + key[len(key)-4:]
+}
+
+func toAPIKeyResponse(ak *store.APIKey) APIKeyResponse {
+	return APIKeyResponse{
+		ID:             ak.ID,
+		Key:            maskKey(ak.Key),
+		Name:           ak.Name,
+		Status:         ak.Status,
+		ModelWhitelist: ak.ModelWhitelist,
+		RateLimit:      ak.RateLimit,
+		DailyLimit:     ak.DailyLimit,
+		DailyUsed:      ak.DailyUsed,
+		TotalUsed:      ak.TotalUsed,
+		LastUsedAt:     ak.LastUsedAt,
+		ExpiresAt:      ak.ExpiresAt,
+		CreatedAt:      ak.CreatedAt,
+		UpdatedAt:      ak.UpdatedAt,
+	}
 }

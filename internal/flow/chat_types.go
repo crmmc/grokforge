@@ -45,12 +45,18 @@ type ChatFlowConfig struct {
 	// When set, executeWithRetry calls this on every invocation instead of
 	// using the embedded RetryConfig.
 	RetryConfigProvider func() *RetryConfig
-	// TokenConfig provides model-to-pool mapping configuration.
+	// TokenConfig provides static model-to-pool mapping configuration.
 	TokenConfig *config.TokenConfig
-	// AppConfig provides Grok-specific parameters (temporary, custom_instruction, etc.).
+	// TokenConfigProvider provides model-to-pool mapping configuration.
+	TokenConfigProvider func() *config.TokenConfig
+	// AppConfig provides static Grok-specific parameters.
 	AppConfig *config.AppConfig
-	// FilterTags lists HTML-like tags to strip from streamed tokens (e.g. "xaiartifact").
+	// AppConfigProvider provides Grok-specific parameters.
+	AppConfigProvider func() *config.AppConfig
+	// FilterTags lists static HTML-like tags to strip from streamed tokens.
 	FilterTags []string
+	// FilterTagsProvider provides HTML-like tags to strip from streamed tokens.
+	FilterTagsProvider func() []string
 }
 
 // DefaultChatFlowConfig returns default chat flow configuration.

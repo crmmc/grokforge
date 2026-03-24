@@ -10,6 +10,7 @@ export const tokenKeys = {
   all: ['tokens'] as const,
   lists: () => [...tokenKeys.all, 'list'] as const,
   list: (params: { page?: number; page_size?: number; status?: string; nsfw?: boolean }) => [...tokenKeys.lists(), params] as const,
+  idsByStatus: (status: string | null) => [...tokenKeys.all, 'ids', status] as const,
   details: () => [...tokenKeys.all, 'detail'] as const,
   detail: (id: number) => [...tokenKeys.details(), id] as const,
   stats: () => [...tokenKeys.all, 'stats'] as const,
@@ -109,9 +110,10 @@ export function useRefreshToken() {
   })
 }
 
-export function useTokenIdsByStatus() {
-  return useMutation({
-    mutationFn: (status: string) =>
-      api.get<{ ids: number[] }>('/tokens/ids', { status }),
+export function useTokenIdsByStatus(status: string | null) {
+  return useQuery({
+    queryKey: tokenKeys.idsByStatus(status),
+    queryFn: () => api.get<{ ids: number[] }>('/tokens/ids', status ? { status } : {}),
+    enabled: status !== null,
   })
 }

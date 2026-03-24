@@ -28,7 +28,8 @@ func TestHandleAdminLogin_Success(t *testing.T) {
 	require.Len(t, cookies, 1)
 	c := cookies[0]
 	assert.Equal(t, "gf_session", c.Name)
-	assert.Equal(t, "my-secret-key", c.Value)
+	assert.NotEqual(t, "my-secret-key", c.Value)
+	assert.True(t, verifyAdminSession("my-secret-key", c.Value))
 	assert.Equal(t, "/admin", c.Path)
 	assert.True(t, c.HttpOnly)
 	assert.Equal(t, http.SameSiteLaxMode, c.SameSite)

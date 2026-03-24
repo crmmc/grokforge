@@ -3,7 +3,6 @@ package flow
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"time"
 
@@ -44,6 +43,7 @@ func (f *ChatFlow) SetUsageRecorder(ur UsageRecorder) {
 func (f *ChatFlow) SetAPIKeyUsageInc(fn func(ctx context.Context, apiKeyID uint)) {
 	f.apiKeyUsageInc = fn
 }
+
 // SetCFRefreshTrigger sets a callback invoked on 403 to trigger immediate CF cookie refresh.
 func (f *ChatFlow) SetCFRefreshTrigger(fn func()) {
 	f.cfRefreshTrigger = fn
@@ -68,10 +68,7 @@ func MapReasoningEffort(effort string) (grokThinking string, enabled bool) {
 // Complete executes a chat completion with retry logic.
 // Returns a channel of StreamEvents. The channel is closed when done.
 func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	var tokenCfg *config.TokenConfig
-	if f.cfg != nil {
-		tokenCfg = f.cfg.TokenConfig
-	}
+	tokenCfg := f.tokenConfig()
 	if tokenCfg == nil {
 		tokenCfg = &config.TokenConfig{}
 	}
@@ -89,7 +86,9 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 		"has_tools", len(req.Tools) > 0)
 	outCh := make(chan StreamEvent, 64)
 
-	go f.executeWithRetry(ctx, req, pool, fallback, outCh)
+	SafeGo("chat_execute_with_retry", func() {
+		f.executeWithRetry(ctx, req, pool, fallback, outCh)
+	})
 
 	return outCh, nil
 }
@@ -190,17 +189,25 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 				lastErr = ErrRetryBudgetExceeded
 				break
 			}
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				outCh <- StreamEvent{Error: ctx.Err()}
 				return
-			case <-time.After(delay):
-				continue
+			case <-timer.C:
 			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			continue
 		}
 
 		// Stream events
-		success, usage, estimated, ttft, streamErr := f.streamEvents(ctx, eventCh, outCh, client.DownloadURL)
+		success, usage, estimated, ttft, streamErr := f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
 		if success {
 			// Estimate prompt tokens from request messages if not set by upstream.
 			if usage != nil && usage.PromptTokens == 0 {
@@ -210,7 +217,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 			}
 			f.tokenSvc.ReportSuccess(currentToken.ID)
 			// Deduct quota only on success
-			cost := tkn.CostForModel(req.Model, f.cfg.TokenConfig)
+			cost := tkn.CostForModel(req.Model, f.tokenConfig())
 			if _, err := f.tokenSvc.Consume(currentToken.ID, tkn.CategoryChat, cost); err != nil {
 				slog.Warn("flow: chat quota consume failed", "token_id", currentToken.ID, "error", err)
 			}
@@ -247,6 +254,36 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 		lastErr = errors.New("all retries exhausted")
 	}
 	outCh <- StreamEvent{Error: lastErr}
+}
+
+func (f *ChatFlow) tokenConfig() *config.TokenConfig {
+	if f.cfg == nil {
+		return nil
+	}
+	if f.cfg.TokenConfigProvider != nil {
+		return f.cfg.TokenConfigProvider()
+	}
+	return f.cfg.TokenConfig
+}
+
+func (f *ChatFlow) appConfig() *config.AppConfig {
+	if f.cfg == nil {
+		return nil
+	}
+	if f.cfg.AppConfigProvider != nil {
+		return f.cfg.AppConfigProvider()
+	}
+	return f.cfg.AppConfig
+}
+
+func (f *ChatFlow) filterTags() []string {
+	if f.cfg == nil {
+		return nil
+	}
+	if f.cfg.FilterTagsProvider != nil {
+		return f.cfg.FilterTagsProvider()
+	}
+	return f.cfg.FilterTags
 }
 
 func (f *ChatFlow) handleError(tokenID uint, err error, cfg *RetryConfig) {
@@ -292,12 +329,14 @@ func (f *ChatFlow) resetSessionIfNeeded(err error, cfg *RetryConfig, client xai.
 	}
 	// Trigger CF refresh only on CF challenge (not token-level 403).
 	if errors.Is(err, xai.ErrCFChallenge) && f.cfRefreshTrigger != nil {
-		go f.cfRefreshTrigger()
+		SafeGo("chat_cf_refresh_trigger", func() {
+			f.cfRefreshTrigger()
+		})
 	}
 	slog.Debug("flow: resetting session due to error", "error", err)
 	if resetErr := client.ResetSession(); resetErr != nil {
-		slog.Debug("flow: session reset failed", "error", resetErr)
-		return fmt.Errorf("reset session: %w", resetErr)
+		slog.Warn("flow: session reset failed", "error", resetErr)
+		return nil
 	}
 	slog.Debug("flow: session reset successful")
 	return nil

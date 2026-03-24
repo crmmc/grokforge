@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"sync"
@@ -148,6 +149,10 @@ func (m *mockXAIClient) PollUpscale(ctx context.Context, videoID string, interva
 func (m *mockXAIClient) DownloadURL(ctx context.Context, url string) ([]byte, error) {
 	return nil, nil
 }
+func (m *mockXAIClient) DownloadTo(ctx context.Context, url string, w io.Writer) error {
+	_, err := io.WriteString(w, "mock-download")
+	return err
+}
 func (m *mockXAIClient) UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error) {
 	return "file-1", "https://assets.grok.com/file-1", nil
 }
@@ -244,7 +249,7 @@ func TestChatFlow_RetryOnRateLimit(t *testing.T) {
 	}
 
 	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:      6,
+		MaxTokens:       6,
 		PerTokenRetries: 2,
 		BaseDelay:       time.Millisecond, // fast for tests
 		MaxDelay:        10 * time.Millisecond,
@@ -302,7 +307,7 @@ func TestChatFlow_TokenRotation(t *testing.T) {
 	}
 
 	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:      6,
+		MaxTokens:       6,
 		PerTokenRetries: 2,
 		BaseDelay:       time.Millisecond,
 		MaxDelay:        10 * time.Millisecond,
@@ -656,7 +661,7 @@ func TestChatFlow_HotReload(t *testing.T) {
 	currentPerToken := 1
 	cfg := &ChatFlowConfig{
 		RetryConfig: &RetryConfig{
-			MaxTokens:      6, // fallback, should not be used
+			MaxTokens:       6, // fallback, should not be used
 			PerTokenRetries: 2,
 			BaseDelay:       time.Millisecond,
 			MaxDelay:        10 * time.Millisecond,
@@ -664,7 +669,7 @@ func TestChatFlow_HotReload(t *testing.T) {
 		},
 		RetryConfigProvider: func() *RetryConfig {
 			return &RetryConfig{
-				MaxTokens:      currentMax,
+				MaxTokens:       currentMax,
 				PerTokenRetries: currentPerToken,
 				BaseDelay:       time.Millisecond,
 				MaxDelay:        10 * time.Millisecond,
@@ -826,22 +831,21 @@ func TestChatFlow_ParseEvent_FilterTags(t *testing.T) {
 	}}
 
 	tests := []struct {
-		name    string
-		token   string
-		wantOut string
+		name  string
+		token string
 	}{
-		{"normal", "hello", "hello"},
-		{"xaiartifact open", "<xaiartifact>code</xaiartifact>", ""},
-		{"grok:render", "<grok:render>stuff", ""},
-		{"clean token", "no tags here", "no tags here"},
+		{"normal", "hello"},
+		{"xaiartifact open", "<xaiartifact>code</xaiartifact>"},
+		{"grok:render", "<grok:render>stuff"},
+		{"clean token", "no tags here"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			data := fmt.Sprintf(`{"result":{"response":{"token":%s,"isThinking":false}}}`, strconv.Quote(tt.token))
 			got := f.parseEvent(xai.StreamEvent{Data: json.RawMessage(data)})
-			if got.Content != tt.wantOut {
-				t.Errorf("Content = %q, want %q", got.Content, tt.wantOut)
+			if got.Content != tt.token {
+				t.Errorf("Content = %q, want raw token %q", got.Content, tt.token)
 			}
 		})
 	}

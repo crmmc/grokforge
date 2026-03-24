@@ -11,4 +11,15 @@ type Handler struct {
 	VideoFlow *flow.VideoFlow
 	ImageFlow *flow.ImageFlow
 	Cfg       *config.Config
+	Runtime   *config.Runtime
+}
+
+func (h *Handler) currentConfig() *config.Config {
+	if h == nil {
+		return nil
+	}
+	if h.Runtime != nil {
+		return h.Runtime.Get()
+	}
+	return h.Cfg
 }

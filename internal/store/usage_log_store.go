@@ -67,7 +67,7 @@ func (s *UsageLogStore) TodayCountByEndpoint(ctx context.Context) (map[string]in
 // HourlyBreakdown returns usage counts grouped by hour and endpoint for the past N hours.
 // Uses CASE expression to support both SQLite (substr) and PostgreSQL (to_char).
 func (s *UsageLogStore) HourlyBreakdown(ctx context.Context, hours int) ([]HourlyUsage, error) {
-	since := time.Now().Add(-time.Duration(hours) * time.Hour)
+	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 
 	// Detect dialect: PostgreSQL uses to_char, SQLite uses strftime
 	hourExpr := "substr(created_at, 12, 2)"
@@ -133,13 +133,13 @@ type APIKeyUsage struct {
 
 // UsagePeriodResult holds aggregated usage stats for a time period.
 type UsagePeriodResult struct {
-	Requests     int                  `json:"requests"`
-	TokensInput  int                  `json:"tokens_input"`
-	TokensOutput int                  `json:"tokens_output"`
-	CacheTokens  int                  `json:"cache_tokens"`
-	Errors       int                  `json:"errors"`
+	Requests     int                   `json:"requests"`
+	TokensInput  int                   `json:"tokens_input"`
+	TokensOutput int                   `json:"tokens_output"`
+	CacheTokens  int                   `json:"cache_tokens"`
+	Errors       int                   `json:"errors"`
 	ByModel      map[string]ModelUsage `json:"by_model"`
-	ByAPIKey     []APIKeyUsage        `json:"by_api_key"`
+	ByAPIKey     []APIKeyUsage         `json:"by_api_key"`
 }
 
 // periodToSince converts a period string to a since timestamp.

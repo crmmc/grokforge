@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 )
 
 // streamResponse reads newline-delimited JSON from body and sends events to channel.
@@ -14,13 +15,28 @@ func streamResponse(ctx context.Context, body io.ReadCloser) <-chan StreamEvent 
 	ch := make(chan StreamEvent, 16)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("stream goroutine panic recovered", "panic", r)
+			}
+		}()
 		defer close(ch)
 		defer body.Close()
+		doneCh := make(chan struct{})
+		defer close(doneCh)
 
 		// Close body when context is cancelled to unblock scanner
 		go func() {
-			<-ctx.Done()
-			body.Close()
+			defer func() {
+				if r := recover(); r != nil {
+					slog.Error("stream cancel watcher panic recovered", "panic", r)
+				}
+			}()
+			select {
+			case <-ctx.Done():
+				body.Close()
+			case <-doneCh:
+			}
 		}()
 
 		scanner := bufio.NewScanner(body)

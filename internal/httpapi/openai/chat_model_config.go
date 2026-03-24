@@ -157,20 +157,21 @@ func (h *Handler) applyImagineFastConfig(cfg *resolvedChatImageConfig) {
 		return
 	}
 	defaults := config.DefaultConfig()
-	if h == nil || h.Cfg == nil {
+	cfgSnapshot := h.currentConfig()
+	if h == nil || cfgSnapshot == nil {
 		cfg.n = defaults.ImagineFast.N
 		cfg.size = defaults.ImagineFast.Size
 		cfg.responseFormat = defaultImageFormat
 		return
 	}
 
-	if h.Cfg.ImagineFast.N > 0 {
-		cfg.n = h.Cfg.ImagineFast.N
+	if cfgSnapshot.ImagineFast.N > 0 {
+		cfg.n = cfgSnapshot.ImagineFast.N
 	} else {
 		cfg.n = defaults.ImagineFast.N
 	}
-	if strings.TrimSpace(h.Cfg.ImagineFast.Size) != "" {
-		cfg.size = h.Cfg.ImagineFast.Size
+	if strings.TrimSpace(cfgSnapshot.ImagineFast.Size) != "" {
+		cfg.size = cfgSnapshot.ImagineFast.Size
 	} else {
 		cfg.size = defaults.ImagineFast.Size
 	}

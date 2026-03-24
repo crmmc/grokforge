@@ -75,7 +75,7 @@ func (f *ChatFlow) buildXAIRequest(ctx context.Context, req *ChatRequest, client
 	}
 
 	// Populate Grok-specific params from app config
-	if appCfg := f.cfg.AppConfig; appCfg != nil {
+	if appCfg := f.appConfig(); appCfg != nil {
 		xaiReq.Temporary = appCfg.Temporary
 		xaiReq.CustomInstruction = appCfg.CustomInstruction
 		xaiReq.DisableMemory = appCfg.DisableMemory

@@ -9,6 +9,8 @@ import (
 	"github.com/crmmc/grokforge/internal/store"
 )
 
+const maxUsageBufferSize = 10000
+
 // UsageLogBatchInserter defines the interface for batch-inserting usage logs.
 type UsageLogBatchInserter interface {
 	BatchInsert(ctx context.Context, logs []*store.UsageLog) error
@@ -37,6 +39,10 @@ func NewUsageBuffer(s UsageLogBatchInserter, interval time.Duration) *UsageBuffe
 // Record appends a usage log to the in-memory buffer (non-blocking).
 func (b *UsageBuffer) Record(_ context.Context, log *store.UsageLog) error {
 	b.mu.Lock()
+	if len(b.buf) >= maxUsageBufferSize {
+		b.buf = append([]*store.UsageLog(nil), b.buf[1:]...)
+		slog.Error("usage buffer full, dropping oldest record", "max_size", maxUsageBufferSize)
+	}
 	b.buf = append(b.buf, log)
 	b.mu.Unlock()
 	return nil
@@ -86,6 +92,11 @@ func (b *UsageBuffer) flush() {
 		// Re-add failed records to front of buffer for next attempt
 		b.mu.Lock()
 		b.buf = append(records, b.buf...)
+		if len(b.buf) > maxUsageBufferSize {
+			dropped := len(b.buf) - maxUsageBufferSize
+			b.buf = b.buf[dropped:]
+			slog.Error("usage buffer overflow after requeue, dropping oldest records", "dropped", dropped, "max_size", maxUsageBufferSize)
+		}
 		b.mu.Unlock()
 		return
 	}

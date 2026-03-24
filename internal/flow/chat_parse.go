@@ -45,19 +45,6 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 		slog.Debug("flow: thinking token received", "len", len(token))
 	}
 
-	if f.cfg != nil && len(f.cfg.FilterTags) > 0 && token != "" {
-		for _, tag := range f.cfg.FilterTags {
-			normalized := strings.TrimSpace(tag)
-			if normalized == "" || normalized == toolUsageCardTag {
-				continue
-			}
-			if strings.Contains(token, "<"+normalized) || strings.Contains(token, "</"+normalized) {
-				token = ""
-				break
-			}
-		}
-	}
-
 	var content, reasoning string
 
 	// Route token based on isThinking flag
@@ -97,15 +84,12 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 	}
 
 	// Parse tool calls from response content
-	remainingText, toolCalls := ParseToolCalls(content)
-
 	return StreamEvent{
-		Content:          remainingText,
+		Content:          content,
 		ReasoningContent: reasoning,
 		IsThinking:       resp.IsThinking,
 		RolloutID:        strings.TrimSpace(resp.RolloutID),
 		Usage:            extractUsage(event.Data),
-		ToolCalls:        toolCalls,
 	}
 }
 

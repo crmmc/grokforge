@@ -20,7 +20,7 @@ const (
 
 // Scheduler periodically refreshes CF clearance via FlareSolverr.
 type Scheduler struct {
-	cfg         *config.Config
+	runtime     *config.Runtime
 	configStore *store.ConfigStore
 	stopOnce    sync.Once
 	stopped     chan struct{}
@@ -30,9 +30,9 @@ type Scheduler struct {
 }
 
 // NewScheduler creates a CF refresh scheduler.
-func NewScheduler(cfg *config.Config, configStore *store.ConfigStore) *Scheduler {
+func NewScheduler(runtime *config.Runtime, configStore *store.ConfigStore) *Scheduler {
 	return &Scheduler{
-		cfg:         cfg,
+		runtime:     runtime,
 		configStore: configStore,
 		stopped:     make(chan struct{}),
 		done:        make(chan struct{}),
@@ -80,7 +80,7 @@ func (s *Scheduler) run() {
 	// Immediate first refresh if enabled (matches Python behavior).
 	if s.isEnabled() {
 		logging.Info("cf_refresh: performing initial refresh",
-			"flaresolverr_url", s.cfg.Proxy.FlareSolverrURL)
+			"flaresolverr_url", s.runtime.Get().Proxy.FlareSolverrURL)
 		s.refreshOnce()
 	} else {
 		logging.Info("cf_refresh: disabled or FlareSolverr URL not set, skipping")
@@ -112,9 +112,10 @@ func (s *Scheduler) run() {
 }
 
 func (s *Scheduler) refreshOnce() {
-	flareURL := s.cfg.Proxy.FlareSolverrURL
+	cfg := s.runtime.Get()
+	flareURL := cfg.Proxy.FlareSolverrURL
 	timeout := s.getTimeout()
-	proxyURL := s.cfg.Proxy.BaseProxyURL
+	proxyURL := cfg.Proxy.BaseProxyURL
 
 	logging.Info("cf_refresh: refreshing cf_clearance...",
 		"flaresolverr_url", flareURL, "timeout", timeout)
@@ -126,14 +127,17 @@ func (s *Scheduler) refreshOnce() {
 	}
 
 	// Update runtime config.
-	s.cfg.Proxy.CFCookies = result.Cookies
-	s.cfg.Proxy.CFClearance = result.CFClearance
-	if result.UserAgent != "" {
-		s.cfg.Proxy.UserAgent = result.UserAgent
-	}
-	if result.Browser != "" {
-		s.cfg.Proxy.Browser = result.Browser
-	}
+	_ = s.runtime.Update(func(cfg *config.Config) error {
+		cfg.Proxy.CFCookies = result.Cookies
+		cfg.Proxy.CFClearance = result.CFClearance
+		if result.UserAgent != "" {
+			cfg.Proxy.UserAgent = result.UserAgent
+		}
+		if result.Browser != "" {
+			cfg.Proxy.Browser = result.Browser
+		}
+		return nil
+	})
 
 	// Record last successful refresh time.
 	s.lastRefresh.Store(time.Now().Unix())
@@ -159,11 +163,12 @@ func (s *Scheduler) refreshOnce() {
 }
 
 func (s *Scheduler) isEnabled() bool {
-	return s.cfg.Proxy.Enabled && s.cfg.Proxy.FlareSolverrURL != ""
+	cfg := s.runtime.Get()
+	return cfg != nil && cfg.Proxy.Enabled && cfg.Proxy.FlareSolverrURL != ""
 }
 
 func (s *Scheduler) getInterval() int {
-	v := s.cfg.Proxy.RefreshInterval
+	v := s.runtime.Get().Proxy.RefreshInterval
 	if v < minRefreshInterval {
 		return defaultInterval
 	}
@@ -171,7 +176,7 @@ func (s *Scheduler) getInterval() int {
 }
 
 func (s *Scheduler) getTimeout() int {
-	v := s.cfg.Proxy.Timeout
+	v := s.runtime.Get().Proxy.Timeout
 	if v < minTimeout {
 		return defaultTimeout
 	}

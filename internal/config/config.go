@@ -2,6 +2,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"strconv"
 	"strings"
@@ -54,9 +55,9 @@ type AppConfig struct {
 
 // ImageConfig contains image-generation behavior flags.
 type ImageConfig struct {
-	NSFW                    bool `toml:"nsfw"`
-	BlockedParallelAttempts int  `toml:"blocked_parallel_attempts"`
-	BlockedParallelEnabled  bool `toml:"blocked_parallel_enabled"`
+	NSFW                    bool  `toml:"nsfw"`
+	BlockedParallelAttempts int   `toml:"blocked_parallel_attempts"`
+	BlockedParallelEnabled  *bool `toml:"blocked_parallel_enabled"`
 }
 
 // ImagineFastConfig contains server-side chat defaults for grok-imagine-1.0-fast.
@@ -148,30 +149,44 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "app.request_timeout":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.App.RequestTimeout = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.read_header_timeout":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.App.ReadHeaderTimeout = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.max_header_bytes":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.App.MaxHeaderBytes = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.body_limit":
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 				c.App.BodyLimit = n
+			} else {
+				slog.Warn("config: invalid int64 override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.chat_body_limit":
 			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
 				c.App.ChatBodyLimit = n
+			} else {
+				slog.Warn("config: invalid int64 override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.admin_max_fails":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.App.AdminMaxFails = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "app.admin_window_sec":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.App.AdminWindowSec = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		// Proxy overrides
 		case "proxy.base_proxy_url":
@@ -189,10 +204,14 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "proxy.refresh_interval":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Proxy.RefreshInterval = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "proxy.timeout":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Proxy.Timeout = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "proxy.cf_clearance":
 			c.Proxy.CFClearance = v
@@ -208,10 +227,14 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "retry.max_tokens":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Retry.MaxTokens = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "retry.per_token_retries":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Retry.PerTokenRetries = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "retry.reset_session_status_codes":
 			if v != "" {
@@ -242,18 +265,26 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "retry.retry_backoff_base":
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				c.Retry.RetryBackoffBase = f
+			} else {
+				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
 			}
 		case "retry.retry_backoff_factor":
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				c.Retry.RetryBackoffFactor = f
+			} else {
+				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
 			}
 		case "retry.retry_backoff_max":
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				c.Retry.RetryBackoffMax = f
+			} else {
+				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
 			}
 		case "retry.retry_budget":
 			if f, err := strconv.ParseFloat(v, 64); err == nil {
 				c.Retry.RetryBudget = f
+			} else {
+				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
 			}
 		// Image overrides
 		case "image.nsfw":
@@ -261,13 +292,18 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "image.blocked_parallel_attempts":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Image.BlockedParallelAttempts = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "image.blocked_parallel_enabled":
-			c.Image.BlockedParallelEnabled = v == "true"
+			enabled := v == "true"
+			c.Image.BlockedParallelEnabled = &enabled
 		// ImagineFast overrides
 		case "imagine_fast.n":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.ImagineFast.N = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "imagine_fast.size":
 			c.ImagineFast.Size = v
@@ -275,44 +311,60 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "token.fail_threshold":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.FailThreshold = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.cool_check_interval_sec":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.CoolCheckIntervalSec = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.usage_flush_interval_sec":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.UsageFlushIntervalSec = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.basic_models":
 			if v != "" {
-				c.Token.BasicModels = strings.Split(v, ",")
+				c.Token.BasicModels = splitTrimmed(v)
 			}
 		case "token.super_models":
 			if v != "" {
-				c.Token.SuperModels = strings.Split(v, ",")
+				c.Token.SuperModels = splitTrimmed(v)
 			}
 		case "token.preferred_pool":
 			c.Token.PreferredPool = v
 		case "token.basic_cool_duration_min":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.BasicCoolDurationMin = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.super_cool_duration_min":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.SuperCoolDurationMin = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.default_chat_quota":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.DefaultChatQuota = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.default_image_quota":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.DefaultImageQuota = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.default_video_quota":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.DefaultVideoQuota = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
 		case "token.quota_recovery_mode":
 			c.Token.QuotaRecoveryMode = v
@@ -322,6 +374,18 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 			}
 		}
 	}
+}
+
+func splitTrimmed(v string) []string {
+	parts := strings.Split(v, ",")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
 }
 
 // Load loads configuration from the given path.

@@ -18,13 +18,13 @@ var (
 )
 
 type streamTokenFilter struct {
-	dropTags    []string
+	dropParsers []*dropTagParser
 	toolCardOn  bool
 	toolCardPsr *toolUsageCardParser
 }
 
 func newStreamTokenFilter(tags []string) *streamTokenFilter {
-	filter := &streamTokenFilter{dropTags: make([]string, 0, len(tags))}
+	filter := &streamTokenFilter{dropParsers: make([]*dropTagParser, 0, len(tags))}
 	for _, tag := range tags {
 		normalized := strings.TrimSpace(tag)
 		if normalized == "" {
@@ -34,7 +34,7 @@ func newStreamTokenFilter(tags []string) *streamTokenFilter {
 			filter.toolCardOn = true
 			continue
 		}
-		filter.dropTags = append(filter.dropTags, normalized)
+		filter.dropParsers = append(filter.dropParsers, newDropTagParser(normalized))
 	}
 	if filter.toolCardOn {
 		filter.toolCardPsr = &toolUsageCardParser{}
@@ -56,16 +56,21 @@ func (f *streamTokenFilter) filterText(text, rolloutID string) string {
 	if f.toolCardPsr != nil {
 		filtered = f.toolCardPsr.Consume(filtered, rolloutID)
 	}
-	for _, tag := range f.dropTags {
-		if containsFilterTag(filtered, tag) {
-			return ""
-		}
+	for _, parser := range f.dropParsers {
+		filtered = parser.Consume(filtered)
 	}
 	return filtered
 }
 
-func containsFilterTag(text, tag string) bool {
-	return strings.Contains(text, "<"+tag) || strings.Contains(text, "</"+tag)
+func (f *streamTokenFilter) Flush(rolloutID string) string {
+	filtered := ""
+	if f.toolCardPsr != nil {
+		filtered = f.toolCardPsr.Flush(rolloutID)
+	}
+	for _, parser := range f.dropParsers {
+		filtered = parser.Consume(filtered) + parser.Flush()
+	}
+	return filtered
 }
 
 type toolUsageCardParser struct {
@@ -94,6 +99,21 @@ func (p *toolUsageCardParser) Consume(chunk, rolloutID string) string {
 		data = p.consumePlainText(data, &out)
 	}
 	return out.String()
+}
+
+func (p *toolUsageCardParser) Flush(rolloutID string) string {
+	if rid := strings.TrimSpace(rolloutID); rid != "" {
+		p.rolloutID = rid
+	}
+	if p.inCard {
+		p.buffer.Reset()
+		p.partial = ""
+		p.inCard = false
+		return ""
+	}
+	text := p.partial
+	p.partial = ""
+	return text
 }
 
 func (p *toolUsageCardParser) consumeCardContent(data string, out *strings.Builder) string {

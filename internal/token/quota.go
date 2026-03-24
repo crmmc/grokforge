@@ -7,9 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"time"
 
+	http "github.com/bogdanfinn/fhttp"
+	tls_client "github.com/bogdanfinn/tls-client"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -33,6 +34,7 @@ type RateLimitsResponse struct {
 }
 
 const rateLimitsPath = "/rest/rate-limits"
+const minCoolingDuration = 5 * time.Minute
 
 // Consume deducts quota from the token for the given category.
 // cost allows variable deduction for different model types.
@@ -65,8 +67,9 @@ func (m *TokenManager) Consume(tokenID uint, cat QuotaCategory, cost int) (remai
 
 	// Only enter cooling if ALL categories are exhausted
 	if token.ChatQuota <= 0 && token.ImageQuota <= 0 && token.VideoQuota <= 0 {
+		coolUntil := now.Add(m.coolingDurationForToken(token))
 		token.Status = string(StatusCooling)
-		token.CoolUntil = &now
+		token.CoolUntil = &coolUntil
 	}
 	m.dirty[tokenID] = struct{}{}
 
@@ -138,7 +141,10 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL string) (*RateLimit
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", "sso="+authToken)
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	client, err := tls_client.NewHttpClient(nil, tls_client.WithTimeoutSeconds(10))
+	if err != nil {
+		return nil, err
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -160,4 +166,21 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL string) (*RateLimit
 	}
 
 	return &result, nil
+}
+
+func (m *TokenManager) coolingDurationForToken(token *store.Token) time.Duration {
+	if token == nil || m.cfg == nil {
+		return minCoolingDuration
+	}
+	var duration time.Duration
+	switch token.Pool {
+	case PoolSuper:
+		duration = time.Duration(m.cfg.SuperCoolDurationMin) * time.Minute
+	default:
+		duration = time.Duration(m.cfg.BasicCoolDurationMin) * time.Minute
+	}
+	if duration < minCoolingDuration {
+		return minCoolingDuration
+	}
+	return duration
 }

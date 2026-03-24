@@ -45,7 +45,7 @@ func (f *ImageFlow) generateWithRecovery(
 		}
 		return &imageGenerationResult{data: data, token: token}, nil
 	}
-	if !blockedParallelEnabled(f.imageCfg) {
+	if !blockedParallelEnabled(f.imageConfig()) {
 		return nil, err
 	}
 	return f.generateBlockedRecovery(ctx, model, token.ID, prompt, aspectRatio, enableNSFW)
@@ -93,7 +93,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 	prompt, aspectRatio string,
 	enableNSFW bool,
 ) (*imageGenerationResult, error) {
-	attempts := blockedParallelAttempts(f.imageCfg)
+	attempts := blockedParallelAttempts(f.imageConfig())
 	if attempts == 0 {
 		return nil, errImageGenerationBlocked
 	}
@@ -108,8 +108,9 @@ func (f *ImageFlow) generateBlockedRecovery(
 	resultCh := make(chan imageAttemptResult, len(recoveryTokens))
 	var wg sync.WaitGroup
 	for _, recoveryToken := range recoveryTokens {
+		tok := recoveryToken
 		wg.Add(1)
-		go func(tok *store.Token) {
+		SafeGo("image_blocked_recovery_attempt", func() {
 			defer wg.Done()
 			result := imageAttemptResult{token: tok}
 			result.data, result.err = f.generateSingle(
@@ -130,13 +131,13 @@ func (f *ImageFlow) generateBlockedRecovery(
 			case resultCh <- result:
 			case <-retryCtx.Done():
 			}
-		}(recoveryToken)
+		})
 	}
 
-	go func() {
+	SafeGo("image_blocked_recovery_wait", func() {
 		wg.Wait()
 		close(resultCh)
-	}()
+	})
 
 	return selectImageRecoveryResult(resultCh, cancel, f.tokenSvc)
 }
@@ -206,8 +207,5 @@ func blockedParallelAttempts(cfg *config.ImageConfig) int {
 }
 
 func blockedParallelEnabled(cfg *config.ImageConfig) bool {
-	if cfg == nil {
-		return true
-	}
-	return cfg.BlockedParallelEnabled
+	return config.EffectiveBlockedParallelEnabled(cfg)
 }

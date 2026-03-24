@@ -4,6 +4,7 @@ package xai
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"time"
 )
 
@@ -21,6 +22,9 @@ type Client interface {
 
 	// DownloadURL downloads the content at the given URL using the client's session (cookies/proxy).
 	DownloadURL(ctx context.Context, url string) ([]byte, error)
+
+	// DownloadTo streams the content at the given URL into the provided writer.
+	DownloadTo(ctx context.Context, url string, w io.Writer) error
 
 	// UploadFile uploads an attachment and returns its metadata ID and URI.
 	UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error)

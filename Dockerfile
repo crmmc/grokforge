@@ -7,7 +7,11 @@ COPY config.defaults.toml /app/config.toml
 
 RUN apk add --no-cache ca-certificates tzdata && \
     chmod +x /usr/local/bin/grokforge && \
-    mkdir -p /app/data
+    adduser -D -u 1000 grokforge && \
+    mkdir -p /app/data && \
+    chown -R grokforge:grokforge /app
+
+USER grokforge
 
 WORKDIR /app
 VOLUME ["/app/data"]

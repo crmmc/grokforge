@@ -1,7 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useState, Suspense } from 'react'
+import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useTokens, useDeleteToken, useUpdateToken, useBatchTokens, useRefreshToken, useTokenIdsByStatus, type BatchOperation } from '@/lib/hooks'
 import { Button, Skeleton, Alert, AlertDescription, ConfirmProvider, useConfirm } from '@/components/ui'
@@ -32,15 +32,28 @@ function TokensPageInner() {
   const [activeTokenID, setActiveTokenID] = useState<number | null>(null)
   const [showImport, setShowImport] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [statusSelection, setStatusSelection] = useState<string | null>(null)
   const { data, isLoading, error } = useTokens({ page, page_size: 20, status: statusFilter, nsfw: nsfwBool })
   const deleteToken = useDeleteToken()
   const updateToken = useUpdateToken()
   const batchTokens = useBatchTokens()
   const refreshToken = useRefreshToken()
-  const tokenIdsByStatus = useTokenIdsByStatus()
+  const tokenIdsByStatus = useTokenIdsByStatus(statusSelection)
   const { toast } = useToast()
   const { t } = useTranslation()
   const confirm = useConfirm()
+
+  useEffect(() => {
+    if (tokenIdsByStatus.data?.ids) {
+      setSelectedIds(new Set(tokenIdsByStatus.data.ids))
+    }
+  }, [tokenIdsByStatus.data])
+
+  useEffect(() => {
+    if (tokenIdsByStatus.error) {
+      toast({ title: t.common.error, description: t.common.operationFailed, variant: 'destructive' })
+    }
+  }, [tokenIdsByStatus.error, t, toast])
 
   const handleDelete = async (token: Token) => {
     if (!(await confirm({ title: `${t.common.delete} #${token.id}?`, variant: 'destructive' }))) return
@@ -130,12 +143,7 @@ function TokensPageInner() {
   }
 
   const handleSelectByStatus = async (status: string) => {
-    try {
-      const result = await tokenIdsByStatus.mutateAsync(status)
-      setSelectedIds(new Set(result.ids || []))
-    } catch {
-      toast({ title: t.common.error, description: t.common.operationFailed, variant: 'destructive' })
-    }
+    setStatusSelection(status)
   }
 
   return (

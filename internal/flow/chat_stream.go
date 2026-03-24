@@ -7,18 +7,16 @@ import (
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
-func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc) (bool, *Usage, bool, time.Duration, error) {
+func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
 	var lastUsage *Usage
 	var outputChars int
 	var ttft time.Duration
 	estimated := false
 	streamStart := time.Now()
 	gotFirstToken := false
-	filterTags := []string{}
-	if f.cfg != nil && len(f.cfg.FilterTags) > 0 {
-		filterTags = f.cfg.FilterTags
-	}
+	filterTags := f.filterTags()
 	tokenFilter := newStreamTokenFilter(filterTags)
+	toolParser := newStreamToolCallParser(tools)
 	for {
 		select {
 		case <-ctx.Done():
@@ -35,6 +33,7 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 					lastUsage.TotalTokens = lastUsage.PromptTokens + lastUsage.CompletionTokens
 					estimated = true
 				}
+				outputChars += flushStreamParsers(outCh, dl, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
 				stop := "stop"
 				outCh <- StreamEvent{FinishReason: &stop, Usage: lastUsage}
 				return true, lastUsage, estimated, ttft, nil
@@ -48,20 +47,47 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 				return false, nil, false, 0, flowEvent.Error
 			}
 			flowEvent = tokenFilter.Apply(flowEvent)
+			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
 			flowEvent.Downloader = dl
-			contentLen := len(flowEvent.Content) + len(flowEvent.ReasoningContent)
-			outputChars += contentLen
-			// Record TTFT on first content-bearing token
-			if !gotFirstToken && contentLen > 0 {
-				ttft = time.Since(streamStart)
-				gotFirstToken = true
-			}
 			if flowEvent.Usage != nil {
 				lastUsage = flowEvent.Usage
 			}
-			outCh <- flowEvent
+			outputChars += emitStreamEvent(outCh, dl, streamStart, &ttft, &gotFirstToken, flowEvent)
 		}
 	}
+}
+
+func flushStreamParsers(outCh chan<- StreamEvent, dl DownloadFunc, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, tokenFilter *streamTokenFilter, toolParser *streamToolCallParser) int {
+	var outputChars int
+	pending := tokenFilter.Flush("")
+	if pending != "" {
+		text, calls := toolParser.Push(pending)
+		outputChars += emitStreamEvent(outCh, dl, streamStart, ttft, gotFirstToken, StreamEvent{
+			Content:   text,
+			ToolCalls: calls,
+		})
+	}
+
+	text, calls := toolParser.Flush()
+	outputChars += emitStreamEvent(outCh, dl, streamStart, ttft, gotFirstToken, StreamEvent{
+		Content:   text,
+		ToolCalls: calls,
+	})
+	return outputChars
+}
+
+func emitStreamEvent(outCh chan<- StreamEvent, dl DownloadFunc, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, event StreamEvent) int {
+	event.Downloader = dl
+	contentLen := len(event.Content) + len(event.ReasoningContent)
+	if !*gotFirstToken && contentLen > 0 {
+		*ttft = time.Since(streamStart)
+		*gotFirstToken = true
+	}
+	if event.Content == "" && event.ReasoningContent == "" && len(event.ToolCalls) == 0 && event.Usage == nil {
+		return 0
+	}
+	outCh <- event
+	return contentLen
 }
 
 // estimateTokens provides a rough token count from character length.

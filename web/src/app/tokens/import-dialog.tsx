@@ -43,10 +43,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     }
 
     try {
-      const chatQuotaNum = chatQuota ? parseInt(chatQuota, 10) : undefined
-      const imageQuotaNum = imageQuota ? parseInt(imageQuota, 10) : undefined
-      const videoQuotaNum = videoQuota ? parseInt(videoQuota, 10) : undefined
-      const priorityNum = priority ? parseInt(priority, 10) : undefined
+      const chatQuotaNum = parseOptionalInt(chatQuota)
+      const imageQuotaNum = parseOptionalInt(imageQuota)
+      const videoQuotaNum = parseOptionalInt(videoQuota)
+      const priorityNum = parseOptionalInt(priority)
       const result = await batchTokens.mutateAsync({
         operation: 'import',
         tokens: validLines,
@@ -208,4 +208,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       </DialogContent>
     </Dialog>
   )
+}
+
+function parseOptionalInt(value: string): number | undefined {
+  if (!value) return undefined
+  const parsed = parseInt(value, 10)
+  return Number.isNaN(parsed) ? undefined : parsed
 }

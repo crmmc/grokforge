@@ -108,7 +108,7 @@ type UsageLog struct {
 	TokensInput  int       `gorm:"default:0" json:"tokens_input"`
 	TokensOutput int       `gorm:"default:0" json:"tokens_output"`
 	Estimated    bool      `gorm:"default:false" json:"estimated"`
-	CreatedAt    time.Time `gorm:"index" json:"created_at"`
+	CreatedAt    time.Time `gorm:"index;index:idx_created_status,priority:1" json:"created_at"`
 }
 
 // AllModels returns all models for AutoMigrate.

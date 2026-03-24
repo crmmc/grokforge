@@ -267,14 +267,34 @@ func (m *TokenManager) GetTokenPool(id uint) string {
 }
 
 // GetCoolingTokens returns all tokens in cooling state.
-func (m *TokenManager) GetCoolingTokens() []*store.Token {
+func (m *TokenManager) GetCoolingTokens() []TokenSnapshot {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var result []*store.Token
+	result := make([]TokenSnapshot, 0)
 	for _, token := range m.tokens {
 		if Status(token.Status) == StatusCooling {
-			result = append(result, token)
+			snapshot := TokenSnapshot{
+				ID:                token.ID,
+				Status:            token.Status,
+				StatusReason:      token.StatusReason,
+				ChatQuota:         token.ChatQuota,
+				InitialChatQuota:  token.InitialChatQuota,
+				ImageQuota:        token.ImageQuota,
+				InitialImageQuota: token.InitialImageQuota,
+				VideoQuota:        token.VideoQuota,
+				InitialVideoQuota: token.InitialVideoQuota,
+				FailCount:         token.FailCount,
+			}
+			if token.CoolUntil != nil {
+				t := *token.CoolUntil
+				snapshot.CoolUntil = &t
+			}
+			if token.LastUsed != nil {
+				t := *token.LastUsed
+				snapshot.LastUsed = &t
+			}
+			result = append(result, snapshot)
 		}
 	}
 	return result

@@ -1,5 +1,9 @@
 package config
 
+func boolPtr(v bool) *bool {
+	return &v
+}
+
 // BrowserUAMap maps browser fingerprint names to their paired User-Agent strings.
 // Browser and UA must always be used as a pair.
 var BrowserUAMap = map[string]string{
@@ -44,7 +48,7 @@ func DefaultConfig() *Config {
 		Image: ImageConfig{
 			NSFW:                    false,
 			BlockedParallelAttempts: 5,
-			BlockedParallelEnabled:  true,
+			BlockedParallelEnabled:  boolPtr(true),
 		},
 		ImagineFast: ImagineFastConfig{
 			N:    1,

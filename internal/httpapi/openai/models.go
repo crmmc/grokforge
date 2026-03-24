@@ -105,3 +105,15 @@ func HandleModelsFromConfig(cfg *config.Config) http.HandlerFunc {
 		HandleModels(registry)(w, r)
 	}
 }
+
+func HandleModelsFromRuntime(runtime *config.Runtime) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cfg := runtime.Get()
+		if cfg == nil {
+			httpapi.WriteJSON(w, http.StatusOK, ModelsResponse{Object: "list", Data: []ModelEntry{}})
+			return
+		}
+		registry := NewModelRegistryFromConfig(&cfg.Token)
+		HandleModels(registry)(w, r)
+	}
+}

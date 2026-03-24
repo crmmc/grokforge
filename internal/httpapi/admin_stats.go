@@ -131,9 +131,9 @@ func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat,
 		return 0, 0, 0
 	}
 
-	chat = maxInt(token.InitialChatQuota, token.ChatQuota)
-	image = maxInt(token.InitialImageQuota, token.ImageQuota)
-	video = maxInt(token.InitialVideoQuota, token.VideoQuota)
+	chat = max(token.InitialChatQuota, token.ChatQuota)
+	image = max(token.InitialImageQuota, token.ImageQuota)
+	video = max(token.InitialVideoQuota, token.VideoQuota)
 
 	if cfg != nil {
 		if chat == 0 && cfg.DefaultChatQuota > 0 {
@@ -148,13 +148,6 @@ func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat,
 	}
 
 	return chat, image, video
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 // handleUsageStats returns a handler that returns today's usage with hourly breakdown and delta.

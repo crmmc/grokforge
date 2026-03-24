@@ -26,7 +26,7 @@ dev:
 	go run $(LDFLAGS) ./cmd/grokforge
 
 test:
-	go test -v ./...
+	go test -race -v ./...
 
 clean:
 	rm -rf bin/ data/ web/out/ web/.next/

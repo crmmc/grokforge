@@ -40,6 +40,7 @@ type Server struct {
 	appKey          string
 	version         string
 	cfg             *config.Config
+	runtime         *config.Runtime
 	tokenStore      TokenStoreInterface
 	tokenRefresher  TokenRefresher
 	tokenPoolSyncer TokenPoolSyncer
@@ -54,6 +55,7 @@ type ServerConfig struct {
 	AppKey          string
 	Version         string
 	Config          *config.Config
+	Runtime         *config.Runtime
 	ChatProvider    ChatProvider
 	TokenStore      TokenStoreInterface
 	TokenRefresher  TokenRefresher
@@ -80,6 +82,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		appKey:          cfg.AppKey,
 		version:         cfg.Version,
 		cfg:             cfg.Config,
+		runtime:         cfg.Runtime,
 		tokenStore:      cfg.TokenStore,
 		tokenRefresher:  cfg.TokenRefresher,
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
@@ -101,6 +104,11 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(middleware.RealIP)
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(debugRequestLogger)
+	if s.runtime != nil {
+		s.router.Use(requestTimeoutRuntimeMiddleware(s.runtime))
+		s.router.Use(bodySizeLimitRuntimeMiddleware(s.runtime))
+		return
+	}
 	s.router.Use(requestTimeoutMiddleware(s.cfg))
 	s.router.Use(bodySizeLimitMiddleware(s.cfg))
 }
@@ -153,14 +161,26 @@ func (s *Server) setupRoutes() {
 
 	// Admin API routes (with AppKey auth)
 	s.router.Route("/admin", func(r chi.Router) {
-		r.Use(AdminRateLimit(s.cfg))
+		if s.runtime != nil {
+			r.Use(AdminRateLimitRuntime(s.runtime))
+		} else {
+			r.Use(AdminRateLimit(s.cfg))
+		}
 
 		// Public (no AppKeyAuth) — login endpoint
-		r.Post("/login", handleAdminLogin(s.appKey))
+		if s.runtime != nil {
+			r.Post("/login", handleAdminLoginRuntime(s.runtime))
+		} else {
+			r.Post("/login", handleAdminLogin(s.appKey))
+		}
 
 		// Protected — all other admin routes
 		r.Group(func(r chi.Router) {
-			r.Use(AppKeyAuth(s.appKey))
+			if s.runtime != nil {
+				r.Use(AppKeyAuthRuntime(s.runtime))
+			} else {
+				r.Use(AppKeyAuth(s.appKey))
+			}
 
 			// Verify endpoint (auth check - middleware handles validation)
 			r.Get("/verify", func(w http.ResponseWriter, r *http.Request) {
@@ -174,7 +194,10 @@ func (s *Server) setupRoutes() {
 			r.Get("/system/status", handleSystemStatus(s.tokenStore, s.apiKeyStore, s.startTime, s.version))
 
 			// Config endpoints
-			if s.cfg != nil {
+			if s.runtime != nil {
+				r.Get("/config", handleGetConfigRuntime(s.runtime))
+				r.Put("/config", handlePutConfigRuntime(s.runtime, s.configStore))
+			} else if s.cfg != nil {
 				r.Get("/config", handleGetConfig(s.cfg))
 				r.Put("/config", handlePutConfig(s.cfg, s.configStore))
 			}
@@ -194,7 +217,9 @@ func (s *Server) setupRoutes() {
 
 				// Stats endpoints (token-based)
 				var tokenCfg *config.TokenConfig
-				if s.cfg != nil {
+				if s.runtime != nil && s.runtime.Get() != nil {
+					tokenCfg = &s.runtime.Get().Token
+				} else if s.cfg != nil {
 					tokenCfg = &s.cfg.Token
 				}
 				r.Get("/stats/tokens", handleTokenStats(s.tokenStore))

@@ -50,9 +50,8 @@ func TestSSEWriter_WriteSSEError(t *testing.T) {
 	sw.WriteSSEError(apiErr)
 
 	body := w.Body.String()
-	// Should have event: error line
-	assert.Contains(t, body, "event: error\n")
 	// Should have data with error JSON
+	assert.Contains(t, body, "data: {")
 	assert.Contains(t, body, `"message":"something went wrong"`)
 	// Should end with [DONE]
 	assert.True(t, strings.HasSuffix(body, "data: [DONE]\n\n"))

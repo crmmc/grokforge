@@ -45,7 +45,7 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			LogLevel:               cfg.App.LogLevel,
 			DBDriver:               cfg.App.DBDriver,
 			DBPath:                 cfg.App.DBPath,
-			DBDSN:                  cfg.App.DBDSN,
+			DBDSN:                  maskConfigSecret(cfg.App.DBDSN),
 			RequestTimeout:         cfg.App.RequestTimeout,
 			ReadHeaderTimeout:      cfg.App.ReadHeaderTimeout,
 			MaxHeaderBytes:         cfg.App.MaxHeaderBytes,
@@ -57,7 +57,7 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 		Image: ImageConfigResponse{
 			NSFW:                    cfg.Image.NSFW,
 			BlockedParallelAttempts: cfg.Image.BlockedParallelAttempts,
-			BlockedParallelEnabled:  cfg.Image.BlockedParallelEnabled,
+			BlockedParallelEnabled:  config.EffectiveBlockedParallelEnabled(&cfg.Image),
 		},
 		ImagineFast: ImagineFastConfigResponse{
 			N:    cfg.ImagineFast.N,
@@ -66,13 +66,13 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 		Proxy: ProxyConfigResponse{
 			BaseProxyURL:       cfg.Proxy.BaseProxyURL,
 			AssetProxyURL:      cfg.Proxy.AssetProxyURL,
-			CFCookies:          cfg.Proxy.CFCookies,
+			CFCookies:          maskConfigSecret(cfg.Proxy.CFCookies),
 			SkipProxySSLVerify: cfg.Proxy.SkipProxySSLVerify,
 			Enabled:            cfg.Proxy.Enabled,
 			FlareSolverrURL:    cfg.Proxy.FlareSolverrURL,
 			RefreshInterval:    cfg.Proxy.RefreshInterval,
 			Timeout:            cfg.Proxy.Timeout,
-			CFClearance:        cfg.Proxy.CFClearance,
+			CFClearance:        maskConfigSecret(cfg.Proxy.CFClearance),
 			Browser:            cfg.Proxy.Browser,
 			UserAgent:          cfg.Proxy.UserAgent,
 		},
@@ -108,6 +108,14 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 func handleGetConfig(cfg *config.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		resp := configToResponse(cfg)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func handleGetConfigRuntime(runtime *config.Runtime) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		resp := configToResponse(runtime.Get())
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}

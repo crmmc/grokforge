@@ -4,6 +4,7 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -255,6 +256,28 @@ func (s *Service) SaveFile(mediaType string, data []byte, ext string) (string, e
 	}
 	path := filepath.Join(dir, filename)
 	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", fmt.Errorf("write file: %w", err)
+	}
+	return filename, nil
+}
+
+// SaveStream writes reader content to a new UUID-named file.
+func (s *Service) SaveStream(mediaType string, reader io.Reader, ext string) (string, error) {
+	filename := uuid.New().String() + ext
+	if err := validateName(filename, mediaType); err != nil {
+		return "", err
+	}
+	dir := s.dir(mediaType)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("create cache dir: %w", err)
+	}
+	path := filepath.Join(dir, filename)
+	file, err := os.Create(path)
+	if err != nil {
+		return "", fmt.Errorf("create file: %w", err)
+	}
+	defer file.Close()
+	if _, err := io.Copy(file, reader); err != nil {
 		return "", fmt.Errorf("write file: %w", err)
 	}
 	return filename, nil

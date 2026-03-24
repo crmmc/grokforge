@@ -89,7 +89,8 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				cfg.Image.BlockedParallelAttempts = *req.Image.BlockedParallelAttempts
 			}
 			if req.Image.BlockedParallelEnabled != nil {
-				cfg.Image.BlockedParallelEnabled = *req.Image.BlockedParallelEnabled
+				enabled := *req.Image.BlockedParallelEnabled
+				cfg.Image.BlockedParallelEnabled = &enabled
 			}
 		}
 
@@ -408,6 +409,8 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 		if configStore != nil && len(dbUpdates) > 0 {
 			if err := configStore.SetMany(dbUpdates); err != nil {
 				slog.Error("failed to persist config to database", "error", err)
+				WriteError(w, 500, "server_error", "config_persist_failed", "Failed to persist config")
+				return
 			}
 		}
 
@@ -415,6 +418,18 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 		resp := configToResponse(cfg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
+	}
+}
+
+func handlePutConfigRuntime(runtime *config.Runtime, configStore *store.ConfigStore) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		snapshot := runtime.Snapshot()
+		sc := &statusCapture{ResponseWriter: w}
+		handlePutConfig(snapshot, configStore).ServeHTTP(sc, r)
+		if sc.status == 0 || sc.status >= http.StatusBadRequest {
+			return
+		}
+		runtime.Store(snapshot)
 	}
 }
 

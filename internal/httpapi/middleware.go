@@ -3,8 +3,6 @@ package httpapi
 import (
 	"context"
 	"crypto/subtle"
-	"fmt"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -58,6 +56,9 @@ type rateLimitEntry struct {
 // Enforces daily_limit and rate_limit, returning 429 when exceeded.
 func APIKeyAuth(akStore APIKeyStoreInterface) func(http.Handler) http.Handler {
 	var rateLimitMap sync.Map // map[uint]*rateLimitEntry
+	startRateLimitCleanup("apikey_rate_limit_cleanup", &rateLimitMap, func() time.Duration {
+		return apiKeyRateLimitWindow
+	})
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -148,7 +149,7 @@ func AppKeyAuth(appKey string) func(http.Handler) http.Handler {
 
 			// 1. Try cookie first
 			if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" {
-				if subtle.ConstantTimeCompare([]byte(c.Value), []byte(appKey)) == 1 {
+				if verifyAdminSession(appKey, c.Value) {
 					next.ServeHTTP(w, r)
 					return
 				}
@@ -171,10 +172,30 @@ func AppKeyAuth(appKey string) func(http.Handler) http.Handler {
 	}
 }
 
+func AppKeyAuthRuntime(runtime *config.Runtime) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			cfg := runtime.Get()
+			appKey := ""
+			if cfg != nil {
+				appKey = cfg.App.AppKey
+			}
+			AppKeyAuth(appKey)(next).ServeHTTP(w, r)
+		})
+	}
+}
+
 // statusCapture wraps http.ResponseWriter to capture the response status code.
 type statusCapture struct {
 	http.ResponseWriter
 	status int
+}
+
+func (sc *statusCapture) Write(b []byte) (int, error) {
+	if sc.status == 0 {
+		sc.status = http.StatusOK
+	}
+	return sc.ResponseWriter.Write(b)
 }
 
 func (sc *statusCapture) WriteHeader(code int) {
@@ -187,59 +208,9 @@ func (sc *statusCapture) WriteHeader(code int) {
 // subsequent requests from that IP get 429 until the time window expires.
 // Config values are read per-request for hot-reload support.
 func AdminRateLimit(cfg *config.Config) func(http.Handler) http.Handler {
-	var failMap sync.Map // map[string]*rateLimitEntry (IP → entry)
+	return buildAdminRateLimit(func() *config.Config { return cfg })
+}
 
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if cfg == nil {
-				next.ServeHTTP(w, r)
-				return
-			}
-			maxFails := cfg.App.AdminMaxFails
-			windowSec := cfg.App.AdminWindowSec
-			if maxFails <= 0 || windowSec <= 0 {
-				next.ServeHTTP(w, r)
-				return
-			}
-
-			ip := r.RemoteAddr
-			now := time.Now().Unix()
-
-			entryI, _ := failMap.LoadOrStore(ip, &rateLimitEntry{})
-			entry := entryI.(*rateLimitEntry)
-
-			// Check if currently locked out
-			windowStart := entry.windowStart.Load()
-			if windowStart > 0 && now-windowStart < int64(windowSec) {
-				if entry.count.Load() >= int64(maxFails) {
-					retryAfter := int64(windowSec) - (now - windowStart)
-					w.Header().Set("Retry-After", fmt.Sprintf("%d", retryAfter))
-					WriteError(w, 429, "rate_limit_error", "too_many_failures",
-						"Too many failed authentication attempts, try again later")
-					slog.Warn("admin rate limit: IP locked out",
-						"ip", ip, "retry_after", retryAfter)
-					return
-				}
-			} else if windowStart > 0 && now-windowStart >= int64(windowSec) {
-				// Window expired — reset
-				entry.count.Store(0)
-				entry.windowStart.Store(0)
-			}
-
-			// Wrap response writer to capture status
-			sc := &statusCapture{ResponseWriter: w, status: 200}
-			next.ServeHTTP(sc, r)
-
-			// Only count 401 responses as failures
-			if sc.status == 401 {
-				// Start window on first failure
-				if entry.windowStart.Load() == 0 {
-					entry.windowStart.CompareAndSwap(0, now)
-				}
-				count := entry.count.Add(1)
-				slog.Debug("admin rate limit: auth failure recorded",
-					"ip", ip, "count", count, "max", maxFails)
-			}
-		})
-	}
+func AdminRateLimitRuntime(runtime *config.Runtime) func(http.Handler) http.Handler {
+	return buildAdminRateLimit(runtime.Get)
 }

@@ -18,6 +18,16 @@ func bodySizeLimitMiddleware(cfg *config.Config) func(http.Handler) http.Handler
 	}
 }
 
+func bodySizeLimitRuntimeMiddleware(runtime *config.Runtime) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			limit := routeBodyLimit(runtime.Get(), r.Method, r.URL.Path)
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // routeBodyLimit returns the maximum body size for a given route.
 // Values are read from config for hot-reload support.
 func routeBodyLimit(cfg *config.Config, method, path string) int64 {

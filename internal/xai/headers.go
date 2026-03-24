@@ -12,6 +12,8 @@ import (
 	"github.com/google/uuid"
 )
 
+var cfClearanceRE = regexp.MustCompile(`(^|;\s*)cf_clearance=[^;]*`)
+
 var reDigits = regexp.MustCompile(`\d{2,3}`)
 var reChromeVer = regexp.MustCompile(`(?:Chrome|Chromium|Edg)/(\d+)`)
 
@@ -141,8 +143,7 @@ func ssoCookie(token, cfCookies, cfClearance string) string {
 		if extra == "" {
 			extra = "cf_clearance=" + cfClearance
 		} else if strings.Contains(extra, "cf_clearance=") {
-			re := regexp.MustCompile(`(^|;\s*)cf_clearance=[^;]*`)
-			extra = re.ReplaceAllString(extra, "${1}cf_clearance="+cfClearance)
+			extra = cfClearanceRE.ReplaceAllString(extra, "${1}cf_clearance="+cfClearance)
 		} else {
 			extra = strings.TrimRight(extra, "; ")
 			extra += "; cf_clearance=" + cfClearance
@@ -212,20 +213,20 @@ func buildHeaders(token string, opts *Options, statsigID string) http.Header {
 		"browser_profile", opts.Browser)
 
 	h := http.Header{
-		"Accept":          {"*/*"},
-		"Accept-Encoding": {"gzip, deflate, br, zstd"},
-		"Accept-Language": {"zh-CN,zh;q=0.9,en;q=0.8"},
-		"Baggage":         {"sentry-environment=production,sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c"},
-		"Content-Type":    {"application/json"},
-		"Cookie":          {ssoCookie(token, opts.CFCookies, opts.CFClearance)},
-		"Origin":          {"https://grok.com"},
-		"Priority":        {"u=1, i"},
-		"Referer":         {"https://grok.com/"},
-		"Sec-Fetch-Dest":  {"empty"},
-		"Sec-Fetch-Mode":  {"cors"},
-		"Sec-Fetch-Site":  {"same-origin"},
-		"User-Agent":      {opts.UserAgent},
-		"x-statsig-id":    {statsigID},
+		"Accept":           {"*/*"},
+		"Accept-Encoding":  {"gzip, deflate, br, zstd"},
+		"Accept-Language":  {"zh-CN,zh;q=0.9,en;q=0.8"},
+		"Baggage":          {"sentry-environment=production,sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c"},
+		"Content-Type":     {"application/json"},
+		"Cookie":           {ssoCookie(token, opts.CFCookies, opts.CFClearance)},
+		"Origin":           {"https://grok.com"},
+		"Priority":         {"u=1, i"},
+		"Referer":          {"https://grok.com/"},
+		"Sec-Fetch-Dest":   {"empty"},
+		"Sec-Fetch-Mode":   {"cors"},
+		"Sec-Fetch-Site":   {"same-origin"},
+		"User-Agent":       {opts.UserAgent},
+		"x-statsig-id":     {statsigID},
 		"x-xai-request-id": {uuid.New().String()},
 	}
 

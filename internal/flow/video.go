@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
@@ -18,6 +19,7 @@ type VideoClient interface {
 	CreateImagePost(ctx context.Context, imageURL string) (string, error)
 	CreateVideoPost(ctx context.Context, prompt string) (string, error)
 	PollUpscale(ctx context.Context, videoID string, interval time.Duration) (string, error)
+	DownloadTo(ctx context.Context, url string, w io.Writer) error
 	DownloadURL(ctx context.Context, url string) ([]byte, error)
 	UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error)
 }
@@ -48,7 +50,7 @@ type VideoFlow struct {
 	cfg           *VideoFlowConfig
 	usageLog      UsageRecorder
 	cacheSvc      *cache.Service
-	appCfg        *config.AppConfig
+	appConfigFn   func() *config.AppConfig
 }
 
 // NewVideoFlow creates a new VideoFlow.
@@ -82,7 +84,19 @@ func (f *VideoFlow) SetCacheService(svc *cache.Service) {
 
 // SetAppConfig sets app-level defaults for app-chat based video generation.
 func (f *VideoFlow) SetAppConfig(cfg *config.AppConfig) {
-	f.appCfg = cfg
+	f.appConfigFn = func() *config.AppConfig { return cfg }
+}
+
+// SetAppConfigProvider sets a dynamic app config provider.
+func (f *VideoFlow) SetAppConfigProvider(fn func() *config.AppConfig) {
+	f.appConfigFn = fn
+}
+
+func (f *VideoFlow) appConfig() *config.AppConfig {
+	if f.appConfigFn == nil {
+		return nil
+	}
+	return f.appConfigFn()
 }
 
 // GenerateSync runs video generation synchronously and returns the final URL.
@@ -165,12 +179,18 @@ func (f *VideoFlow) cacheVideo(ctx context.Context, client VideoClient, videoURL
 	if f.cacheSvc == nil {
 		return videoURL
 	}
-	videoData, dlErr := client.DownloadURL(ctx, videoURL)
-	if dlErr != nil {
-		slog.Warn("video: download failed, using original URL", "error", dlErr)
+	reader, writer := io.Pipe()
+	doneCh := make(chan error, 1)
+	SafeGo("video_cache_download", func() {
+		err := client.DownloadTo(ctx, videoURL, writer)
+		doneCh <- err
+		writer.CloseWithError(err)
+	})
+	filename, saveErr := f.cacheSvc.SaveStream("video", reader, ".mp4")
+	if dlErr := <-doneCh; dlErr != nil {
+		slog.Warn("video: stream download failed, using original URL", "error", dlErr)
 		return videoURL
 	}
-	filename, saveErr := f.cacheSvc.SaveFile("video", videoData, ".mp4")
 	if saveErr != nil {
 		slog.Warn("video: cache save failed, using original URL", "error", saveErr)
 		return videoURL

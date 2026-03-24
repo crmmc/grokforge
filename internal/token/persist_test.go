@@ -7,7 +7,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -32,9 +32,9 @@ func TestPersister_FlushDirty(t *testing.T) {
 
 	// Create token in DB first
 	token := &store.Token{
-		Token:  "test-token",
-		Pool:   PoolBasic,
-		Status: string(StatusActive),
+		Token:     "test-token",
+		Pool:      PoolBasic,
+		Status:    string(StatusActive),
 		ChatQuota: 100,
 	}
 	db.Create(token)
@@ -80,9 +80,9 @@ func TestPersister_PeriodicFlush(t *testing.T) {
 	m := NewTokenManager(cfg)
 
 	token := &store.Token{
-		Token:  "test-token",
-		Pool:   PoolBasic,
-		Status: string(StatusActive),
+		Token:     "test-token",
+		Pool:      PoolBasic,
+		Status:    string(StatusActive),
 		ChatQuota: 100,
 	}
 	db.Create(token)

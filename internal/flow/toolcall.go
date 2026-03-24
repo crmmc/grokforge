@@ -36,6 +36,11 @@ type FunctionCall struct {
 	Arguments string `json:"arguments"`
 }
 
+const (
+	toolCallStartTag = "<tool_call>"
+	toolCallEndTag   = "</tool_call>"
+)
+
 var toolCallRegex = regexp.MustCompile(`<tool_call>\s*([\s\S]*?)\s*</tool_call>`)
 
 // BuildToolPrompt generates a system prompt with tool definitions.

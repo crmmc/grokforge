@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 	"testing"
 	"time"
@@ -66,6 +67,11 @@ func (m *mockVideoClient) PollUpscale(ctx context.Context, jobID string, interva
 
 func (m *mockVideoClient) DownloadURL(ctx context.Context, url string) ([]byte, error) {
 	return nil, nil
+}
+
+func (m *mockVideoClient) DownloadTo(ctx context.Context, url string, w io.Writer) error {
+	_, err := io.WriteString(w, "video-data")
+	return err
 }
 
 func (m *mockVideoClient) UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error) {

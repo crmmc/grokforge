@@ -15,6 +15,7 @@ type client struct {
 	token     string
 	opts      *Options
 	http      tls_client.HttpClient
+	assetHTTP tls_client.HttpClient
 	statsigID string
 	mu        sync.Mutex
 	closed    bool
@@ -35,15 +36,33 @@ func NewClient(token string, opts ...ClientOption) (Client, error) {
 		c.statsigID = staticStatsigID
 	}
 
-	if err := c.initHTTPClient(); err != nil {
+	if err := c.initHTTPClients(); err != nil {
 		return nil, err
 	}
 
 	return c, nil
 }
 
-// initHTTPClient creates the underlying tls-client HTTP client.
-func (c *client) initHTTPClient() error {
+// initHTTPClients creates the underlying tls-client HTTP clients.
+func (c *client) initHTTPClients() error {
+	httpClient, err := c.newHTTPClient(c.opts.ProxyURL)
+	if err != nil {
+		return err
+	}
+	assetProxyURL := c.opts.ProxyURL
+	if c.opts.AssetProxyURL != "" {
+		assetProxyURL = c.opts.AssetProxyURL
+	}
+	assetHTTP, err := c.newHTTPClient(assetProxyURL)
+	if err != nil {
+		return err
+	}
+	c.http = httpClient
+	c.assetHTTP = assetHTTP
+	return nil
+}
+
+func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
 	jar := tls_client.NewCookieJar()
 	profile := ResolveBrowserProfile(c.opts.Browser)
 
@@ -57,8 +76,6 @@ func (c *client) initHTTPClient() error {
 		tlsOpts = append(tlsOpts, tls_client.WithInsecureSkipVerify())
 	}
 
-	proxyURL := c.opts.ProxyURL
-
 	if proxyURL != "" {
 		tlsOpts = append(tlsOpts, tls_client.WithProxyUrl(proxyURL))
 	}
@@ -66,7 +83,7 @@ func (c *client) initHTTPClient() error {
 	httpClient, err := tls_client.NewHttpClient(nil, tlsOpts...)
 	if err != nil {
 		slog.Debug("xai: tls-client init failed", "error", err, "browser", c.opts.Browser)
-		return err
+		return nil, err
 	}
 
 	// Mask proxy for logging
@@ -84,8 +101,7 @@ func (c *client) initHTTPClient() error {
 		"timeout_sec", int(c.opts.RequestTimeout.Seconds()),
 		"skip_proxy_ssl_verify", c.opts.SkipProxySSLVerify)
 
-	c.http = httpClient
-	return nil
+	return httpClient, nil
 }
 
 // setProxy switches the underlying HTTP client's proxy.
@@ -106,7 +122,7 @@ func (c *client) ResetSession() error {
 	}
 
 	slog.Debug("xai: resetting session (clearing cookies, rebuilding TLS client)")
-	return c.initHTTPClient()
+	return c.initHTTPClients()
 }
 
 // Close releases resources held by the client.
@@ -116,6 +132,7 @@ func (c *client) Close() error {
 
 	c.closed = true
 	c.http = nil
+	c.assetHTTP = nil
 	return nil
 }
 
@@ -128,7 +145,21 @@ func (c *client) doRequest(req *http.Request) (*http.Response, error) {
 	}
 	httpClient := c.http
 	c.mu.Unlock()
+	return c.doRequestWithClient(req, httpClient)
+}
 
+func (c *client) doAssetRequest(req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, ErrStreamClosed
+	}
+	httpClient := c.assetHTTP
+	c.mu.Unlock()
+	return c.doRequestWithClient(req, httpClient)
+}
+
+func (c *client) doRequestWithClient(req *http.Request, httpClient tls_client.HttpClient) (*http.Response, error) {
 	// Set anti-bot headers
 	headers := buildHeaders(c.token, c.opts, c.statsigID)
 	for k, v := range headers {

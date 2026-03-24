@@ -242,11 +242,19 @@ func (c *client) streamChat(ctx context.Context, body []byte, events chan<- Stre
 				"attempt", attempt, "max_retry", c.opts.MaxRetry,
 				"last_error", lastErr)
 
+			timer := time.NewTimer(c.opts.RetryInterval)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				events <- StreamEvent{Error: ctx.Err()}
 				return
-			case <-time.After(c.opts.RetryInterval):
+			case <-timer.C:
+			}
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
 			}
 		}
 

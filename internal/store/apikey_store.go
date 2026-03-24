@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -52,7 +53,7 @@ func (s *APIKeyStore) List(ctx context.Context, page, pageSize int, status strin
 func (s *APIKeyStore) GetByID(ctx context.Context, id uint) (*APIKey, error) {
 	var ak APIKey
 	if err := s.db.WithContext(ctx).First(&ak, id).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -64,7 +65,7 @@ func (s *APIKeyStore) GetByID(ctx context.Context, id uint) (*APIKey, error) {
 func (s *APIKeyStore) GetByKey(ctx context.Context, key string) (*APIKey, error) {
 	var ak APIKey
 	if err := s.db.WithContext(ctx).Where("key = ?", key).First(&ak).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, ErrNotFound
 		}
 		return nil, err
@@ -84,12 +85,26 @@ func (s *APIKeyStore) Create(ctx context.Context, ak *APIKey) error {
 
 // Update saves changes to an existing API key.
 func (s *APIKeyStore) Update(ctx context.Context, ak *APIKey) error {
-	return s.db.WithContext(ctx).Save(ak).Error
+	result := s.db.WithContext(ctx).Save(ak)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Delete soft-deletes an API key by ID.
 func (s *APIKeyStore) Delete(ctx context.Context, id uint) error {
-	return s.db.WithContext(ctx).Delete(&APIKey{}, id).Error
+	result := s.db.WithContext(ctx).Delete(&APIKey{}, id)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Regenerate generates a new key value for an existing API key, returns the new key.

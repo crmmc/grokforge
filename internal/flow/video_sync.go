@@ -105,12 +105,13 @@ func (f *VideoFlow) buildVideoChatRequest(req *VideoRequest, parentPostID, resol
 }
 
 func (f *VideoFlow) applyVideoAppConfig(req *xai.ChatRequest) {
-	if f.appCfg == nil {
+	appCfg := f.appConfig()
+	if appCfg == nil {
 		return
 	}
-	req.Temporary = f.appCfg.Temporary
-	req.DisableMemory = f.appCfg.DisableMemory
-	req.CustomInstruction = f.appCfg.CustomInstruction
+	req.Temporary = appCfg.Temporary
+	req.DisableMemory = appCfg.DisableMemory
+	req.CustomInstruction = appCfg.CustomInstruction
 }
 
 func collectVideoStreamState(eventCh <-chan xai.StreamEvent) (*videoStreamState, error) {

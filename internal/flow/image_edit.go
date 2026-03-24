@@ -172,10 +172,10 @@ func (f *ImageFlow) buildImageEditChatRequest(
 		},
 	}
 
-	if f.appCfg != nil {
-		xaiReq.Temporary = f.appCfg.Temporary
-		xaiReq.DisableMemory = f.appCfg.DisableMemory
-		xaiReq.CustomInstruction = f.appCfg.CustomInstruction
+	if appCfg := f.appConfig(); appCfg != nil {
+		xaiReq.Temporary = appCfg.Temporary
+		xaiReq.DisableMemory = appCfg.DisableMemory
+		xaiReq.CustomInstruction = appCfg.CustomInstruction
 	}
 	return xaiReq
 }

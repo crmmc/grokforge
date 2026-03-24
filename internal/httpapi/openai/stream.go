@@ -1,13 +1,12 @@
 package openai
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
+	"github.com/google/uuid"
 )
 
 const (
@@ -28,7 +27,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 	writer := httpapi.NewSSEWriter(w)
 	w.WriteHeader(http.StatusOK)
 
-	adapter := newChatStreamAdapter(req, h.Cfg)
+	cfg := h.currentConfig()
+	adapter := newChatStreamAdapter(req, cfg)
 	writer.WriteSSE(adapter.RoleChunk())
 	flusher.Flush()
 
@@ -48,7 +48,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 		}
 
 		// Lazily create rewriter on first event with a downloader
-		if rewriter == nil && event.Downloader != nil && h.Cfg != nil && h.Cfg.App.MediaGenerationEnabled {
+		if rewriter == nil && event.Downloader != nil && cfg != nil && cfg.App.MediaGenerationEnabled {
 			rewriter = newMediaRewriter(event.Downloader)
 		}
 		event.Content = rewriteContent(rewriter, r.Context(), event.Content)
@@ -69,7 +69,8 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 
 // blockingResponse collects all events and returns a single response.
 func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, eventCh <-chan flow.StreamEvent, req *ChatRequest) {
-	collector := newChatResponseCollector(req, h.Cfg)
+	cfg := h.currentConfig()
+	collector := newChatResponseCollector(req, cfg)
 	var dl flow.DownloadFunc
 
 	for event := range eventCh {
@@ -87,7 +88,7 @@ func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, event
 	resp := collector.Build()
 
 	// Rewrite image URLs in the final assembled content
-	if dl != nil && len(resp.Choices) > 0 && h.Cfg != nil && h.Cfg.App.MediaGenerationEnabled {
+	if dl != nil && len(resp.Choices) > 0 && cfg != nil && cfg.App.MediaGenerationEnabled {
 		rewriter := newMediaRewriter(dl)
 		resp.Choices[0].Message.Content = rewriteContent(rewriter, r.Context(), resp.Choices[0].Message.Content)
 	}
@@ -122,7 +123,7 @@ func writeStreamingErrorResponse(w http.ResponseWriter, apiErr *httpapi.APIError
 }
 
 func generateChatID() string {
-	return fmt.Sprintf("chatcmpl-%d", time.Now().UnixNano())
+	return "chatcmpl-" + uuid.NewString()
 }
 
 func filterToolCalls(calls []flow.ToolCall, tools []flow.Tool) []flow.ToolCall {
