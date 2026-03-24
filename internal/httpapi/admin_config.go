@@ -7,6 +7,8 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 )
 
+const maskedConfigSecret = "********"
+
 // maskSecret masks a secret string, showing first 4 and last 4 chars.
 // Returns "***" for strings shorter than 4 chars, empty for empty strings.
 func maskSecret(s string) string {
@@ -23,7 +25,7 @@ func maskConfigSecret(s string) string {
 	if s == "" {
 		return ""
 	}
-	return "********"
+	return maskedConfigSecret
 }
 
 // configToResponse converts config.Config to ConfigResponse with masked secrets.

@@ -1,10 +1,14 @@
 package config
 
-import "sync/atomic"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // Runtime provides atomic access to the live configuration snapshot.
 type Runtime struct {
 	current atomic.Pointer[Config]
+	mu      sync.Mutex
 }
 
 // NewRuntime creates a runtime config container initialized with a deep copy.
@@ -37,6 +41,12 @@ func (r *Runtime) Store(cfg *Config) {
 
 // Update clones the current config, applies fn, and atomically swaps it in.
 func (r *Runtime) Update(fn func(*Config) error) error {
+	if r == nil {
+		return nil
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	next := Clone(r.Get())
 	if err := fn(next); err != nil {
 		return err

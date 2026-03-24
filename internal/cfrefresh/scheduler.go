@@ -11,10 +11,10 @@ import (
 )
 
 const (
-	minRefreshInterval = 60  // seconds
-	defaultInterval    = 600 // seconds
-	minTimeout         = 60  // seconds
-	defaultTimeout     = 60  // seconds
+	minRefreshInterval = 60               // seconds
+	defaultInterval    = 600              // seconds
+	minTimeout         = 60               // seconds
+	defaultTimeout     = 60               // seconds
 	triggerCooldown    = 60 * time.Second // minimum gap between triggered refreshes
 )
 
@@ -26,7 +26,7 @@ type Scheduler struct {
 	stopped     chan struct{}
 	done        chan struct{}
 	triggerCh   chan struct{} // external trigger (e.g. on 403)
-	lastRefresh atomic.Int64 // unix seconds of last successful refresh
+	lastRefresh atomic.Int64  // unix seconds of last successful refresh
 }
 
 // NewScheduler creates a CF refresh scheduler.
@@ -42,7 +42,7 @@ func NewScheduler(runtime *config.Runtime, configStore *store.ConfigStore) *Sche
 
 // Start launches the background refresh goroutine.
 func (s *Scheduler) Start() {
-	go s.run()
+	safeGo("cfrefresh_scheduler", s.run)
 }
 
 // Stop signals the background goroutine to stop and waits for it to finish.

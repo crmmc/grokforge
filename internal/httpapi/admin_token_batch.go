@@ -16,6 +16,15 @@ import (
 
 // handleBatchTokens returns a handler for batch token operations.
 func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *config.Config) http.HandlerFunc {
+	return handleBatchTokensFromProvider(ts, syncer, func() *config.TokenConfig {
+		if cfg == nil {
+			return nil
+		}
+		return &cfg.Token
+	})
+}
+
+func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, getCfg func() *config.TokenConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req BatchTokenRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -29,10 +38,8 @@ func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *conf
 
 		switch req.Operation {
 		case BatchOpImport:
-			var tokenCfg *config.TokenConfig
-			if cfg != nil {
-				tokenCfg = &cfg.Token
-			} else {
+			tokenCfg := getCfg()
+			if tokenCfg == nil {
 				tokenCfg = &config.TokenConfig{}
 			}
 			resp = handleBatchImport(r.Context(), ts, syncer, req, tokenCfg)

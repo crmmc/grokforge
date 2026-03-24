@@ -115,6 +115,32 @@ func TestHandleQuotaStats(t *testing.T) {
 	assert.Equal(t, 9, super.RemainingVideoQuota)
 }
 
+func TestHandleQuotaStatsFromProvider_UsesLatestConfig(t *testing.T) {
+	ms := newMockTokenStore()
+	ms.CreateToken(context.Background(), &store.Token{
+		Token:  "q1_xxxxxxxxxxxxxxxxxxxx",
+		Pool:   "ssoBasic",
+		Status: store.TokenStatusActive,
+	})
+
+	current := &config.TokenConfig{DefaultChatQuota: 50, DefaultImageQuota: 20, DefaultVideoQuota: 10}
+	handler := handleQuotaStatsFromProvider(ms, func() *config.TokenConfig { return current })
+
+	current = &config.TokenConfig{DefaultChatQuota: 80, DefaultImageQuota: 30, DefaultVideoQuota: 15}
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp QuotaStatsResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Pools, 1)
+	assert.Equal(t, 80, resp.Pools[0].TotalChatQuota)
+	assert.Equal(t, 30, resp.Pools[0].TotalImageQuota)
+	assert.Equal(t, 15, resp.Pools[0].TotalVideoQuota)
+}
+
 func TestHandleUsageStats(t *testing.T) {
 	t.Run("with yesterday data", func(t *testing.T) {
 		ms := &mockUsageLogStore{

@@ -279,3 +279,31 @@ func TestConfig_SelectionAlgorithm_Invalid(t *testing.T) {
 		t.Errorf("config should not have changed, got %s", cfg.Token.SelectionAlgorithm)
 	}
 }
+
+func TestAdminConfig_PutConfig_IgnoresMaskedProxySecrets(t *testing.T) {
+	cfg := &config.Config{
+		Proxy: config.ProxyConfig{
+			CFCookies:   "real-cookie",
+			CFClearance: "real-clearance",
+		},
+	}
+
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"proxy":{"cf_cookies":"********","cf_clearance":"********"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Proxy.CFCookies != "real-cookie" {
+		t.Fatalf("cf_cookies should not be overwritten by masked placeholder, got %q", cfg.Proxy.CFCookies)
+	}
+	if cfg.Proxy.CFClearance != "real-clearance" {
+		t.Fatalf("cf_clearance should not be overwritten by masked placeholder, got %q", cfg.Proxy.CFClearance)
+	}
+}

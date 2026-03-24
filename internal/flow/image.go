@@ -12,6 +12,8 @@ import (
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
+var imageGenerationTimeout = 120 * time.Second
+
 // ImagineGenerator defines the interface for image generation.
 type ImagineGenerator interface {
 	Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error)
@@ -176,6 +178,9 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, imageGenerationTimeout)
+	defer cancel()
 
 	start := time.Now()
 	aspectRatio := xai.ParseAspectRatio(req.Size)

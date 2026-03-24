@@ -87,12 +87,17 @@ func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
 
 // handleQuotaStats returns a handler that aggregates quota totals and remaining quota by pool for active tokens.
 func handleQuotaStats(ts TokenStoreInterface, cfg *config.TokenConfig) http.HandlerFunc {
+	return handleQuotaStatsFromProvider(ts, func() *config.TokenConfig { return cfg })
+}
+
+func handleQuotaStatsFromProvider(ts TokenStoreInterface, getCfg func() *config.TokenConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokens, err := ts.ListTokens(r.Context())
 		if err != nil {
 			WriteError(w, 500, "server_error", "stats_failed", "Failed to get quota stats")
 			return
 		}
+		cfg := getCfg()
 
 		poolMap := make(map[string]*PoolQuota)
 		for _, t := range tokens {

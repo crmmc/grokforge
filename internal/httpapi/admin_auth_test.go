@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,4 +113,14 @@ func TestHandleAdminLogout(t *testing.T) {
 	var resp map[string]string
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	assert.Equal(t, "ok", resp["status"])
+}
+
+func TestVerifyAdminSession_Expired(t *testing.T) {
+	value := signAdminSession("my-secret-key", time.Now().Add(-adminSessionTTL-time.Hour))
+	assert.False(t, verifyAdminSession("my-secret-key", value))
+}
+
+func TestVerifyAdminSession_FutureTimestampRejected(t *testing.T) {
+	value := signAdminSession("my-secret-key", time.Now().Add(2*time.Minute))
+	assert.False(t, verifyAdminSession("my-secret-key", value))
 }

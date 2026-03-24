@@ -17,6 +17,7 @@ import (
 
 const adminCookieName = "gf_session"
 const adminCookieMaxAge = 30 * 24 * 60 * 60 // 30 days
+const adminSessionTTL = 30 * 24 * time.Hour
 
 func signAdminSession(appKey string, issuedAt time.Time) string {
 	payload := strconv.FormatInt(issuedAt.UTC().Unix(), 10)
@@ -34,16 +35,20 @@ func verifyAdminSession(appKey, value string) bool {
 	if len(parts) != 2 {
 		return false
 	}
-	if _, err := strconv.ParseInt(parts[0], 10, 64); err != nil {
+	issuedAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
 		return false
 	}
-	expected := signAdminSession(appKey, time.Unix(parseUnix(parts[0]), 0))
+	issuedAtTime := time.Unix(issuedAt, 0).UTC()
+	now := time.Now().UTC()
+	if issuedAtTime.After(now.Add(time.Minute)) {
+		return false
+	}
+	if now.Sub(issuedAtTime) > adminSessionTTL {
+		return false
+	}
+	expected := signAdminSession(appKey, issuedAtTime)
 	return subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
-}
-
-func parseUnix(value string) int64 {
-	ts, _ := strconv.ParseInt(value, 10, 64)
-	return ts
 }
 
 // setAdminCookie writes the httpOnly session cookie.

@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"strconv"
+	"sync"
+	"testing"
+)
 
 func TestRuntimeCloneIsolation(t *testing.T) {
 	enabled := true
@@ -68,5 +72,32 @@ func TestEffectiveBlockedParallelEnabled_DefaultsTrue(t *testing.T) {
 	}
 	if !EffectiveBlockedParallelEnabled(&ImageConfig{}) {
 		t.Fatal("nil pointer field should default to true")
+	}
+}
+
+func TestRuntimeUpdateSerializesConcurrentWriters(t *testing.T) {
+	runtime := NewRuntime(&Config{})
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		i := i
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			err := runtime.Update(func(cfg *Config) error {
+				cfg.App.CustomInstruction += strconv.Itoa(i) + ","
+				cfg.Token.FailThreshold++
+				return nil
+			})
+			if err != nil {
+				t.Errorf("Update() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	current := runtime.Get()
+	if current.Token.FailThreshold != 32 {
+		t.Fatalf("expected all concurrent updates to be preserved, got fail_threshold=%d", current.Token.FailThreshold)
 	}
 }

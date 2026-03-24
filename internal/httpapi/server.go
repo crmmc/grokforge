@@ -209,21 +209,39 @@ func (s *Server) setupRoutes() {
 				r.Get("/tokens/{id}", handleGetToken(s.tokenStore))
 				r.Put("/tokens/{id}", handleUpdateToken(s.tokenStore, s.tokenPoolSyncer))
 				r.Delete("/tokens/{id}", handleDeleteToken(s.tokenStore, s.tokenPoolSyncer))
-				r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.cfg))
+				if s.runtime != nil {
+					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, func() *config.TokenConfig {
+						current := s.runtime.Get()
+						if current == nil {
+							return nil
+						}
+						return &current.Token
+					}))
+				} else {
+					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.cfg))
+				}
 
 				if s.tokenRefresher != nil {
 					r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenRefresher))
 				}
 
 				// Stats endpoints (token-based)
-				var tokenCfg *config.TokenConfig
-				if s.runtime != nil && s.runtime.Get() != nil {
-					tokenCfg = &s.runtime.Get().Token
-				} else if s.cfg != nil {
-					tokenCfg = &s.cfg.Token
-				}
 				r.Get("/stats/tokens", handleTokenStats(s.tokenStore))
-				r.Get("/stats/quota", handleQuotaStats(s.tokenStore, tokenCfg))
+				if s.runtime != nil {
+					r.Get("/stats/quota", handleQuotaStatsFromProvider(s.tokenStore, func() *config.TokenConfig {
+						current := s.runtime.Get()
+						if current == nil {
+							return nil
+						}
+						return &current.Token
+					}))
+				} else {
+					var tokenCfg *config.TokenConfig
+					if s.cfg != nil {
+						tokenCfg = &s.cfg.Token
+					}
+					r.Get("/stats/quota", handleQuotaStats(s.tokenStore, tokenCfg))
+				}
 			}
 
 			// Stats endpoints (usage-based)

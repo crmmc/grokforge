@@ -27,7 +27,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 		// Apply hot-reloadable updates
 		if req.App != nil {
 			// Skip masked placeholder — only update if user entered a real value
-			if req.App.AppKey != nil && *req.App.AppKey != "********" {
+			if req.App.AppKey != nil && *req.App.AppKey != maskedConfigSecret {
 				if *req.App.AppKey == "" {
 					WriteError(w, 400, "invalid_request", "invalid_value", "app_key cannot be empty")
 					return
@@ -110,7 +110,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Proxy.AssetProxyURL != nil {
 				cfg.Proxy.AssetProxyURL = *req.Proxy.AssetProxyURL
 			}
-			if req.Proxy.CFCookies != nil {
+			if req.Proxy.CFCookies != nil && *req.Proxy.CFCookies != maskedConfigSecret {
 				cfg.Proxy.CFCookies = *req.Proxy.CFCookies
 			}
 			if req.Proxy.SkipProxySSLVerify != nil {
@@ -128,7 +128,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Proxy.Timeout != nil {
 				cfg.Proxy.Timeout = *req.Proxy.Timeout
 			}
-			if req.Proxy.CFClearance != nil {
+			if req.Proxy.CFClearance != nil && *req.Proxy.CFClearance != maskedConfigSecret {
 				cfg.Proxy.CFClearance = *req.Proxy.CFClearance
 			}
 			if req.Proxy.Browser != nil {
@@ -228,7 +228,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.App.RequestTimeout != nil {
 				dbUpdates["app.request_timeout"] = fmt.Sprintf("%d", *req.App.RequestTimeout)
 			}
-			if req.App.AppKey != nil && *req.App.AppKey != "********" && *req.App.AppKey != "" {
+			if req.App.AppKey != nil && *req.App.AppKey != maskedConfigSecret && *req.App.AppKey != "" {
 				dbUpdates["app.app_key"] = *req.App.AppKey
 			}
 			if req.App.Temporary != nil {
@@ -297,7 +297,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Proxy.AssetProxyURL != nil {
 				dbUpdates["proxy.asset_proxy_url"] = *req.Proxy.AssetProxyURL
 			}
-			if req.Proxy.CFCookies != nil {
+			if req.Proxy.CFCookies != nil && *req.Proxy.CFCookies != maskedConfigSecret {
 				dbUpdates["proxy.cf_cookies"] = *req.Proxy.CFCookies
 			}
 			if req.Proxy.SkipProxySSLVerify != nil {
@@ -315,7 +315,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Proxy.Timeout != nil {
 				dbUpdates["proxy.timeout"] = fmt.Sprintf("%d", *req.Proxy.Timeout)
 			}
-			if req.Proxy.CFClearance != nil {
+			if req.Proxy.CFClearance != nil && *req.Proxy.CFClearance != maskedConfigSecret {
 				dbUpdates["proxy.cf_clearance"] = *req.Proxy.CFClearance
 			}
 			if req.Proxy.Browser != nil {

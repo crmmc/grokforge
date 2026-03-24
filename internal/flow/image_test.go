@@ -8,6 +8,7 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -694,4 +695,35 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 	// Only the successful recovery token (tok-2) should have Consume called
 	assert.Len(t, tokenSvc.consumeCalls, 1, "Consume should only be called for the successful recovery token")
 	assert.Equal(t, uint(2), tokenSvc.consumeCalls[0])
+}
+
+func TestImageFlow_Generate_Timeout(t *testing.T) {
+	originalTimeout := imageGenerationTimeout
+	imageGenerationTimeout = 20 * time.Millisecond
+	defer func() {
+		imageGenerationTimeout = originalTimeout
+	}()
+
+	flow := newTestImageFlow(imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}))
+
+	req := &ImageRequest{
+		Prompt: "slow image",
+		Size:   "1024x1024",
+		N:      1,
+	}
+
+	start := time.Now()
+	_, err := flow.Generate(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), context.DeadlineExceeded.Error()) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if time.Since(start) < 10*time.Millisecond {
+		t.Fatalf("timeout returned too early, likely not using internal timeout")
+	}
 }

@@ -210,6 +210,37 @@ func TestAdminToken_GetToken_NotFound(t *testing.T) {
 	}
 }
 
+func TestAdminToken_BatchImport_UsesLatestConfig(t *testing.T) {
+	mockStore := newMockTokenStore()
+	current := &config.TokenConfig{
+		DefaultChatQuota:  50,
+		DefaultImageQuota: 20,
+		DefaultVideoQuota: 10,
+	}
+	handler := handleBatchTokensFromProvider(mockStore, nil, func() *config.TokenConfig { return current })
+
+	current = &config.TokenConfig{
+		DefaultChatQuota:  70,
+		DefaultImageQuota: 30,
+		DefaultVideoQuota: 15,
+	}
+
+	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"ssoBasic"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	token := mockStore.tokens[1]
+	if token.ChatQuota != 70 || token.ImageQuota != 30 || token.VideoQuota != 15 {
+		t.Fatalf("expected runtime quotas 70/30/15, got %d/%d/%d", token.ChatQuota, token.ImageQuota, token.VideoQuota)
+	}
+}
+
 func TestAdminToken_UpdateToken(t *testing.T) {
 	mockStore := newMockTokenStore()
 	mockStore.tokens[1] = &store.Token{

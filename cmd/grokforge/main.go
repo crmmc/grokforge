@@ -152,16 +152,18 @@ func main() {
 		&flow.ChatFlowConfig{
 			RetryConfig: flow.DefaultRetryConfig(),
 			RetryConfigProvider: func() *flow.RetryConfig {
+				current := runtimeCfg.Get()
+				retry := current.Retry
 				return &flow.RetryConfig{
-					MaxTokens:               cfg.Retry.MaxTokens,
-					PerTokenRetries:         cfg.Retry.PerTokenRetries,
-					BaseDelay:               time.Duration(cfg.Retry.RetryBackoffBase * float64(time.Second)),
-					MaxDelay:                time.Duration(cfg.Retry.RetryBackoffMax * float64(time.Second)),
+					MaxTokens:               retry.MaxTokens,
+					PerTokenRetries:         retry.PerTokenRetries,
+					BaseDelay:               time.Duration(retry.RetryBackoffBase * float64(time.Second)),
+					MaxDelay:                time.Duration(retry.RetryBackoffMax * float64(time.Second)),
 					JitterFactor:            0.25,
-					BackoffFactor:           cfg.Retry.RetryBackoffFactor,
-					ResetSessionStatusCodes: cfg.Retry.ResetSessionStatusCodes,
-					CoolingStatusCodes:      cfg.Retry.CoolingStatusCodes,
-					RetryBudget:             time.Duration(cfg.Retry.RetryBudget * float64(time.Second)),
+					BackoffFactor:           retry.RetryBackoffFactor,
+					ResetSessionStatusCodes: append([]int(nil), retry.ResetSessionStatusCodes...),
+					CoolingStatusCodes:      append([]int(nil), retry.CoolingStatusCodes...),
+					RetryBudget:             time.Duration(retry.RetryBudget * float64(time.Second)),
 				}
 			},
 			TokenConfigProvider: func() *config.TokenConfig {

@@ -46,7 +46,9 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent
 
 	events := make(chan StreamEvent, 16)
 
-	go c.streamChat(ctx, body, events)
+	safeGo("xai_stream_chat", func() {
+		c.streamChat(ctx, body, events)
+	})
 
 	return events, nil
 }

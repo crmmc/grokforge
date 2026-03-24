@@ -39,7 +39,9 @@ func (p *Persister) Start(ctx context.Context, interval time.Duration) {
 		interval = defaultFlushInterval
 	}
 	p.wg.Add(1)
-	go p.run(ctx, interval)
+	safeGo("token_persister", func() {
+		p.run(ctx, interval)
+	})
 }
 
 // Stop waits for the flush loop to complete.

@@ -50,7 +50,7 @@ func (b *UsageBuffer) Record(_ context.Context, log *store.UsageLog) error {
 
 // Start launches the periodic flush loop in a background goroutine.
 func (b *UsageBuffer) Start() {
-	go b.flushLoop()
+	SafeGo("usage_buffer_flush_loop", b.flushLoop)
 }
 
 // Stop signals the flush loop to stop and waits for remaining records to be flushed.

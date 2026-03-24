@@ -101,7 +101,7 @@ type UsageLog struct {
 	APIKeyID     uint      `gorm:"index;default:0" json:"api_key_id"`
 	Model        string    `gorm:"size:64" json:"model"`
 	Endpoint     string    `gorm:"size:128" json:"endpoint"`
-	Status       int       `json:"status"`
+	Status       int       `gorm:"index:idx_created_status,priority:2" json:"status"`
 	DurationMs   int64     `gorm:"column:duration_ms" json:"duration_ms"`
 	TTFTMs       int       `gorm:"default:0" json:"ttft_ms"`
 	CacheTokens  int       `gorm:"default:0" json:"cache_tokens"`

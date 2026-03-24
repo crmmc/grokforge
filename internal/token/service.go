@@ -191,7 +191,9 @@ func (s *TokenService) Stats() map[string]PoolStats {
 
 // StartTicker starts the cooldown ticker in a goroutine.
 func (s *TokenService) StartTicker(ctx context.Context) {
-	go s.ticker.Start(ctx)
+	safeGo("token_cooldown_ticker", func() {
+		s.ticker.Start(ctx)
+	})
 }
 
 // Manager returns the underlying token manager.

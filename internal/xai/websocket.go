@@ -177,7 +177,9 @@ func (c *ImagineClient) doGenerate(
 	eventCh := make(chan ImageEvent, 16)
 	requestID := uuid.New().String()
 
-	go c.streamImages(ctx, conn, requestID, prompt, aspectRatio, originalImageB64, enableNSFW, eventCh)
+	safeGo("xai_stream_images", func() {
+		c.streamImages(ctx, conn, requestID, prompt, aspectRatio, originalImageB64, enableNSFW, eventCh)
+	})
 
 	return eventCh, nil
 }
@@ -259,4 +261,3 @@ func newSocksProxyDialer(u *url.URL) (proxy.Dialer, error) {
 	}
 	return proxy.SOCKS5("tcp", u.Host, auth, proxy.Direct)
 }
-
