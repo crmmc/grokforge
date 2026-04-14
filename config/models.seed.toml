@@ -1,0 +1,84 @@
+# config/models.seed.toml
+
+[[family]]
+model        = "grok-4.20"
+display_name = "Grok 4.20"
+type         = "chat"
+pool_floor   = "basic"
+default_mode = "default"
+
+  [[family.mode]]
+  mode           = "default"
+  upstream_model = "grok-420"
+  upstream_mode  = "MODEL_MODE_GROK_420"
+
+  [[family.mode]]
+  mode           = "fast"
+  upstream_model = "grok-420"
+  upstream_mode  = "MODEL_MODE_FAST"
+
+  [[family.mode]]
+  mode                = "expert"
+  upstream_model      = "grok-420"
+  upstream_mode       = "MODEL_MODE_EXPERT"
+  pool_floor_override = "super"
+
+  [[family.mode]]
+  mode                = "heavy"
+  upstream_model      = "grok-420"
+  upstream_mode       = "MODEL_MODE_HEAVY"
+  pool_floor_override = "heavy"
+
+[[family]]
+model        = "grok-4.20-mini"
+display_name = "Grok 4.20 Mini"
+type         = "chat"
+pool_floor   = "basic"
+default_mode = "default"
+
+  [[family.mode]]
+  mode           = "default"
+  upstream_model = "grok-420"
+  upstream_mode  = "MODEL_MODE_GROK_420_MINI"
+
+[[family]]
+model        = "grok-imagine-image"
+display_name = "Grok Imagine Image"
+type         = "image"
+pool_floor   = "super"
+default_mode = "default"
+
+  [[family.mode]]
+  mode           = "default"
+  upstream_model = "grok-3"
+  upstream_mode  = "MODEL_MODE_FAST"
+
+  [[family.mode]]
+  mode                = "lite"
+  upstream_model      = "grok-3"
+  upstream_mode       = "MODEL_MODE_FAST"
+  pool_floor_override = "basic"
+
+[[family]]
+model        = "grok-imagine-image-edit"
+display_name = "Grok Imagine Image Edit"
+type         = "image_edit"
+pool_floor   = "super"
+default_mode = "default"
+
+  [[family.mode]]
+  mode           = "default"
+  upstream_model = "imagine-image-edit"
+  upstream_mode  = "MODEL_MODE_FAST"
+
+[[family]]
+model        = "grok-imagine-video"
+display_name = "Grok Imagine Video"
+type         = "video"
+pool_floor   = "super"
+default_mode = "default"
+
+  [[family.mode]]
+  mode           = "default"
+  upstream_model = "grok-3"
+  upstream_mode  = "MODEL_MODE_FAST"
