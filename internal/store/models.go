@@ -111,6 +111,35 @@ type UsageLog struct {
 	CreatedAt    time.Time `gorm:"index;index:idx_created_status,priority:1" json:"created_at"`
 }
 
+// ModelFamily represents a model family (e.g., grok-3, grok-4).
+type ModelFamily struct {
+	ID            uint      `gorm:"primaryKey" json:"id"`
+	Model         string    `gorm:"uniqueIndex;size:128" json:"model"`
+	DisplayName   string    `gorm:"size:128" json:"display_name"`
+	Type          string    `gorm:"size:32" json:"type"`
+	Enabled       bool      `gorm:"default:true" json:"enabled"`
+	PoolFloor     string    `gorm:"size:32;default:basic" json:"pool_floor"`
+	DefaultModeID *uint     `json:"default_mode_id"`
+	QuotaDefault  *string   `gorm:"type:text" json:"quota_default"`
+	Description   string    `gorm:"type:text" json:"description"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// ModelMode represents a mode variant within a model family.
+type ModelMode struct {
+	ID                uint      `gorm:"primaryKey" json:"id"`
+	ModelID           uint      `gorm:"uniqueIndex:idx_model_mode;index" json:"model_id"`
+	Mode              string    `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
+	Enabled           bool      `gorm:"default:true" json:"enabled"`
+	PoolFloorOverride *string   `gorm:"size:32" json:"pool_floor_override"`
+	UpstreamMode      string    `gorm:"size:128" json:"upstream_mode"`
+	UpstreamModel     string    `gorm:"size:128" json:"upstream_model"`
+	QuotaOverride     *string   `gorm:"type:text" json:"quota_override"`
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+}
+
 // AllModels returns all models for AutoMigrate.
 func AllModels() []any {
 	return []any{
@@ -118,6 +147,8 @@ func AllModels() []any {
 		&ConfigEntry{},
 		&UsageLog{},
 		&APIKey{},
+		&ModelFamily{},
+		&ModelMode{},
 	}
 }
 

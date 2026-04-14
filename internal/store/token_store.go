@@ -33,6 +33,9 @@ type BatchUpdateRequest struct {
 // ErrNotFound is returned when a record is not found.
 var ErrNotFound = errors.New("record not found")
 
+// ErrConflict is returned when a derived request name conflicts with existing models.
+var ErrConflict = errors.New("request name conflict")
+
 // TokenStore provides CRUD operations for Token.
 type TokenStore struct {
 	db *gorm.DB
