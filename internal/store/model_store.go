@@ -258,6 +258,10 @@ func (s *ModelStore) checkConflict(tx *gorm.DB, ctx context.Context,
 		if m.ID == excludeModeID {
 			continue
 		}
+		// When excluding a family, also skip all modes belonging to it
+		if excludeFamilyID != 0 && m.ModelID == excludeFamilyID {
+			continue
+		}
 		var familyModel string
 		for _, f := range families {
 			if f.ID == m.ModelID {
