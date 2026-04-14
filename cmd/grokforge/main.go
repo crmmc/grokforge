@@ -11,6 +11,9 @@ import (
 	"syscall"
 	"time"
 
+	"path/filepath"
+
+	seedconfig "github.com/crmmc/grokforge/config"
 	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/cfrefresh"
 	"github.com/crmmc/grokforge/internal/config"
@@ -74,6 +77,13 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Info("database ready", "driver", cfg.App.DBDriver)
+
+	// Seed model data on first run
+	configDir := filepath.Dir(*configPath)
+	if err := store.SeedModels(context.Background(), db, configDir, seedconfig.SeedFS); err != nil {
+		logging.Error("failed to seed models", "error", err)
+		os.Exit(1)
+	}
 
 	// Load DB config overrides (DB > config file > defaults)
 	configStore := store.NewConfigStore(db)
