@@ -89,6 +89,8 @@ type ChatRequest struct {
 	Tools             []Tool    `json:"tools,omitempty"`
 	ToolChoice        any       `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool      `json:"parallel_tool_calls,omitempty"`
+	UpstreamModel     string    `json:"-"` // Grok API model name from registry
+	UpstreamMode      string    `json:"-"` // Grok API model mode from registry
 }
 
 // Usage represents token usage statistics.
