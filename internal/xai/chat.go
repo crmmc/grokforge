@@ -37,8 +37,8 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent
 
 	slog.Debug("xai: chat request built",
 		"model", req.Model,
-		"grok_model", mapModel(req.Model),
-		"model_mode", modelModeForModel(req.Model),
+		"upstream_model", req.UpstreamModel,
+		"upstream_mode", req.UpstreamMode,
 		"msg_count", len(req.Messages),
 		"body_len", len(body),
 		"temporary", req.Temporary,
@@ -59,7 +59,10 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent
 // sent without a role prefix; all others are prefixed with "role: ".
 func buildChatBody(req *ChatRequest) ([]byte, error) {
 	message := flattenMessages(req.Messages)
-	grokModel := mapModel(req.Model)
+	grokModel := req.UpstreamModel
+	if grokModel == "" {
+		grokModel = req.Model // defensive fallback
+	}
 	fileAttachments := req.FileAttachments
 	if fileAttachments == nil {
 		fileAttachments = []string{}
@@ -103,7 +106,7 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 		"enableSideBySide":          true,
 		"sendFinalMetadata":         true,
 		"isReasoning":               false,
-		"modelMode":                 modelModeForModel(req.Model),
+		"modelMode":                 req.UpstreamMode,
 		"responseMetadata":          responseMeta,
 		"deviceEnvInfo": map[string]any{
 			"darkModeEnabled":  false,
@@ -178,59 +181,6 @@ func flattenMessages(messages []Message) string {
 		}
 	}
 	return b.String()
-}
-
-// modelMapping holds the grok_model and modelMode for a given model_id.
-type modelMapping struct {
-	GrokModel string
-	ModelMode string
-}
-
-// modelMappings maps OpenAI-style model_id to Grok API grok_model + modelMode.
-// Sourced from Python reference: grok2api ModelService.MODELS.
-var modelMappings = map[string]modelMapping{
-	"grok-3":                 {"grok-3", "MODEL_MODE_GROK_3"},
-	"grok-3-mini":            {"grok-3", "MODEL_MODE_GROK_3_MINI_THINKING"},
-	"grok-3-thinking":        {"grok-3", "MODEL_MODE_GROK_3_THINKING"},
-	"grok-4":                 {"grok-4", "MODEL_MODE_GROK_4"},
-	"grok-4-mini":            {"grok-4-mini", "MODEL_MODE_GROK_4_MINI_THINKING"},
-	"grok-4-thinking":        {"grok-4", "MODEL_MODE_GROK_4_THINKING"},
-	"grok-4-heavy":           {"grok-4", "MODEL_MODE_HEAVY"},
-	"grok-4.1-mini":          {"grok-4-1-thinking-1129", "MODEL_MODE_GROK_4_1_MINI_THINKING"},
-	"grok-4.1-fast":          {"grok-4-1-thinking-1129", "MODEL_MODE_FAST"},
-	"grok-4.1-expert":        {"grok-4-1-thinking-1129", "MODEL_MODE_EXPERT"},
-	"grok-4.1-thinking":      {"grok-4-1-thinking-1129", "MODEL_MODE_GROK_4_1_THINKING"},
-	"grok-4.20-beta":         {"grok-420", "MODEL_MODE_GROK_420"},
-	"grok-imagine-1.0":       {"grok-3", "MODEL_MODE_FAST"},
-	"grok-imagine-1.0-fast":  {"grok-3", "MODEL_MODE_FAST"},
-	"grok-imagine-1.0-edit":  {"imagine-image-edit", "MODEL_MODE_FAST"},
-	"grok-imagine-1.0-video": {"grok-3", "MODEL_MODE_FAST"},
-}
-
-// mapModel converts OpenAI model names to Grok API model names.
-// Unknown grok-prefixed names pass through; empty or non-grok names default to "grok-3".
-func mapModel(model string) string {
-	// Look up in mapping table
-	if m, ok := modelMappings[model]; ok {
-		return m.GrokModel
-	}
-
-	// Passthrough any grok-prefixed model name
-	if strings.HasPrefix(model, "grok-") {
-		return model
-	}
-
-	// Default fallback
-	return "grok-3"
-}
-
-// modelModeForModel returns the Grok API modelMode for the given model_id.
-// Returns empty string for unknown models.
-func modelModeForModel(model string) string {
-	if m, ok := modelMappings[model]; ok {
-		return m.ModelMode
-	}
-	return ""
 }
 
 // streamChat handles the streaming response in a goroutine.

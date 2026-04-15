@@ -140,8 +140,10 @@ func TestBuildChatBody(t *testing.T) {
 		Messages: []Message{
 			{Role: "user", Content: "Hello"},
 		},
-		Model:  "grok-3",
-		Stream: true,
+		Model:         "grok-3",
+		Stream:        true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODEL_MODE_GROK_3",
 	}
 
 	body, err := buildChatBody(req)
@@ -218,6 +220,8 @@ func TestBuildChatBody_CustomPersonality(t *testing.T) {
 			req := &ChatRequest{
 				Messages:          []Message{{Role: "user", Content: "hi"}},
 				Model:             "grok-3",
+				UpstreamModel:     "grok-3",
+				UpstreamMode:      "MODEL_MODE_GROK_3",
 				CustomInstruction: tt.instruction,
 			}
 			body, err := buildChatBody(req)
@@ -244,8 +248,10 @@ func TestBuildChatBody_CustomPersonality(t *testing.T) {
 
 func TestBuildChatBody_ResponseMetadata_WithTemperature(t *testing.T) {
 	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "hi"}},
-		Model:    "grok-4-heavy",
+		Messages:      []Message{{Role: "user", Content: "hi"}},
+		Model:         "grok-4-heavy",
+		UpstreamModel: "grok-4",
+		UpstreamMode:  "MODEL_MODE_HEAVY",
 	}
 	temp := 0.7
 	req.Temperature = &temp
@@ -413,8 +419,10 @@ data: [DONE]
 
 func TestBuildChatBody_P1PayloadFields(t *testing.T) {
 	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "hi"}},
-		Model:    "grok-3",
+		Messages:      []Message{{Role: "user", Content: "hi"}},
+		Model:         "grok-3",
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODEL_MODE_GROK_3",
 	}
 	body, err := buildChatBody(req)
 	if err != nil {
