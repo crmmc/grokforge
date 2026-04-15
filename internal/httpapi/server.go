@@ -12,6 +12,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -48,6 +49,8 @@ type Server struct {
 	apiKeyStore     APIKeyStoreInterface
 	cacheService    *cache.Service
 	configStore     *store.ConfigStore
+	modelStore      *store.ModelStore
+	modelRegistry   *registry.ModelRegistry
 }
 
 // ServerConfig holds server configuration.
@@ -64,6 +67,8 @@ type ServerConfig struct {
 	APIKeyStore     APIKeyStoreInterface
 	CacheService    *cache.Service
 	ConfigStore     *store.ConfigStore
+	ModelStore      *store.ModelStore
+	ModelRegistry   *registry.ModelRegistry
 }
 
 // NewServer creates a new HTTP server with configured routes.
@@ -90,6 +95,8 @@ func NewServer(cfg *ServerConfig) *Server {
 		apiKeyStore:     cfg.APIKeyStore,
 		cacheService:    cfg.CacheService,
 		configStore:     cfg.ConfigStore,
+		modelStore:      cfg.ModelStore,
+		modelRegistry:   cfg.ModelRegistry,
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -275,6 +282,21 @@ func (s *Server) setupRoutes() {
 				r.Post("/cache/delete", handleDeleteCacheFiles(s.cacheService))
 				r.Post("/cache/clear", handleClearCache(s.cacheService))
 				r.Get("/cache/files/{type}/{name}", handleServeCacheFile(s.cacheService))
+			}
+
+			// Model management endpoints
+			if s.modelStore != nil {
+				r.Route("/models", func(r chi.Router) {
+					r.Get("/families", handleListFamilies(s.modelStore, s.modelRegistry))
+					r.Post("/families", handleCreateFamily(s.modelStore, s.modelRegistry))
+					r.Get("/families/{id}", handleGetFamily(s.modelStore, s.modelRegistry))
+					r.Put("/families/{id}", handleUpdateFamily(s.modelStore, s.modelRegistry))
+					r.Delete("/families/{id}", handleDeleteFamily(s.modelStore, s.modelRegistry))
+					r.Post("/modes", handleCreateMode(s.modelStore, s.modelRegistry))
+					r.Get("/modes/{id}", handleGetMode(s.modelStore))
+					r.Put("/modes/{id}", handleUpdateMode(s.modelStore, s.modelRegistry))
+					r.Delete("/modes/{id}", handleDeleteMode(s.modelStore, s.modelRegistry))
+				})
 			}
 		})
 	})
