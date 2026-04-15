@@ -2,8 +2,6 @@ package token
 
 import (
 	"testing"
-
-	"github.com/crmmc/grokforge/internal/config"
 )
 
 func TestParseModelEntry(t *testing.T) {
@@ -36,35 +34,34 @@ func TestParseModelEntry(t *testing.T) {
 }
 
 func TestCostForModel(t *testing.T) {
-	cfg := &config.TokenConfig{
-		BasicModels: []string{"grok-2", "grok-2-mini"},
-		SuperModels: []string{"grok-3", "grok-4-heavy#4", "grok-4.1-expert#4"},
-	}
+	resolver := newMockResolver(map[string][2]any{
+		"grok-2":       {"basic", 1},
+		"grok-3":       {"super", 1},
+		"grok-expert":  {"heavy", 4},
+	})
 
 	tests := []struct {
 		model    string
 		wantCost int
 	}{
 		{"grok-2", 1},
-		{"grok-2-mini", 1},
 		{"grok-3", 1},
-		{"grok-4-heavy", 4},
-		{"grok-4.1-expert", 4},
+		{"grok-expert", 4},
 		{"unknown", 1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.model, func(t *testing.T) {
-			cost := CostForModel(tt.model, cfg)
+			cost := CostForModel(tt.model, resolver)
 			if cost != tt.wantCost {
 				t.Errorf("CostForModel(%q) = %d, want %d", tt.model, cost, tt.wantCost)
 			}
 		})
 	}
 
-	t.Run("nil config returns 1", func(t *testing.T) {
+	t.Run("nil resolver returns 1", func(t *testing.T) {
 		if cost := CostForModel("any", nil); cost != 1 {
-			t.Errorf("CostForModel with nil cfg = %d, want 1", cost)
+			t.Errorf("CostForModel with nil resolver = %d, want 1", cost)
 		}
 	})
 }
