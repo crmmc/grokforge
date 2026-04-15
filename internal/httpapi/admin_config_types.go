@@ -79,19 +79,17 @@ type RetryConfigResponse struct {
 
 // TokenConfigResponse is the API response for token config.
 type TokenConfigResponse struct {
-	FailThreshold         int      `json:"fail_threshold"`
-	UsageFlushIntervalSec int      `json:"usage_flush_interval_sec"`
-	CoolCheckIntervalSec  int      `json:"cool_check_interval_sec"`
-	BasicModels           []string `json:"basic_models"`
-	SuperModels           []string `json:"super_models"`
-	PreferredPool         string   `json:"preferred_pool"`
-	BasicCoolDurationMin  int      `json:"basic_cool_duration_min"`
-	SuperCoolDurationMin  int      `json:"super_cool_duration_min"`
-	DefaultChatQuota      int      `json:"default_chat_quota"`
-	DefaultImageQuota     int      `json:"default_image_quota"`
-	DefaultVideoQuota     int      `json:"default_video_quota"`
-	QuotaRecoveryMode     string   `json:"quota_recovery_mode"`
-	SelectionAlgorithm    string   `json:"selection_algorithm"`
+	FailThreshold         int    `json:"fail_threshold"`
+	UsageFlushIntervalSec int    `json:"usage_flush_interval_sec"`
+	CoolCheckIntervalSec  int    `json:"cool_check_interval_sec"`
+	BasicCoolDurationMin  int    `json:"basic_cool_duration_min"`
+	SuperCoolDurationMin  int    `json:"super_cool_duration_min"`
+	HeavyCoolDurationMin  int    `json:"heavy_cool_duration_min"`
+	DefaultChatQuota      int    `json:"default_chat_quota"`
+	DefaultImageQuota     int    `json:"default_image_quota"`
+	DefaultVideoQuota     int    `json:"default_video_quota"`
+	QuotaRecoveryMode     string `json:"quota_recovery_mode"`
+	SelectionAlgorithm    string `json:"selection_algorithm"`
 }
 
 // ConfigUpdateRequest represents the fields that can be hot-reloaded.
@@ -166,17 +164,15 @@ type RetryConfigUpdate struct {
 
 // TokenConfigUpdate contains hot-reloadable token config fields.
 type TokenConfigUpdate struct {
-	FailThreshold         *int      `json:"fail_threshold,omitempty"`
-	CoolCheckIntervalSec  *int      `json:"cool_check_interval_sec,omitempty"`
-	UsageFlushIntervalSec *int      `json:"usage_flush_interval_sec,omitempty"`
-	BasicModels           *[]string `json:"basic_models,omitempty"`
-	SuperModels           *[]string `json:"super_models,omitempty"`
-	PreferredPool         *string   `json:"preferred_pool,omitempty"`
-	BasicCoolDurationMin  *int      `json:"basic_cool_duration_min,omitempty"`
-	SuperCoolDurationMin  *int      `json:"super_cool_duration_min,omitempty"`
-	DefaultChatQuota      *int      `json:"default_chat_quota,omitempty"`
-	DefaultImageQuota     *int      `json:"default_image_quota,omitempty"`
-	DefaultVideoQuota     *int      `json:"default_video_quota,omitempty"`
-	QuotaRecoveryMode     *string   `json:"quota_recovery_mode,omitempty"`
-	SelectionAlgorithm    *string   `json:"selection_algorithm,omitempty"`
+	FailThreshold         *int    `json:"fail_threshold,omitempty"`
+	CoolCheckIntervalSec  *int    `json:"cool_check_interval_sec,omitempty"`
+	UsageFlushIntervalSec *int    `json:"usage_flush_interval_sec,omitempty"`
+	BasicCoolDurationMin  *int    `json:"basic_cool_duration_min,omitempty"`
+	SuperCoolDurationMin  *int    `json:"super_cool_duration_min,omitempty"`
+	HeavyCoolDurationMin  *int    `json:"heavy_cool_duration_min,omitempty"`
+	DefaultChatQuota      *int    `json:"default_chat_quota,omitempty"`
+	DefaultImageQuota     *int    `json:"default_image_quota,omitempty"`
+	DefaultVideoQuota     *int    `json:"default_video_quota,omitempty"`
+	QuotaRecoveryMode     *string `json:"quota_recovery_mode,omitempty"`
+	SelectionAlgorithm    *string `json:"selection_algorithm,omitempty"`
 }

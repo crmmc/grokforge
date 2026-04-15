@@ -182,20 +182,14 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.UsageFlushIntervalSec != nil {
 				cfg.Token.UsageFlushIntervalSec = *req.Token.UsageFlushIntervalSec
 			}
-			if req.Token.BasicModels != nil {
-				cfg.Token.BasicModels = filterEmptyStrings(*req.Token.BasicModels)
-			}
-			if req.Token.SuperModels != nil {
-				cfg.Token.SuperModels = filterEmptyStrings(*req.Token.SuperModels)
-			}
-			if req.Token.PreferredPool != nil {
-				cfg.Token.PreferredPool = *req.Token.PreferredPool
-			}
 			if req.Token.BasicCoolDurationMin != nil {
 				cfg.Token.BasicCoolDurationMin = *req.Token.BasicCoolDurationMin
 			}
 			if req.Token.SuperCoolDurationMin != nil {
 				cfg.Token.SuperCoolDurationMin = *req.Token.SuperCoolDurationMin
+			}
+			if req.Token.HeavyCoolDurationMin != nil {
+				cfg.Token.HeavyCoolDurationMin = *req.Token.HeavyCoolDurationMin
 			}
 			if req.Token.DefaultChatQuota != nil {
 				cfg.Token.DefaultChatQuota = *req.Token.DefaultChatQuota
@@ -375,20 +369,14 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.UsageFlushIntervalSec != nil {
 				dbUpdates["token.usage_flush_interval_sec"] = fmt.Sprintf("%d", *req.Token.UsageFlushIntervalSec)
 			}
-			if req.Token.BasicModels != nil {
-				dbUpdates["token.basic_models"] = strings.Join(filterEmptyStrings(*req.Token.BasicModels), ",")
-			}
-			if req.Token.SuperModels != nil {
-				dbUpdates["token.super_models"] = strings.Join(filterEmptyStrings(*req.Token.SuperModels), ",")
-			}
-			if req.Token.PreferredPool != nil {
-				dbUpdates["token.preferred_pool"] = *req.Token.PreferredPool
-			}
 			if req.Token.BasicCoolDurationMin != nil {
 				dbUpdates["token.basic_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.BasicCoolDurationMin)
 			}
 			if req.Token.SuperCoolDurationMin != nil {
 				dbUpdates["token.super_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.SuperCoolDurationMin)
+			}
+			if req.Token.HeavyCoolDurationMin != nil {
+				dbUpdates["token.heavy_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.HeavyCoolDurationMin)
 			}
 			if req.Token.DefaultChatQuota != nil {
 				dbUpdates["token.default_chat_quota"] = fmt.Sprintf("%d", *req.Token.DefaultChatQuota)
