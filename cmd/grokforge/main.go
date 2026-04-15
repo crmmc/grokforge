@@ -21,6 +21,7 @@ import (
 	"github.com/crmmc/grokforge/internal/httpapi"
 	"github.com/crmmc/grokforge/internal/httpapi/openai"
 	"github.com/crmmc/grokforge/internal/logging"
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
@@ -84,6 +85,16 @@ func main() {
 		logging.Error("failed to seed models", "error", err)
 		os.Exit(1)
 	}
+
+	// Build model registry (in-memory snapshot)
+	modelStore := store.NewModelStore(db)
+	reg := registry.NewModelRegistry(modelStore)
+	if err := reg.Refresh(context.Background()); err != nil {
+		logging.Error("failed to load model registry", "error", err)
+		os.Exit(1)
+	}
+	logging.Info("model registry ready", "models", reg.Count())
+	_ = reg // TODO(phase-24): pass to httpapi/flow
 
 	// Load DB config overrides (DB > config file > defaults)
 	configStore := store.NewConfigStore(db)
