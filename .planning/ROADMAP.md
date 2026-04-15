@@ -103,8 +103,8 @@ Plans:
   5. Token 管理页面的池选项包含 heavy 池
 **Plans:** 3 plans
 Plans:
-- [ ] 24-01-PLAN.md — 主链路硬编码删除，xai/chat.go + chat_routing.go 改用 Registry
-- [ ] 24-02-PLAN.md — Admin 模型 CRUD API + server wiring ✅
+- [x] 24-01-PLAN.md — 主链路硬编码删除，xai/chat.go + chat_routing.go 改用 Registry ✅
+- [x] 24-02-PLAN.md — Admin 模型 CRUD API + server wiring ✅
 - [ ] 24-03-PLAN.md — 前端模型管理页面 Master-Detail + Dialog
 **UI hint**: yes
 
@@ -123,4 +123,4 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 21. Model Schema & Store | v1.4 | 1/1 | Complete    | 2026-04-14 |
 | 22. Seed Data & Registry | v1.4 | 2/2 | Complete    | 2026-04-15 |
 | 23. Three-Pool Routing | v1.4 | 3/3 | Complete   | 2026-04-15 |
-| 24. Integration & Admin UI | v1.4 | 1/3 | In progress | - |
+| 24. Integration & Admin UI | v1.4 | 2/3 | In progress | - |
