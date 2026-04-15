@@ -5,7 +5,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -53,22 +52,18 @@ func ParseModelEntry(entry string) (string, int) {
 	return entry, 1
 }
 
-// CostForModel looks up the cost for a model from basic_models/super_models lists.
-func CostForModel(model string, cfg *config.TokenConfig) int {
-	if cfg == nil {
+// CostForModel looks up the cost for a model from the resolver.
+// Returns 1 as default when resolver is nil or model is not found.
+func CostForModel(model string, resolver ModelResolver) int {
+	if resolver == nil {
 		return 1
 	}
-	for _, entry := range cfg.BasicModels {
-		name, cost := ParseModelEntry(entry)
-		if name == model {
-			return cost
-		}
+	_, cost, ok := resolver.ResolvePoolFloor(model)
+	if !ok {
+		return 1
 	}
-	for _, entry := range cfg.SuperModels {
-		name, cost := ParseModelEntry(entry)
-		if name == model {
-			return cost
-		}
+	if cost <= 0 {
+		return 1
 	}
-	return 1
+	return cost
 }
