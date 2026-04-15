@@ -124,6 +124,7 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
                   >
                     <SelectOption value="ssoBasic">{t.dashboard.basicPool}</SelectOption>
                     <SelectOption value="ssoSuper">{t.dashboard.superPool}</SelectOption>
+                    <SelectOption value="ssoHeavy">{t.dashboard.heavyPool}</SelectOption>
                   </Select>
                 </div>
                 <div className="space-y-2">

@@ -123,6 +123,7 @@ type ImageFlow struct {
 	tokenConfigFn     func() *config.TokenConfig
 	appConfigFn       func() *config.AppConfig
 	imageConfigFn     func() *config.ImageConfig
+	modelResolver     tkn.ModelResolver
 }
 
 // NewImageFlow creates a new image flow with per-request token selection.
@@ -161,6 +162,11 @@ func (f *ImageFlow) SetAppConfig(cfg *config.AppConfig) {
 // SetAppConfigProvider sets a dynamic app config provider.
 func (f *ImageFlow) SetAppConfigProvider(fn func() *config.AppConfig) {
 	f.appConfigFn = fn
+}
+
+// SetModelResolver sets the model resolver for pool routing.
+func (f *ImageFlow) SetModelResolver(resolver tkn.ModelResolver) {
+	f.modelResolver = resolver
 }
 
 // SetImageConfig sets image-generation defaults and retry behavior.
@@ -249,17 +255,20 @@ func (f *ImageFlow) pickTokenForModel(model string) (*store.Token, error) {
 }
 
 func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]struct{}) (*store.Token, error) {
-	if tokenCfg := f.tokenConfig(); tokenCfg != nil {
-		primary, fallback, ok := tkn.GetPoolsForModel(model, tokenCfg)
+	if f.modelResolver != nil {
+		pools, ok := tkn.GetPoolForModel(model, f.modelResolver)
 		if ok {
-			tok, err := f.tokenSvc.PickExcluding(primary, tkn.CategoryImage, exclude)
-			if err == nil {
-				return tok, nil
+			var lastErr error
+			for _, pool := range pools {
+				tok, err := f.tokenSvc.PickExcluding(pool, tkn.CategoryImage, exclude)
+				if err == nil {
+					return tok, nil
+				}
+				lastErr = err
 			}
-			if fallback != "" {
-				return f.tokenSvc.PickExcluding(fallback, tkn.CategoryImage, exclude)
+			if lastErr != nil {
+				return nil, lastErr
 			}
-			return nil, err
 		}
 	}
 	return f.tokenSvc.PickExcluding(tkn.PoolBasic, tkn.CategoryImage, exclude)

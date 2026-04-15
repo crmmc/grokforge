@@ -114,6 +114,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               <Select value={pool} onChange={(e) => setPool(e.target.value)}>
                 <SelectOption value="ssoBasic">{t.dashboard.basicPool}</SelectOption>
                 <SelectOption value="ssoSuper">{t.dashboard.superPool}</SelectOption>
+                <SelectOption value="ssoHeavy">{t.dashboard.heavyPool}</SelectOption>
               </Select>
             </div>
             <div className="space-y-2">

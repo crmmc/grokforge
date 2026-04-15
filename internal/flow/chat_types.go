@@ -49,6 +49,8 @@ type ChatFlowConfig struct {
 	TokenConfig *config.TokenConfig
 	// TokenConfigProvider provides model-to-pool mapping configuration.
 	TokenConfigProvider func() *config.TokenConfig
+	// ModelResolver resolves model names to pool floor and cost.
+	ModelResolver tkn.ModelResolver
 	// AppConfig provides static Grok-specific parameters.
 	AppConfig *config.AppConfig
 	// AppConfigProvider provides Grok-specific parameters.

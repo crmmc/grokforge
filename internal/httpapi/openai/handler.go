@@ -3,15 +3,17 @@ package openai
 import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
+	"github.com/crmmc/grokforge/internal/registry"
 )
 
 // Handler holds dependencies for OpenAI-compatible API endpoints.
 type Handler struct {
-	ChatFlow  *flow.ChatFlow
-	VideoFlow *flow.VideoFlow
-	ImageFlow *flow.ImageFlow
-	Cfg       *config.Config
-	Runtime   *config.Runtime
+	ChatFlow      *flow.ChatFlow
+	VideoFlow     *flow.VideoFlow
+	ImageFlow     *flow.ImageFlow
+	Cfg           *config.Config
+	Runtime       *config.Runtime
+	ModelRegistry *registry.ModelRegistry
 }
 
 func (h *Handler) currentConfig() *config.Config {

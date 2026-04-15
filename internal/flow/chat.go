@@ -68,32 +68,33 @@ func MapReasoningEffort(effort string) (grokThinking string, enabled bool) {
 // Complete executes a chat completion with retry logic.
 // Returns a channel of StreamEvents. The channel is closed when done.
 func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	tokenCfg := f.tokenConfig()
-	if tokenCfg == nil {
-		tokenCfg = &config.TokenConfig{}
-	}
-	pool, fallback, ok := tkn.GetPoolsForModel(req.Model, tokenCfg)
-	if !ok {
-		// Model not in any configured group -- return error via channel
-		outCh := make(chan StreamEvent, 1)
-		outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
-		close(outCh)
-		return outCh, nil
+	var pools []string
+	if f.cfg != nil && f.cfg.ModelResolver != nil {
+		var ok bool
+		pools, ok = tkn.GetPoolForModel(req.Model, f.cfg.ModelResolver)
+		if !ok {
+			outCh := make(chan StreamEvent, 1)
+			outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
+			close(outCh)
+			return outCh, nil
+		}
+	} else {
+		pools = []string{tkn.PoolBasic}
 	}
 	slog.Debug("flow: chat complete start",
-		"model", req.Model, "pool", pool, "fallback", fallback,
+		"model", req.Model, "pools", pools,
 		"msg_count", len(req.Messages), "stream", req.Stream,
 		"has_tools", len(req.Tools) > 0)
 	outCh := make(chan StreamEvent, 64)
 
 	SafeGo("chat_execute_with_retry", func() {
-		f.executeWithRetry(ctx, req, pool, fallback, outCh)
+		f.executeWithRetry(ctx, req, pools, outCh)
 	})
 
 	return outCh, nil
 }
 
-func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool, fallback string, outCh chan<- StreamEvent) {
+func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools []string, outCh chan<- StreamEvent) {
 	defer close(outCh)
 
 	// Hot-reload: read config from provider if available
@@ -122,17 +123,21 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 			return
 		}
 
-		// Pick new token if needed
+		// Pick new token if needed — try pools in order
 		if currentToken == nil || tokenRetries >= cfg.PerTokenRetries {
-			tok, err := f.tokenSvc.Pick(pool, tkn.CategoryChat)
-			if err != nil && fallback != "" {
-				slog.Debug("flow: primary pool exhausted, trying fallback",
-					"pool", pool, "fallback", fallback, "error", err)
-				tok, err = f.tokenSvc.Pick(fallback, tkn.CategoryChat)
+			var tok *store.Token
+			var pickErr error
+			for _, pool := range pools {
+				tok, pickErr = f.tokenSvc.Pick(pool, tkn.CategoryChat)
+				if pickErr == nil {
+					break
+				}
+				slog.Debug("flow: pool exhausted, trying next",
+					"pool", pool, "error", pickErr)
 			}
-			if err != nil {
-				slog.Debug("flow: no token available", "pool", pool, "error", err)
-				lastErr = err
+			if pickErr != nil {
+				slog.Debug("flow: no token available", "pools", pools, "error", pickErr)
+				lastErr = pickErr
 				continue
 			}
 			maskedTok := tok.Token
@@ -141,7 +146,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 			}
 			slog.Debug("flow: token picked",
 				"token_id", tok.ID, "token", maskedTok,
-				"pool", pool, "quota", tkn.GetQuota(tok, tkn.CategoryChat),
+				"pools", pools, "quota", tkn.GetQuota(tok, tkn.CategoryChat),
 				"priority", tok.Priority, "attempt", attempt)
 			currentToken = tok
 			tokenRetries = 0
@@ -217,7 +222,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 			}
 			f.tokenSvc.ReportSuccess(currentToken.ID)
 			// Deduct quota only on success
-			cost := tkn.CostForModel(req.Model, f.tokenConfig())
+			cost := tkn.CostForModel(req.Model, f.cfg.ModelResolver)
 			if _, err := f.tokenSvc.Consume(currentToken.ID, tkn.CategoryChat, cost); err != nil {
 				slog.Warn("flow: chat quota consume failed", "token_id", currentToken.ID, "error", err)
 			}
@@ -254,16 +259,6 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pool,
 		lastErr = errors.New("all retries exhausted")
 	}
 	outCh <- StreamEvent{Error: lastErr}
-}
-
-func (f *ChatFlow) tokenConfig() *config.TokenConfig {
-	if f.cfg == nil {
-		return nil
-	}
-	if f.cfg.TokenConfigProvider != nil {
-		return f.cfg.TokenConfigProvider()
-	}
-	return f.cfg.TokenConfig
 }
 
 func (f *ChatFlow) appConfig() *config.AppConfig {

@@ -56,7 +56,8 @@ func TestHandleChat_EmptyMessages(t *testing.T) {
 
 func TestHandleChat_InvalidModel(t *testing.T) {
 	cfg := config.DefaultConfig()
-	s := httpapi.NewServer(&httpapi.ServerConfig{Config: cfg, ChatProvider: &Handler{Cfg: cfg}})
+	reg := newTestRegistry(t)
+	s := httpapi.NewServer(&httpapi.ServerConfig{Config: cfg, ChatProvider: &Handler{Cfg: cfg, ModelRegistry: reg}})
 	body := `{"model":"invalid-model","messages":[{"role":"user","content":"hi"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
 		strings.NewReader(body))

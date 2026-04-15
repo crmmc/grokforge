@@ -70,11 +70,9 @@ export interface TokenConfigResponse {
   fail_threshold: number
   usage_flush_interval_sec: number
   cool_check_interval_sec: number
-  basic_models: string[]
-  super_models: string[]
-  preferred_pool: string
   basic_cool_duration_min: number
   super_cool_duration_min: number
+  heavy_cool_duration_min: number
   default_chat_quota: number
   default_image_quota: number
   default_video_quota: number

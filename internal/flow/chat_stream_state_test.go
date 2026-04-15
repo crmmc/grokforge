@@ -23,7 +23,7 @@ func TestChatFlow_FilterTagsAcrossChunks(t *testing.T) {
 	}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
 		RetryConfig: DefaultRetryConfig(),
-		TokenConfig: testFlowTokenConfig(),
+		ModelResolver: testModelResolver(),
 		FilterTags:  []string{"xaiartifact"},
 	})
 
@@ -57,7 +57,7 @@ func TestChatFlow_ToolCallsAcrossChunks(t *testing.T) {
 	}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
 		RetryConfig: DefaultRetryConfig(),
-		TokenConfig: testFlowTokenConfig(),
+		ModelResolver: testModelResolver(),
 	})
 
 	ch, err := flow.Complete(context.Background(), &ChatRequest{

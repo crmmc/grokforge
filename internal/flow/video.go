@@ -29,6 +29,7 @@ type VideoFlowConfig struct {
 	TimeoutSeconds      int
 	PollIntervalSeconds int
 	TokenConfig         *config.TokenConfig
+	ModelResolver       tkn.ModelResolver
 }
 
 // VideoRequest represents a video generation request.
@@ -159,17 +160,20 @@ func (f *VideoFlow) recordUsage(apiKeyID, tokenID uint, model string, status int
 
 func (f *VideoFlow) pickTokenForModel(model string) (*store.Token, error) {
 	cfg := f.cfg
-	if cfg != nil && cfg.TokenConfig != nil {
-		primary, fallback, ok := tkn.GetPoolsForModel(model, cfg.TokenConfig)
+	if cfg != nil && cfg.ModelResolver != nil {
+		pools, ok := tkn.GetPoolForModel(model, cfg.ModelResolver)
 		if ok {
-			tok, err := f.tokenSvc.Pick(primary, tkn.CategoryVideo)
-			if err == nil {
-				return tok, nil
+			var lastErr error
+			for _, pool := range pools {
+				tok, err := f.tokenSvc.Pick(pool, tkn.CategoryVideo)
+				if err == nil {
+					return tok, nil
+				}
+				lastErr = err
 			}
-			if fallback != "" {
-				return f.tokenSvc.Pick(fallback, tkn.CategoryVideo)
+			if lastErr != nil {
+				return nil, lastErr
 			}
-			return nil, err
 		}
 	}
 	return f.tokenSvc.Pick(tkn.PoolBasic, tkn.CategoryVideo)

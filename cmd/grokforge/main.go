@@ -94,7 +94,6 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Info("model registry ready", "models", reg.Count())
-	_ = reg // TODO(phase-24): pass to httpapi/flow
 
 	// Load DB config overrides (DB > config file > defaults)
 	configStore := store.NewConfigStore(db)
@@ -152,6 +151,7 @@ func main() {
 			TimeoutSeconds:      300,
 			PollIntervalSeconds: 5,
 			TokenConfig:         &cfg.Token,
+			ModelResolver:       reg,
 		},
 	)
 	videoFlow.SetAppConfigProvider(func() *config.AppConfig {
@@ -170,7 +170,7 @@ func main() {
 			}
 			return client
 		},
-		&flow.ChatFlowConfig{
+			&flow.ChatFlowConfig{
 			RetryConfig: flow.DefaultRetryConfig(),
 			RetryConfigProvider: func() *flow.RetryConfig {
 				current := runtimeCfg.Get()
@@ -190,6 +190,7 @@ func main() {
 			TokenConfigProvider: func() *config.TokenConfig {
 				return &runtimeCfg.Get().Token
 			},
+			ModelResolver: reg,
 			AppConfigProvider: func() *config.AppConfig {
 				return &runtimeCfg.Get().App
 			},
@@ -242,6 +243,7 @@ func main() {
 	imageFlow.SetImageConfigProvider(func() *config.ImageConfig {
 		return &runtimeCfg.Get().Image
 	})
+	imageFlow.SetModelResolver(reg)
 	imageFlow.SetUsageRecorder(usageBuffer)
 	logging.Info("image flow ready")
 
@@ -254,11 +256,12 @@ func main() {
 
 	// Create OpenAI provider
 	openaiHandler := &openai.Handler{
-		ChatFlow:  chatFlow,
-		VideoFlow: videoFlow,
-		ImageFlow: imageFlow,
-		Cfg:       runtimeCfg.Get(),
-		Runtime:   runtimeCfg,
+		ChatFlow:      chatFlow,
+		VideoFlow:     videoFlow,
+		ImageFlow:     imageFlow,
+		Cfg:           runtimeCfg.Get(),
+		Runtime:       runtimeCfg,
+		ModelRegistry: reg,
 	}
 
 	// Create HTTP server
