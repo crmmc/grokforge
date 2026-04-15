@@ -1,4 +1,6 @@
-.PHONY: build run test clean dev web web-install perf-budget
+.PHONY: all build run test clean dev web web-install perf-budget
+
+all: build
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 BUILD_TIME ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
