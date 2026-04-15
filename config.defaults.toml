@@ -125,30 +125,12 @@ fail_threshold = 5
 usage_flush_interval_sec = 30
 # Cooling check interval (seconds)
 cool_check_interval_sec = 30
-# Models assigned to Basic pool (format: "model#cost", cost defaults to 1)
-basic_models = [
-    "grok-3", "grok-3-mini", "grok-3-thinking#4",
-    "grok-4", "grok-4-mini", "grok-4-thinking#4",
-    "grok-4.1-expert#4", "grok-4.1-fast", "grok-4.1-mini", "grok-4.1-thinking#4",
-    "grok-4.20-beta#4",
-    "grok-imagine-1.0", "grok-imagine-1.0-edit", "grok-imagine-1.0-fast",
-    "grok-imagine-1.0-video",
-]
-# Models assigned to Super pool
-super_models = [
-    "grok-3", "grok-3-mini", "grok-3-thinking#4",
-    "grok-4", "grok-4-heavy#4", "grok-4-mini", "grok-4-thinking#4",
-    "grok-4.1-expert#4", "grok-4.1-fast", "grok-4.1-mini", "grok-4.1-thinking#4",
-    "grok-4.20-beta#4",
-    "grok-imagine-1.0", "grok-imagine-1.0-edit", "grok-imagine-1.0-fast",
-    "grok-imagine-1.0-video",
-]
-# Preferred pool when model exists in both pools
-preferred_pool = "ssoBasic"
 # Basic pool cooling duration (minutes)
 basic_cool_duration_min = 240
 # Super pool cooling duration (minutes)
 super_cool_duration_min = 120
+# Heavy pool cooling duration (minutes)
+heavy_cool_duration_min = 60
 # Default chat quota per token
 default_chat_quota = 50
 # Default image quota per token

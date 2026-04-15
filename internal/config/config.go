@@ -98,11 +98,7 @@ type TokenConfig struct {
 	FailThreshold         int `toml:"fail_threshold"`
 	UsageFlushIntervalSec int `toml:"usage_flush_interval_sec"`
 	CoolCheckIntervalSec  int `toml:"cool_check_interval_sec"`
-	// Model group fields
-	BasicModels          []string `toml:"basic_models"`
-	SuperModels          []string `toml:"super_models"`
-	PreferredPool        string   `toml:"preferred_pool"`
-	BasicCoolDurationMin int      `toml:"basic_cool_duration_min"`
+	BasicCoolDurationMin int `toml:"basic_cool_duration_min"`
 	SuperCoolDurationMin int      `toml:"super_cool_duration_min"`
 	HeavyCoolDurationMin int      `toml:"heavy_cool_duration_min"`
 	DefaultChatQuota     int      `toml:"default_chat_quota"`
@@ -327,16 +323,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 			} else {
 				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
-		case "token.basic_models":
-			if v != "" {
-				c.Token.BasicModels = splitTrimmed(v)
-			}
-		case "token.super_models":
-			if v != "" {
-				c.Token.SuperModels = splitTrimmed(v)
-			}
-		case "token.preferred_pool":
-			c.Token.PreferredPool = v
 		case "token.basic_cool_duration_min":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.BasicCoolDurationMin = n
@@ -381,18 +367,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 			}
 		}
 	}
-}
-
-func splitTrimmed(v string) []string {
-	parts := strings.Split(v, ",")
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part != "" {
-			result = append(result, part)
-		}
-	}
-	return result
 }
 
 // Load loads configuration from the given path.
