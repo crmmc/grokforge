@@ -7,192 +7,194 @@ import (
 	"github.com/crmmc/grokforge/internal/store"
 )
 
-// testTokenConfig returns a config fixture for picker tests.
-func testTokenConfig() *config.TokenConfig {
-	return &config.TokenConfig{
-		BasicModels:   []string{"grok-2", "grok-2-mini", "grok-2-imageGen"},
-		SuperModels:   []string{"grok-3", "grok-3-mini", "grok-3-reasoning", "grok-3-deepsearch", "grok-4"},
-		PreferredPool: "ssoSuper",
-		FailThreshold: 3,
+// mockResolver implements ModelResolver for testing.
+type mockResolver struct {
+	data map[string]struct {
+		floor string
+		cost  int
 	}
 }
 
-func TestGetPoolForModel_ConfigDriven(t *testing.T) {
-	cfg := testTokenConfig()
+func (m *mockResolver) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+	if m == nil {
+		return "", 0, false
+	}
+	entry, found := m.data[requestName]
+	if !found {
+		return "", 0, false
+	}
+	return entry.floor, entry.cost, true
+}
+
+func newMockResolver(entries map[string][2]any) *mockResolver {
+	m := &mockResolver{data: make(map[string]struct {
+		floor string
+		cost  int
+	})}
+	for name, v := range entries {
+		m.data[name] = struct {
+			floor string
+			cost  int
+		}{floor: v[0].(string), cost: v[1].(int)}
+	}
+	return m
+}
+
+func TestGetPoolForModel(t *testing.T) {
+	resolver := newMockResolver(map[string][2]any{
+		"grok-3":       {"basic", 1},
+		"grok-3-super": {"super", 1},
+		"grok-heavy":   {"heavy", 4},
+	})
 
 	tests := []struct {
-		name     string
-		model    string
-		wantPool string
-		wantOK   bool
+		name      string
+		model     string
+		wantPools []string
+		wantOK    bool
 	}{
-		{"basic only model", "grok-2", PoolBasic, true},
-		{"basic only model mini", "grok-2-mini", PoolBasic, true},
-		{"super only model", "grok-3", PoolSuper, true},
-		{"super only model mini", "grok-3-mini", PoolSuper, true},
-		{"super only model grok-4", "grok-4", PoolSuper, true},
-		{"unknown model", "unknown-model", "", false},
-		{"empty model", "", "", false},
+		{
+			"basic floor returns all three pools",
+			"grok-3",
+			[]string{PoolBasic, PoolSuper, PoolHeavy},
+			true,
+		},
+		{
+			"super floor returns super and heavy",
+			"grok-3-super",
+			[]string{PoolSuper, PoolHeavy},
+			true,
+		},
+		{
+			"heavy floor returns only heavy",
+			"grok-heavy",
+			[]string{PoolHeavy},
+			true,
+		},
+		{
+			"unknown model returns nil false",
+			"unknown-model",
+			nil,
+			false,
+		},
+		{
+			"empty model returns nil false",
+			"",
+			nil,
+			false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pool, ok := GetPoolForModel(tt.model, cfg)
-			if pool != tt.wantPool || ok != tt.wantOK {
-				t.Errorf("GetPoolForModel(%q) = (%q, %v), want (%q, %v)",
-					tt.model, pool, ok, tt.wantPool, tt.wantOK)
+			pools, ok := GetPoolForModel(tt.model, resolver)
+			if ok != tt.wantOK {
+				t.Errorf("GetPoolForModel(%q) ok = %v, want %v", tt.model, ok, tt.wantOK)
+				return
+			}
+			if !ok {
+				if pools != nil {
+					t.Errorf("GetPoolForModel(%q) pools = %v, want nil", tt.model, pools)
+				}
+				return
+			}
+			if len(pools) != len(tt.wantPools) {
+				t.Errorf("GetPoolForModel(%q) = %v, want %v", tt.model, pools, tt.wantPools)
+				return
+			}
+			for i, p := range pools {
+				if p != tt.wantPools[i] {
+					t.Errorf("GetPoolForModel(%q)[%d] = %q, want %q", tt.model, i, p, tt.wantPools[i])
+				}
 			}
 		})
 	}
 }
 
-func TestGetPoolForModel_DualMembership(t *testing.T) {
-	// Model in both groups: preferred pool wins
-	cfg := &config.TokenConfig{
-		BasicModels:   []string{"grok-2", "shared-model"},
-		SuperModels:   []string{"grok-3", "shared-model"},
-		PreferredPool: "ssoSuper",
-	}
+func TestPickForModel_ThreePool(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	resolver := newMockResolver(map[string][2]any{
+		"grok-basic": {"basic", 1},
+		"grok-super": {"super", 1},
+	})
 
-	pool, ok := GetPoolForModel("shared-model", cfg)
-	if !ok || pool != "ssoSuper" {
-		t.Errorf("dual membership with PreferredPool=ssoSuper: got (%q, %v), want (ssoSuper, true)", pool, ok)
-	}
+	t.Run("picks from first available pool in order", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		m.AddToken(basicToken)
+		m.AddToken(superToken)
 
-	// Change preferred pool
-	cfg.PreferredPool = "ssoBasic"
-	pool, ok = GetPoolForModel("shared-model", cfg)
-	if !ok || pool != "ssoBasic" {
-		t.Errorf("dual membership with PreferredPool=ssoBasic: got (%q, %v), want (ssoBasic, true)", pool, ok)
-	}
-}
-
-func TestPickForModel(t *testing.T) {
-	cfg := testTokenConfig()
-	m := NewTokenManager(cfg)
-
-	// Add tokens to both pools
-	basicToken := &store.Token{ID: 1, Token: "basic-token", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
-	superToken := &store.Token{ID: 2, Token: "super-token", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
-	m.AddToken(basicToken)
-	m.AddToken(superToken)
-
-	t.Run("grok-2 picks from basic pool", func(t *testing.T) {
-		token, err := m.PickForModel("grok-2", cfg, CategoryChat)
+		// basic floor model should pick from basic pool first
+		tok, err := m.PickForModel("grok-basic", resolver, CategoryChat)
 		if err != nil {
-			t.Fatalf("PickForModel failed: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if token.Pool != PoolBasic {
-			t.Errorf("expected pool %q, got %q", PoolBasic, token.Pool)
+		if tok.Pool != PoolBasic {
+			t.Errorf("expected pool %q, got %q", PoolBasic, tok.Pool)
 		}
 	})
 
-	t.Run("grok-3 picks from super pool", func(t *testing.T) {
-		token, err := m.PickForModel("grok-3", cfg, CategoryChat)
+	t.Run("falls back to next pool when first is empty", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		// Only super token, no basic token
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		m.AddToken(superToken)
+
+		// basic floor model: basic pool empty -> try super pool
+		tok, err := m.PickForModel("grok-basic", resolver, CategoryChat)
 		if err != nil {
-			t.Fatalf("PickForModel failed: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if token.Pool != PoolSuper {
-			t.Errorf("expected pool %q, got %q", PoolSuper, token.Pool)
-		}
-	})
-
-	t.Run("unknown model returns ErrModelNotFound", func(t *testing.T) {
-		_, err := m.PickForModel("unknown", cfg, CategoryChat)
-		if err != ErrModelNotFound {
-			t.Errorf("expected ErrModelNotFound, got %v", err)
+		if tok.Pool != PoolSuper {
+			t.Errorf("expected pool %q, got %q", PoolSuper, tok.Pool)
 		}
 	})
-}
 
-func TestPickForModel_EmptyPool(t *testing.T) {
-	cfg := testTokenConfig()
-	m := NewTokenManager(cfg)
+	t.Run("all pools empty returns ErrNoTokenAvailable", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		// No tokens at all
 
-	// Only add basic token, no super token
-	basicToken := &store.Token{ID: 1, Token: "basic-token", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
-	m.AddToken(basicToken)
-
-	t.Run("returns error when pool is empty and no fallback", func(t *testing.T) {
-		_, err := m.PickForModel("grok-3", cfg, CategoryChat) // grok-3 only in super pool, no fallback
+		_, err := m.PickForModel("grok-basic", resolver, CategoryChat)
 		if err != ErrNoTokenAvailable {
 			t.Errorf("expected ErrNoTokenAvailable, got %v", err)
 		}
 	})
-}
 
-func TestPickForModel_Fallback(t *testing.T) {
-	// Model in both pools, preferred pool empty → should fallback to other pool
-	cfg := &config.TokenConfig{
-		BasicModels:   []string{"shared-model"},
-		SuperModels:   []string{"shared-model"},
-		PreferredPool: "ssoSuper",
-		FailThreshold: 3,
-	}
-	m := NewTokenManager(cfg)
+	t.Run("unknown model returns ErrModelNotFound", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		_, err := m.PickForModel("unknown", resolver, CategoryChat)
+		if err != ErrModelNotFound {
+			t.Errorf("expected ErrModelNotFound, got %v", err)
+		}
+	})
 
-	// Only add basic token, no super token
-	basicToken := &store.Token{ID: 1, Token: "basic-token", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
-	m.AddToken(basicToken)
+	t.Run("super floor skips basic pool", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		m.AddToken(basicToken)
+		m.AddToken(superToken)
 
-	t.Run("falls back to basic when super is empty", func(t *testing.T) {
-		token, err := m.PickForModel("shared-model", cfg, CategoryChat)
+		// super floor model should NOT pick from basic pool
+		tok, err := m.PickForModel("grok-super", resolver, CategoryChat)
 		if err != nil {
-			t.Fatalf("expected fallback to basic, got error: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
-		if token.Pool != PoolBasic {
-			t.Errorf("expected pool %q, got %q", PoolBasic, token.Pool)
-		}
-	})
-
-	// Reverse: preferred=basic, only super token
-	cfg2 := &config.TokenConfig{
-		BasicModels:   []string{"shared-model"},
-		SuperModels:   []string{"shared-model"},
-		PreferredPool: "ssoBasic",
-		FailThreshold: 3,
-	}
-	m2 := NewTokenManager(cfg2)
-	superToken := &store.Token{ID: 2, Token: "super-token", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
-	m2.AddToken(superToken)
-
-	t.Run("falls back to super when basic is empty", func(t *testing.T) {
-		token, err := m2.PickForModel("shared-model", cfg2, CategoryChat)
-		if err != nil {
-			t.Fatalf("expected fallback to super, got error: %v", err)
-		}
-		if token.Pool != PoolSuper {
-			t.Errorf("expected pool %q, got %q", PoolSuper, token.Pool)
-		}
-	})
-}
-
-func TestGetPoolForModel_WithCostSuffix(t *testing.T) {
-	cfg := &config.TokenConfig{
-		BasicModels:   []string{"grok-2", "grok-2-mini"},
-		SuperModels:   []string{"grok-3", "grok-4-heavy#4"},
-		PreferredPool: "ssoSuper",
-	}
-
-	t.Run("model with cost suffix matches", func(t *testing.T) {
-		pool, ok := GetPoolForModel("grok-4-heavy", cfg)
-		if !ok || pool != PoolSuper {
-			t.Errorf("GetPoolForModel(grok-4-heavy) = (%q, %v), want (ssoSuper, true)", pool, ok)
+		if tok.Pool != PoolSuper {
+			t.Errorf("expected pool %q, got %q", PoolSuper, tok.Pool)
 		}
 	})
 
-	t.Run("model without cost suffix still matches", func(t *testing.T) {
-		pool, ok := GetPoolForModel("grok-3", cfg)
-		if !ok || pool != PoolSuper {
-			t.Errorf("GetPoolForModel(grok-3) = (%q, %v), want (ssoSuper, true)", pool, ok)
-		}
-	})
+	t.Run("super floor with only basic token returns error", func(t *testing.T) {
+		m := NewTokenManager(cfg)
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
+		m.AddToken(basicToken)
 
-	t.Run("literal cost suffix does not match", func(t *testing.T) {
-		// Searching for "grok-4-heavy#4" as model name should NOT match
-		_, ok := GetPoolForModel("grok-4-heavy#4", cfg)
-		if ok {
-			t.Error("GetPoolForModel(grok-4-heavy#4) should not match")
+		// super floor model: only basic pool has tokens, but super floor can't use basic
+		_, err := m.PickForModel("grok-super", resolver, CategoryChat)
+		if err != ErrNoTokenAvailable {
+			t.Errorf("expected ErrNoTokenAvailable, got %v", err)
 		}
 	})
 }
