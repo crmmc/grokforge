@@ -45,7 +45,7 @@ See `.planning/milestones/v1.3-ROADMAP.md`
 - [x] **Phase 21: Model Schema & Store** — model_family + model_mode 两表 CRUD + 冲突校验 (completed 2026-04-14)
 - [x] **Phase 22: Seed Data & Registry** — 种子数据导入 + ModelRegistry 内存快照 (completed 2026-04-15)
 - [x] **Phase 23: Three-Pool Routing** — heavy 池 + pool_floor 硬门槛 + 废弃旧配置 (completed 2026-04-15)
-- [ ] **Phase 24: Integration & Admin UI** — 主链路接入 Registry + 模型管理页面
+- [x] **Phase 24: Integration & Admin UI** — 主链路接入 Registry + 模型管理页面 (completed 2026-04-15)
 
 ## Phase Details
 
@@ -101,11 +101,11 @@ Plans:
   3. Admin API 提供模型 family/mode 的 CRUD 端点，操作后触发 Registry 刷新
   4. 前端模型管理页面可查看、新增、编辑、删除模型定义
   5. Token 管理页面的池选项包含 heavy 池
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 Plans:
 - [x] 24-01-PLAN.md — 主链路硬编码删除，xai/chat.go + chat_routing.go 改用 Registry ✅
 - [x] 24-02-PLAN.md — Admin 模型 CRUD API + server wiring ✅
-- [ ] 24-03-PLAN.md — 前端模型管理页面 Master-Detail + Dialog
+- [x] 24-03-PLAN.md — 前端模型管理页面 Master-Detail + Dialog
 **UI hint**: yes
 
 ## Progress
@@ -123,4 +123,4 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 21. Model Schema & Store | v1.4 | 1/1 | Complete    | 2026-04-14 |
 | 22. Seed Data & Registry | v1.4 | 2/2 | Complete    | 2026-04-15 |
 | 23. Three-Pool Routing | v1.4 | 3/3 | Complete   | 2026-04-15 |
-| 24. Integration & Admin UI | v1.4 | 2/3 | In progress | - |
+| 24. Integration & Admin UI | v1.4 | 3/3 | Complete   | 2026-04-15 |
