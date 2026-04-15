@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.4
 milestone_name: Model Management & Three-Pool
-status: completed
-stopped_at: Phase 24 context gathered
-last_updated: "2026-04-15T12:23:19.448Z"
-last_activity: 2026-04-15
+status: executing
+stopped_at: Completed 24-02-PLAN.md
+last_updated: "2026-04-15T13:50:33Z"
+last_activity: 2026-04-15 -- Phase 24 plan 02 complete
 progress:
   total_phases: 4
   completed_phases: 3
-  total_plans: 6
-  completed_plans: 6
-  percent: 100
+  total_plans: 9
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-14)
 
 **Core value:** Chat 主链路稳定可用
-**Current focus:** Phase 23 — three-pool-routing (COMPLETE)
+**Current focus:** Phase 24 — integration-admin-ui (executing)
 
 ## Current Position
 
-Phase: 23 (complete)
-Plan: All 3 plans complete
-Status: Phase 23 complete — three-pool routing delivered
-Last activity: 2026-04-15
+Phase: 24 (in progress)
+Plan: 24-02 complete, 24-01 and 24-03 remaining
+Status: Executing
+Last activity: 2026-04-15 -- Phase 24 plan 02 complete
 
-Progress: [███████░░░] 75%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -47,12 +47,15 @@ Progress: [███████░░░] 75%
 | 21 | 1 | - | - |
 | 22 | 2 | - | - |
 | 23 | 3 | ~12 min | ~4 min |
+| 24 | 1/3 | 7 min | 7 min |
 
 ## Accumulated Context
 
 ### Decisions
 
 Starting fresh for v1.4. See `.planning/milestones/v1.3-ROADMAP.md` for v1.3 history.
+
+- 24-02: Used interface injection (ModelStoreInterface + RegistryRefresher) for testability; FamilyResponse embeds family + modes
 
 ### Pending Todos
 
@@ -64,6 +67,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-04-15T12:23:19.439Z
-Stopped at: Phase 24 context gathered
-Resume file: .planning/phases/24-integration-admin-ui/24-CONTEXT.md
+Last session: 2026-04-15T13:50:33Z
+Stopped at: Completed 24-02-PLAN.md
+Resume file: .planning/phases/24-integration-admin-ui/24-02-SUMMARY.md
