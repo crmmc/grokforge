@@ -3,90 +3,69 @@ package token
 import (
 	"errors"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
 // ErrModelNotFound is returned when the model is not in any configured group.
 var ErrModelNotFound = errors.New("model not found")
 
-// modelInList checks if a model name matches any entry in the list,
-// ignoring the optional #cost suffix.
-func modelInList(model string, list []string) bool {
-	for _, entry := range list {
-		name, _ := ParseModelEntry(entry)
-		if name == model {
-			return true
-		}
-	}
-	return false
+// ModelResolver resolves a model request name to pool floor info.
+type ModelResolver interface {
+	ResolvePoolFloor(requestName string) (floor string, cost int, ok bool)
 }
 
-// GetPoolForModel returns the pool name for a given model based on config.
-// Returns ("", false) if the model is not in any configured group.
-func GetPoolForModel(model string, cfg *config.TokenConfig) (string, bool) {
-	if model == "" {
-		return "", false
+// GetPoolForModel returns the eligible pool names for a given model based on its pool_floor.
+// Pools are returned in ascending level order (basic → super → heavy).
+// Uses >= matching: a model with pool_floor=basic can use basic, super, and heavy pools.
+// Returns (nil, false) if the model is not found or the model name is empty.
+func GetPoolForModel(model string, resolver ModelResolver) ([]string, bool) {
+	if model == "" || resolver == nil {
+		return nil, false
 	}
 
-	inBasic := modelInList(model, cfg.BasicModels)
-	inSuper := modelInList(model, cfg.SuperModels)
-
-	if !inBasic && !inSuper {
-		return "", false
-	}
-	if inBasic && inSuper {
-		return cfg.PreferredPool, true
-	}
-	if inSuper {
-		return PoolSuper, true
-	}
-	return PoolBasic, true
-}
-
-// GetPoolsForModel returns the preferred pool and an optional fallback pool.
-// When the model is in both pools, the non-preferred pool is the fallback.
-func GetPoolsForModel(model string, cfg *config.TokenConfig) (primary, fallback string, ok bool) {
-	primary, ok = GetPoolForModel(model, cfg)
+	floor, _, ok := resolver.ResolvePoolFloor(model)
 	if !ok {
-		return "", "", false
+		return nil, false
 	}
-	inBasic := modelInList(model, cfg.BasicModels)
-	inSuper := modelInList(model, cfg.SuperModels)
-	if inBasic && inSuper {
-		if primary == PoolBasic {
-			fallback = PoolSuper
-		} else {
-			fallback = PoolBasic
+
+	floorLevel := PoolLevelFor(floor)
+	if floorLevel == 0 {
+		return nil, false
+	}
+
+	var pools []string
+	for _, name := range AllPoolNames() {
+		if PoolLevelFor(name) >= floorLevel {
+			pools = append(pools, name)
 		}
 	}
-	return primary, fallback, true
+
+	if len(pools) == 0 {
+		return nil, false
+	}
+	return pools, true
 }
 
-// PickForModel selects a token from the appropriate pool for the given model.
-// When the model exists in both pools and the preferred pool has no tokens,
-// it falls back to the other pool automatically.
-// Returns ErrModelNotFound if the model is not in any configured group.
-func (m *TokenManager) PickForModel(model string, cfg *config.TokenConfig, cat QuotaCategory) (*store.Token, error) {
-	pool, ok := GetPoolForModel(model, cfg)
+// PickForModel selects a token by trying each eligible pool in order.
+// Returns the first available token, or ErrNoTokenAvailable if all pools are exhausted.
+// Returns ErrModelNotFound if the model is not found in the resolver.
+func (m *TokenManager) PickForModel(model string, resolver ModelResolver, cat QuotaCategory) (*store.Token, error) {
+	pools, ok := GetPoolForModel(model, resolver)
 	if !ok {
 		return nil, ErrModelNotFound
 	}
-	tok, err := m.Pick(pool, cat)
-	if err == nil {
-		return tok, nil
-	}
-	// Fallback: if model is in both pools, try the other one.
-	inBasic := modelInList(model, cfg.BasicModels)
-	inSuper := modelInList(model, cfg.SuperModels)
-	if inBasic && inSuper {
-		alt := PoolBasic
-		if pool == PoolBasic {
-			alt = PoolSuper
+
+	var lastErr error
+	for _, pool := range pools {
+		tok, err := m.Pick(pool, cat)
+		if err == nil {
+			return tok, nil
 		}
-		if altTok, altErr := m.Pick(alt, cat); altErr == nil {
-			return altTok, nil
-		}
+		lastErr = err
 	}
-	return nil, err
+
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, ErrNoTokenAvailable
 }
