@@ -278,6 +278,8 @@ func main() {
 		APIKeyStore:     apiKeyStore,
 		CacheService:    cacheSvc,
 		ConfigStore:     configStore,
+		ModelStore:      modelStore,
+		ModelRegistry:   reg,
 	})
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
 
