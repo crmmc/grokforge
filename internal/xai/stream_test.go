@@ -282,65 +282,67 @@ func TestBuildChatBody_ResponseMetadata_WithTemperature(t *testing.T) {
 	}
 }
 
-func TestMapModel(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		// Direct mappings from Python reference
-		{"grok-3", "grok-3"},
-		{"grok-3-mini", "grok-3"},
-		{"grok-3-thinking", "grok-3"},
-		{"grok-4", "grok-4"},
-		{"grok-4-mini", "grok-4-mini"},
-		{"grok-4-thinking", "grok-4"},
-		{"grok-4-heavy", "grok-4"},
-		{"grok-4.1-mini", "grok-4-1-thinking-1129"},
-		{"grok-4.1-fast", "grok-4-1-thinking-1129"},
-		{"grok-4.1-expert", "grok-4-1-thinking-1129"},
-		{"grok-4.1-thinking", "grok-4-1-thinking-1129"},
-		{"grok-4.20-beta", "grok-420"},
-		{"grok-imagine-1.0", "grok-3"},
-		{"grok-imagine-1.0-fast", "grok-3"},
-		{"grok-imagine-1.0-edit", "imagine-image-edit"},
-		{"grok-imagine-1.0-video", "grok-3"},
-		// Defaults
-		{"unknown", "grok-3"},
-		{"", "grok-3"},
-	}
-
-	for _, tt := range tests {
-		got := mapModel(tt.input)
-		if got != tt.want {
-			t.Errorf("mapModel(%q) = %q, want %q", tt.input, got, tt.want)
+func TestBuildChatBodyUpstream(t *testing.T) {
+	t.Run("uses UpstreamModel and UpstreamMode", func(t *testing.T) {
+		req := &ChatRequest{
+			Messages:      []Message{{Role: "user", Content: "Hello"}},
+			Model:         "grok-3",
+			UpstreamModel: "grok-3",
+			UpstreamMode:  "MODEL_MODE_GROK_3",
 		}
-	}
-}
-
-func TestModelModeForModel(t *testing.T) {
-	tests := []struct {
-		input string
-		want  string
-	}{
-		{"grok-3", "MODEL_MODE_GROK_3"},
-		{"grok-3-mini", "MODEL_MODE_GROK_3_MINI_THINKING"},
-		{"grok-4", "MODEL_MODE_GROK_4"},
-		{"grok-4-heavy", "MODEL_MODE_HEAVY"},
-		{"grok-4.1-fast", "MODEL_MODE_FAST"},
-		{"grok-4.1-expert", "MODEL_MODE_EXPERT"},
-		{"grok-4.20-beta", "MODEL_MODE_GROK_420"},
-		{"grok-imagine-1.0", "MODEL_MODE_FAST"},
-		{"grok-imagine-1.0-edit", "MODEL_MODE_FAST"},
-		{"unknown", ""},
-		{"", ""},
-	}
-
-	for _, tt := range tests {
-		got := modelModeForModel(tt.input)
-		if got != tt.want {
-			t.Errorf("modelModeForModel(%q) = %q, want %q", tt.input, got, tt.want)
+		body, err := buildChatBody(req)
+		if err != nil {
+			t.Fatalf("buildChatBody error: %v", err)
 		}
-	}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if payload["modelName"] != "grok-3" {
+			t.Errorf("modelName = %v, want grok-3", payload["modelName"])
+		}
+		if payload["modelMode"] != "MODEL_MODE_GROK_3" {
+			t.Errorf("modelMode = %v, want MODEL_MODE_GROK_3", payload["modelMode"])
+		}
+	})
+
+	t.Run("empty UpstreamModel falls back to Model", func(t *testing.T) {
+		req := &ChatRequest{
+			Messages: []Message{{Role: "user", Content: "Hello"}},
+			Model:    "grok-4",
+		}
+		body, err := buildChatBody(req)
+		if err != nil {
+			t.Fatalf("buildChatBody error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if payload["modelName"] != "grok-4" {
+			t.Errorf("modelName = %v, want grok-4", payload["modelName"])
+		}
+	})
+
+	t.Run("empty UpstreamMode uses empty string", func(t *testing.T) {
+		req := &ChatRequest{
+			Messages:      []Message{{Role: "user", Content: "Hello"}},
+			Model:         "grok-3",
+			UpstreamModel: "grok-3",
+			UpstreamMode:  "",
+		}
+		body, err := buildChatBody(req)
+		if err != nil {
+			t.Fatalf("buildChatBody error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if payload["modelMode"] != "" {
+			t.Errorf("modelMode = %v, want empty string", payload["modelMode"])
+		}
+	})
 }
 
 func TestParseSSEStream_NDJSON(t *testing.T) {

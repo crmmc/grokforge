@@ -69,6 +69,14 @@ type ChatRequest struct {
 	FileAttachments   []string       `json:"-"`
 	ToolOverrides     map[string]any `json:"-"`
 	ModelConfig       map[string]any `json:"-"`
+
+	// UpstreamModel is the Grok API model name (e.g., "grok-3", "grok-4").
+	// Set by flow layer from ModelRegistry. Used by buildChatBody().
+	UpstreamModel string `json:"-"`
+
+	// UpstreamMode is the Grok API model mode (e.g., "MODEL_MODE_GROK_3").
+	// Set by flow layer from ModelRegistry. Used by buildChatBody().
+	UpstreamMode string `json:"-"`
 }
 
 // Message represents a single message in the conversation.
