@@ -216,15 +216,15 @@ func TestRegistry_EnabledByType_Empty(t *testing.T) {
 func TestRegistry_DisabledExcluded(t *testing.T) {
 	db := setupTestDB(t)
 
-	// Create a disabled family
+	// Create family first (GORM default:true treats false as zero value on create)
 	disabledFamily := &store.ModelFamily{
 		Model:     "disabled-model",
 		Type:      "chat",
-		Enabled:   false,
+		Enabled:   true,
 		PoolFloor: "basic",
 	}
 	if err := db.Create(disabledFamily).Error; err != nil {
-		t.Fatalf("create disabled family: %v", err)
+		t.Fatalf("create family: %v", err)
 	}
 	disabledMode := &store.ModelMode{
 		ModelID:       disabledFamily.ID,
@@ -234,6 +234,10 @@ func TestRegistry_DisabledExcluded(t *testing.T) {
 	}
 	if err := db.Create(disabledMode).Error; err != nil {
 		t.Fatalf("create mode: %v", err)
+	}
+	// Disable family after creation
+	if err := db.Model(disabledFamily).Update("enabled", false).Error; err != nil {
+		t.Fatalf("disable family: %v", err)
 	}
 
 	ms := store.NewModelStore(db)
@@ -279,12 +283,16 @@ func TestRegistry_DisabledModeExcluded(t *testing.T) {
 	disabledMode := &store.ModelMode{
 		ModelID:       family.ID,
 		Mode:          "slow",
-		Enabled:       false,
+		Enabled:       true,
 		UpstreamModel: "grok-5",
 		UpstreamMode:  "slow",
 	}
 	if err := db.Create(disabledMode).Error; err != nil {
 		t.Fatalf("create disabled mode: %v", err)
+	}
+	// Disable mode after creation (GORM default:true treats false as zero value)
+	if err := db.Model(disabledMode).Update("enabled", false).Error; err != nil {
+		t.Fatalf("disable mode: %v", err)
 	}
 
 	ms := store.NewModelStore(db)
