@@ -20,38 +20,36 @@ func buildFileURL(r *http.Request, mediaType, filename string) string {
 	return fmt.Sprintf("%s://%s/api/files/%s/%s", scheme, r.Host, mediaType, filename)
 }
 
-var imageModels = map[string]struct{}{
-	"grok-imagine-1.0": {},
-	imagineFastModelID: {},
-}
-
-var imageEditModels = map[string]struct{}{
-	"grok-imagine-1.0-edit": {},
-}
-
-var videoModels = map[string]struct{}{
-	"grok-imagine-1.0-video": {},
-}
-
 const maxImageEditInputs = 3
 
-func isImageModel(model string) bool {
-	_, ok := imageModels[model]
-	return ok
+// modelTypeFromRegistry resolves the model type from the registry.
+// Returns empty string if registry is nil or model not found.
+func (h *Handler) modelTypeFromRegistry(model string) string {
+	if h.ModelRegistry == nil {
+		return ""
+	}
+	rm, ok := h.ModelRegistry.Resolve(model)
+	if !ok || rm.Family == nil {
+		return ""
+	}
+	return rm.Family.Type
 }
 
-func isImageEditModel(model string) bool {
-	_, ok := imageEditModels[model]
-	return ok
+func (h *Handler) isImageModel(model string) bool {
+	return h.modelTypeFromRegistry(model) == "image"
 }
 
-func isVideoModel(model string) bool {
-	_, ok := videoModels[model]
-	return ok
+func (h *Handler) isImageEditModel(model string) bool {
+	return h.modelTypeFromRegistry(model) == "image_edit"
 }
 
-func isMediaModel(model string) bool {
-	return isImageEditModel(model) || isImageModel(model) || isVideoModel(model)
+func (h *Handler) isVideoModel(model string) bool {
+	return h.modelTypeFromRegistry(model) == "video"
+}
+
+func (h *Handler) isMediaModel(model string) bool {
+	t := h.modelTypeFromRegistry(model)
+	return t == "image" || t == "image_edit" || t == "video"
 }
 
 func (h *Handler) handleChatImageGeneration(w http.ResponseWriter, r *http.Request, req *ChatRequest) {

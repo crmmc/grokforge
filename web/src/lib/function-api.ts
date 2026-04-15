@@ -36,6 +36,7 @@ export interface ModelEntry {
   object: string
   created: number
   owned_by: string
+  type?: string
 }
 
 export interface ModelsResponse {

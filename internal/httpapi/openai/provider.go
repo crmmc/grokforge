@@ -63,20 +63,20 @@ func (h *Handler) validateModel(r *http.Request, model string) *httpapi.APIError
 }
 
 func (h *Handler) handleMediaRoutes(w http.ResponseWriter, r *http.Request, req *ChatRequest) bool {
-	if cfg := h.currentConfig(); cfg != nil && !cfg.App.MediaGenerationEnabled && isMediaModel(req.Model) {
+	if cfg := h.currentConfig(); cfg != nil && !cfg.App.MediaGenerationEnabled && h.isMediaModel(req.Model) {
 		httpapi.WriteError(w, http.StatusForbidden, "forbidden", "media_generation_disabled",
 			"Image and video generation is disabled by the administrator")
 		return true
 	}
-	if isImageEditModel(req.Model) {
+	if h.isImageEditModel(req.Model) {
 		h.handleChatImageEdit(w, r, req)
 		return true
 	}
-	if isImageModel(req.Model) {
+	if h.isImageModel(req.Model) {
 		h.handleChatImageGeneration(w, r, req)
 		return true
 	}
-	if isVideoModel(req.Model) {
+	if h.isVideoModel(req.Model) {
 		h.handleChatVideo(w, r, req)
 		return true
 	}
@@ -89,7 +89,7 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request, r
 			"Chat completions not yet configured")
 		return
 	}
-	flowReq := toFlowRequest(req)
+	flowReq := h.toFlowRequest(req)
 	ctx := httpapi.BridgeFlowContext(r.Context())
 	eventCh, err := h.ChatFlow.Complete(ctx, flowReq)
 	if err != nil {
@@ -104,7 +104,8 @@ func (h *Handler) handleChatCompletion(w http.ResponseWriter, r *http.Request, r
 }
 
 // toFlowRequest converts ChatRequest to flow.ChatRequest.
-func toFlowRequest(req *ChatRequest) *flow.ChatRequest {
+// Resolves UpstreamModel/UpstreamMode from the model registry.
+func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 	messages := make([]flow.Message, len(req.Messages))
 	for i, m := range req.Messages {
 		messages[i] = flow.Message{
@@ -138,6 +139,14 @@ func toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 	}
 	if req.MaxTokens != nil {
 		flowReq.MaxTokens = req.MaxTokens
+	}
+
+	// Resolve upstream model/mode from registry
+	if h.ModelRegistry != nil {
+		if rm, ok := h.ModelRegistry.Resolve(req.Model); ok {
+			flowReq.UpstreamModel = rm.UpstreamModel
+			flowReq.UpstreamMode = rm.UpstreamMode
+		}
 	}
 
 	return flowReq

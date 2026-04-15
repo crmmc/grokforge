@@ -72,6 +72,8 @@ func (f *ChatFlow) buildXAIRequest(ctx context.Context, req *ChatRequest, client
 		TopP:            req.TopP,
 		MaxTokens:       req.MaxTokens,
 		FileAttachments: fileAttachments,
+		UpstreamModel:   req.UpstreamModel,
+		UpstreamMode:    req.UpstreamMode,
 	}
 
 	// Populate Grok-specific params from app config

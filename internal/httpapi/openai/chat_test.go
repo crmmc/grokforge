@@ -14,6 +14,7 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
@@ -100,7 +101,8 @@ func TestToFlowRequest_PropagatesSamplingParams(t *testing.T) {
 		MaxTokens:   &maxTokens,
 	}
 
-	flowReq := toFlowRequest(req)
+	h := &Handler{}
+	flowReq := h.toFlowRequest(req)
 	require.NotNil(t, flowReq.Temperature)
 	require.NotNil(t, flowReq.TopP)
 	require.NotNil(t, flowReq.MaxTokens)
@@ -288,12 +290,37 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 
 // --- Tests ---
 
+// testMediaRegistry returns a ModelRegistry pre-populated with the standard
+// image/video/image_edit models used in routing tests.
+func testMediaRegistry() *registry.ModelRegistry {
+	return registry.NewTestRegistry([]registry.TestFamilyWithModes{
+		{
+			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-1.0", Type: "image", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(1)},
+			Modes:  []store.ModelMode{{ID: 1, ModelID: 1, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
+		},
+		{
+			Family: store.ModelFamily{ID: 2, Model: "grok-imagine-1.0-fast", Type: "image", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(2)},
+			Modes:  []store.ModelMode{{ID: 2, ModelID: 2, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
+		},
+		{
+			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-1.0-edit", Type: "image_edit", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(3)},
+			Modes:  []store.ModelMode{{ID: 3, ModelID: 3, Mode: "default", Enabled: true, UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST"}},
+		},
+		{
+			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-1.0-video", Type: "video", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(4)},
+			Modes:  []store.ModelMode{{ID: 4, ModelID: 4, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
+		},
+	})
+}
+
+func ptrUint(v uint) *uint { return &v }
+
 func TestHandleChat_ImageModelRoute(t *testing.T) {
 	mock := &mockImagineClient{
 		events: []xai.ImageEvent{{Type: xai.ImageEventFinal, ImageData: "abc123"}},
 	}
 	imageFlow := newTestImageFlow(mock)
-	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{ImageFlow: imageFlow}})
+	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{ImageFlow: imageFlow, ModelRegistry: testMediaRegistry()}})
 
 	body := `{"model":"grok-imagine-1.0","messages":[{"role":"user","content":"draw a cat"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
@@ -314,7 +341,7 @@ func TestHandleChat_ImageModelRoute_BridgesAPIKeyID(t *testing.T) {
 	recorder := &chatUsageRecorder{}
 	imageFlow.SetUsageRecorder(recorder)
 	s := httpapi.NewServer(&httpapi.ServerConfig{
-		ChatProvider: &Handler{ImageFlow: imageFlow},
+		ChatProvider: &Handler{ImageFlow: imageFlow, ModelRegistry: testMediaRegistry()},
 		APIKeyStore:  &chatMockAPIKeyStore{},
 	})
 
@@ -339,7 +366,7 @@ func TestHandleChat_VideoModelRoute(t *testing.T) {
 		func(token string) flow.VideoClient { return &chatVideoClientMock{} },
 		&flow.VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1},
 	)
-	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{VideoFlow: videoFlow}})
+	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{VideoFlow: videoFlow, ModelRegistry: testMediaRegistry()}})
 
 	body := `{"model":"grok-imagine-1.0-video","messages":[{"role":"user","content":"make a short clip"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
