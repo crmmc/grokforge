@@ -59,6 +59,9 @@ type ChatFlowConfig struct {
 	FilterTags []string
 	// FilterTagsProvider provides HTML-like tags to strip from streamed tokens.
 	FilterTagsProvider func() []string
+	// ResolveUpstream resolves a request model name to its Grok API upstream
+	// model name and mode. Returns false if the model is not found.
+	ResolveUpstream func(requestName string) (upstreamModel, upstreamMode string, ok bool)
 }
 
 // DefaultChatFlowConfig returns default chat flow configuration.
