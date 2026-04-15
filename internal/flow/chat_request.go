@@ -76,6 +76,14 @@ func (f *ChatFlow) buildXAIRequest(ctx context.Context, req *ChatRequest, client
 		UpstreamMode:    req.UpstreamMode,
 	}
 
+	// Resolve upstream model/mode from registry callback if not already set
+	if xaiReq.UpstreamModel == "" && f.cfg.ResolveUpstream != nil {
+		if um, umode, ok := f.cfg.ResolveUpstream(req.Model); ok {
+			xaiReq.UpstreamModel = um
+			xaiReq.UpstreamMode = umode
+		}
+	}
+
 	// Populate Grok-specific params from app config
 	if appCfg := f.appConfig(); appCfg != nil {
 		xaiReq.Temporary = appCfg.Temporary

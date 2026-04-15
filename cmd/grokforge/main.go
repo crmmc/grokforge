@@ -191,6 +191,13 @@ func main() {
 				return &runtimeCfg.Get().Token
 			},
 			ModelResolver: reg,
+			ResolveUpstream: func(name string) (string, string, bool) {
+				rm, ok := reg.Resolve(name)
+				if !ok {
+					return "", "", false
+				}
+				return rm.UpstreamModel, rm.UpstreamMode, true
+			},
 			AppConfigProvider: func() *config.AppConfig {
 				return &runtimeCfg.Get().App
 			},

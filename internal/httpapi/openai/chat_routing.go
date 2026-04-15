@@ -22,33 +22,33 @@ func buildFileURL(r *http.Request, mediaType, filename string) string {
 
 const maxImageEditInputs = 3
 
-// modelTypeFromRegistry resolves the model type from the registry.
-// Returns empty string if registry is nil or model not found.
-func (h *Handler) modelTypeFromRegistry(model string) string {
+// resolveModelType resolves the model type from the registry.
+// Returns "chat" if registry is nil or model not found.
+func (h *Handler) resolveModelType(model string) string {
 	if h.ModelRegistry == nil {
-		return ""
+		return "chat"
 	}
 	rm, ok := h.ModelRegistry.Resolve(model)
 	if !ok || rm.Family == nil {
-		return ""
+		return "chat"
 	}
 	return rm.Family.Type
 }
 
 func (h *Handler) isImageModel(model string) bool {
-	return h.modelTypeFromRegistry(model) == "image"
+	return h.resolveModelType(model) == "image"
 }
 
 func (h *Handler) isImageEditModel(model string) bool {
-	return h.modelTypeFromRegistry(model) == "image_edit"
+	return h.resolveModelType(model) == "image_edit"
 }
 
 func (h *Handler) isVideoModel(model string) bool {
-	return h.modelTypeFromRegistry(model) == "video"
+	return h.resolveModelType(model) == "video"
 }
 
 func (h *Handler) isMediaModel(model string) bool {
-	t := h.modelTypeFromRegistry(model)
+	t := h.resolveModelType(model)
 	return t == "image" || t == "image_edit" || t == "video"
 }
 
