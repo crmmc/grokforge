@@ -111,6 +111,8 @@ func (s *TokenService) ReportRateLimit(id uint, reason string) {
 	switch pool {
 	case PoolSuper:
 		durationMin = s.cfg.SuperCoolDurationMin
+	case PoolHeavy:
+		durationMin = s.cfg.HeavyCoolDurationMin
 	default:
 		durationMin = s.cfg.BasicCoolDurationMin
 	}

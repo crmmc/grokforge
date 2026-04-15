@@ -60,7 +60,7 @@ type ImageConfig struct {
 	BlockedParallelEnabled  *bool `toml:"blocked_parallel_enabled"`
 }
 
-// ImagineFastConfig contains server-side chat defaults for grok-imagine-1.0-fast.
+// ImagineFastConfig contains server-side chat defaults for grok-imagine-image-lite.
 type ImagineFastConfig struct {
 	N    int    `toml:"n"`
 	Size string `toml:"size"`
@@ -104,6 +104,7 @@ type TokenConfig struct {
 	PreferredPool        string   `toml:"preferred_pool"`
 	BasicCoolDurationMin int      `toml:"basic_cool_duration_min"`
 	SuperCoolDurationMin int      `toml:"super_cool_duration_min"`
+	HeavyCoolDurationMin int      `toml:"heavy_cool_duration_min"`
 	DefaultChatQuota     int      `toml:"default_chat_quota"`
 	DefaultImageQuota    int      `toml:"default_image_quota"`
 	DefaultVideoQuota    int      `toml:"default_video_quota"`
@@ -345,6 +346,12 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) {
 		case "token.super_cool_duration_min":
 			if n, err := strconv.Atoi(v); err == nil {
 				c.Token.SuperCoolDurationMin = n
+			} else {
+				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
+			}
+		case "token.heavy_cool_duration_min":
+			if n, err := strconv.Atoi(v); err == nil {
+				c.Token.HeavyCoolDurationMin = n
 			} else {
 				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
 			}
