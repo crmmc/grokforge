@@ -85,7 +85,11 @@ Plans:
   2. 模型请求根据 pool_floor 值匹配 >= 对应等级的池，不做级联降级
   3. basic_models / super_models / preferred_pool 配置项不再影响路由，路由完全由 ModelRegistry 驱动
   4. 旧配置项存在时不报错（向后兼容），但被忽略
-**Plans**: TBD
+**Plans:** 3 plans
+Plans:
+- [ ] 23-01-PLAN.md — PoolHeavy 常量 + PoolLevel 等级体系 + heavy 冷却配置
+- [ ] 23-02-PLAN.md — GetPoolForModel/PickForModel/CostForModel 路由核心重写
+- [ ] 23-03-PLAN.md — 删除旧配置项 + 适配所有调用点 + 前端清理
 
 ### Phase 24: Integration & Admin UI
 **Goal**: 主链路和 API 端点全面接入 ModelRegistry，前端提供模型管理界面
@@ -114,5 +118,5 @@ Phases execute in numeric order: 21 → 22 → 23 → 24
 | 18-20 | v1.3 | 7/7 | Complete | 2026-03-15 |
 | 21. Model Schema & Store | v1.4 | 1/1 | Complete    | 2026-04-14 |
 | 22. Seed Data & Registry | v1.4 | 2/2 | Complete    | 2026-04-15 |
-| 23. Three-Pool Routing | v1.4 | 0/? | Not started | - |
+| 23. Three-Pool Routing | v1.4 | 0/3 | Not started | - |
 | 24. Integration & Admin UI | v1.4 | 0/? | Not started | - |
