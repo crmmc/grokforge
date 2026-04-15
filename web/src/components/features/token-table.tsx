@@ -28,6 +28,7 @@ function maskToken(token: string): string {
 }
 
 function poolLabel(pool: string, t: ReturnType<typeof useTranslation>['t']): string {
+  if (pool === 'ssoHeavy') return t.dashboard.heavyPool
   if (pool === 'ssoSuper') return t.dashboard.superPool
   if (pool === 'ssoBasic') return t.dashboard.basicPool
   return pool || t.dashboard.basicPool

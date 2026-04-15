@@ -8,15 +8,12 @@ import (
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
-	"github.com/crmmc/grokforge/internal/token"
 )
 
 // SetupRoutes registers OpenAI-compatible API endpoints on the given router.
 func (h *Handler) SetupRoutes(r chi.Router) {
-	if h.Runtime != nil {
-		r.Get("/models", HandleModelsFromRuntime(h.Runtime))
-	} else {
-		r.Get("/models", HandleModelsFromConfig(h.Cfg))
+	if h.ModelRegistry != nil {
+		r.Get("/models", HandleModelsFromRegistry(h.ModelRegistry))
 	}
 	r.Post("/chat/completions", h.handleChat)
 }
@@ -52,8 +49,8 @@ func (h *Handler) decodeChatRequest(w http.ResponseWriter, r *http.Request) (*Ch
 }
 
 func (h *Handler) validateModel(r *http.Request, model string) *httpapi.APIError {
-	if cfg := h.currentConfig(); cfg != nil {
-		if _, ok := token.GetPoolForModel(model, &cfg.Token); !ok {
+	if h.ModelRegistry != nil {
+		if _, ok := h.ModelRegistry.Resolve(model); !ok {
 			return httpapi.NewAPIError(http.StatusNotFound, "not_found", "model_not_found",
 				"The model `"+model+"` does not exist")
 		}

@@ -12,20 +12,33 @@ import (
 	"testing"
 	"time"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
-// testTokenConfig returns a token config for flow tests.
-// Includes all models used by tests (including grok-2-vision).
-func testFlowTokenConfig() *config.TokenConfig {
-	return &config.TokenConfig{
-		BasicModels:   []string{"grok-2", "grok-2-mini", "grok-2-imageGen", "grok-2-vision"},
-		SuperModels:   []string{"grok-3", "grok-3-mini", "grok-3-reasoning", "grok-3-deepsearch", "grok-4"},
-		PreferredPool: "ssoSuper",
+// testModelResolver returns a mock ModelResolver for flow tests.
+// Maps models to pool floors: basic models → "basic", super models → "super".
+type testResolver struct{}
+
+func (r *testResolver) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+	basicModels := map[string]bool{
+		"grok-2": true, "grok-2-mini": true, "grok-2-imageGen": true, "grok-2-vision": true,
 	}
+	superModels := map[string]bool{
+		"grok-3": true, "grok-3-mini": true, "grok-3-reasoning": true, "grok-3-deepsearch": true, "grok-4": true,
+	}
+	if basicModels[requestName] {
+		return "basic", 1, true
+	}
+	if superModels[requestName] {
+		return "super", 1, true
+	}
+	return "", 0, false
+}
+
+func testModelResolver() tkn.ModelResolver {
+	return &testResolver{}
 }
 
 // mockTokenService implements TokenServicer for testing.
@@ -195,7 +208,7 @@ func TestChatFlow_Success(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -254,7 +267,7 @@ func TestChatFlow_RetryOnRateLimit(t *testing.T) {
 		BaseDelay:       time.Millisecond, // fast for tests
 		MaxDelay:        10 * time.Millisecond,
 		JitterFactor:    0,
-	}, TokenConfig: testFlowTokenConfig()}
+	}, ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, clientFactory, cfg)
 
 	req := &ChatRequest{
@@ -312,7 +325,7 @@ func TestChatFlow_TokenRotation(t *testing.T) {
 		BaseDelay:       time.Millisecond,
 		MaxDelay:        10 * time.Millisecond,
 		JitterFactor:    0,
-	}, TokenConfig: testFlowTokenConfig()}
+	}, ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, clientFactory, cfg)
 
 	req := &ChatRequest{
@@ -339,7 +352,7 @@ func TestChatFlow_NonRetryableError(t *testing.T) {
 	badReqErr := errors.New("400 Bad Request: invalid model")
 	client := &mockXAIClient{chatErr: badReqErr}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -428,7 +441,7 @@ func TestChatFlow_WithTools(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -495,7 +508,7 @@ func TestChatFlow_WithMultimodalContent(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	// Multimodal content with text and image
@@ -561,7 +574,7 @@ func TestChatFlow_ToolsWithMultimodal(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -676,7 +689,7 @@ func TestChatFlow_HotReload(t *testing.T) {
 				JitterFactor:    0,
 			}
 		},
-		TokenConfig: testFlowTokenConfig(),
+		ModelResolver: testModelResolver(),
 	}
 	f := NewChatFlow(tokenSvc, clientFactory, cfg)
 
@@ -708,7 +721,7 @@ func TestChatFlow_RecordUsageAPIKeyID(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	recorder := &mockUsageRecorder{}
@@ -864,7 +877,7 @@ func TestChatFlow_ParallelToolCalls(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -915,7 +928,7 @@ func TestChatFlow_MultimodalUploadsAsAttachments(t *testing.T) {
 		events: []xai.StreamEvent{{Data: json.RawMessage(respData)}},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	chatFlow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	req := &ChatRequest{
@@ -966,7 +979,7 @@ func TestChatFlow_EstimatedTrue_WhenNoUsageFromUpstream(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	recorder := &mockUsageRecorder{}
@@ -1009,7 +1022,7 @@ func TestChatFlow_EstimatedFalse_WhenUsageFromUpstream(t *testing.T) {
 		},
 	}
 
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), TokenConfig: testFlowTokenConfig()}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
 	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
 
 	recorder := &mockUsageRecorder{}

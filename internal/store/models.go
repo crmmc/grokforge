@@ -133,6 +133,7 @@ type ModelMode struct {
 	Mode              string    `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
 	Enabled           bool      `gorm:"default:true" json:"enabled"`
 	PoolFloorOverride *string   `gorm:"size:32" json:"pool_floor_override"`
+	QuotaCost         int       `gorm:"default:1" json:"quota_cost"`
 	UpstreamMode      string    `gorm:"size:128" json:"upstream_mode"`
 	UpstreamModel     string    `gorm:"size:128" json:"upstream_model"`
 	QuotaOverride     *string   `gorm:"type:text" json:"quota_override"`

@@ -34,6 +34,7 @@ type SeedMode struct {
 	UpstreamModel     string `toml:"upstream_model"`
 	UpstreamMode      string `toml:"upstream_mode"`
 	PoolFloorOverride string `toml:"pool_floor_override,omitempty"`
+	QuotaCost         int    `toml:"quota_cost,omitempty"`
 }
 
 // SeedModels imports seed data into an empty model_family table.
@@ -107,6 +108,10 @@ func importFamily(ctx context.Context, db *gorm.DB, sf SeedFamily) error {
 				Enabled:       true,
 				UpstreamModel: sm.UpstreamModel,
 				UpstreamMode:  sm.UpstreamMode,
+				QuotaCost:     sm.QuotaCost,
+			}
+			if mode.QuotaCost <= 0 {
+				mode.QuotaCost = 1
 			}
 			if sm.PoolFloorOverride != "" {
 				override := sm.PoolFloorOverride

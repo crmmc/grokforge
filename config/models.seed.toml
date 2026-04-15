@@ -22,12 +22,14 @@ default_mode = "default"
   upstream_model      = "grok-420"
   upstream_mode       = "MODEL_MODE_EXPERT"
   pool_floor_override = "super"
+  quota_cost          = 4
 
   [[family.mode]]
   mode                = "heavy"
   upstream_model      = "grok-420"
   upstream_mode       = "MODEL_MODE_HEAVY"
   pool_floor_override = "heavy"
+  quota_cost          = 4
 
 [[family]]
 model        = "grok-4.20-mini"

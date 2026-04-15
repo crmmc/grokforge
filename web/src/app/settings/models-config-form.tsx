@@ -4,7 +4,6 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, Loader2 } from 'lucide-react'
 import { Button, Input, Label, Switch } from '@/components/ui'
-import { ModelTagInput } from '@/components/ui/model-tag-input'
 import { ConfigSection } from './config-section'
 import { GrokDefaultsSection } from './grok-defaults-section'
 import { ImageFastDefaultsSection } from './image-fast-defaults-section'
@@ -23,11 +22,8 @@ interface ModelsConfigFormProps {
 
 export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFormProps) {
   const { t } = useTranslation()
-  const [basicModels, setBasicModels] = useState<string[]>(config.token?.basic_models || [])
-  const [superModels, setSuperModels] = useState<string[]>(config.token?.super_models || [])
   const [imageNsfw, setImageNsfw] = useState(config.image?.nsfw ?? false)
   const [imageDirty, setImageDirty] = useState(false)
-  const [modelsDirty, setModelsDirty] = useState(false)
   const [imagineFastN, setImagineFastN] = useState(config.imagine_fast?.n ?? 1)
   const [imagineFastSize, setImagineFastSize] = useState(config.imagine_fast?.size ?? '1024x1024')
   const [imagineFastDirty, setImagineFastDirty] = useState(false)
@@ -42,28 +38,13 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
   const {
     register,
     handleSubmit,
-    setValue,
     formState: { isDirty },
   } = useForm<TokenInput>({
     resolver: zodResolver(tokenConfigSchema),
     defaultValues: config.token as TokenInput,
   })
 
-  const updateBasicModels = (models: string[]) => {
-    setBasicModels(models)
-    setValue('basic_models', models, { shouldDirty: true })
-    setModelsDirty(true)
-  }
-
-  const updateSuperModels = (models: string[]) => {
-    setSuperModels(models)
-    setValue('super_models', models, { shouldDirty: true })
-    setModelsDirty(true)
-  }
-
   const doSubmit = (data: TokenInput) => {
-    data.basic_models = basicModels
-    data.super_models = superModels
     onSubmit({
       token: data,
       image: { nsfw: imageNsfw } as ConfigResponse['image'],
@@ -82,38 +63,8 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
 
   return (
     <form onSubmit={handleSubmit(doSubmit)} className="space-y-6">
-      {/* Model Groups */}
+      {/* Quota Defaults */}
       <ConfigSection title={t.config.modelGroups} description={t.config.modelGroupsDesc}>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label>{t.config.basicModels}</Label>
-            <ModelTagInput
-              id="basic_models"
-              models={basicModels}
-              onChange={updateBasicModels}
-              placeholder={t.config.modelsPlaceholder}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label>{t.config.superModels}</Label>
-            <ModelTagInput
-              id="super_models"
-              models={superModels}
-              onChange={updateSuperModels}
-              placeholder={t.config.modelsPlaceholder}
-            />
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="preferred_pool">{t.config.preferredPool}</Label>
-            <select id="preferred_pool" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...register('preferred_pool')}>
-              <option value="ssoBasic">{t.dashboard.basicPool}</option>
-              <option value="ssoSuper">{t.dashboard.superPool}</option>
-            </select>
-            <p className="text-sm text-muted">{t.config.preferredPoolDesc}</p>
-          </div>
-        </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="default_chat_quota">{t.config.defaultChatQuota}</Label>
@@ -147,7 +98,7 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
             <p className="text-xs text-muted">{t.config.quotaRecoveryModeDesc}</p>
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="basic_cool_duration_min">{t.config.basicCoolDuration}</Label>
             <Input id="basic_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('basic_cool_duration_min', { valueAsNumber: true })} />
@@ -155,6 +106,10 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
           <div className="space-y-2">
             <Label htmlFor="super_cool_duration_min">{t.config.superCoolDuration}</Label>
             <Input id="super_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('super_cool_duration_min', { valueAsNumber: true })} />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="heavy_cool_duration_min">{t.config.heavyCoolDuration}</Label>
+            <Input id="heavy_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('heavy_cool_duration_min', { valueAsNumber: true })} />
           </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -213,7 +168,7 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
 
       {/* Submit Button */}
       <div className="sticky bottom-0 z-10 flex justify-end bg-background/95 backdrop-blur-sm py-4 border-t mt-6 -mx-1 px-1">
-        <Button type="submit" disabled={(!isDirty && !imageDirty && !modelsDirty && !imagineFastDirty && !grokDirty) || isPending} className="shadow-sm">
+        <Button type="submit" disabled={(!isDirty && !imageDirty && !imagineFastDirty && !grokDirty) || isPending} className="shadow-sm">
           {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           {t.config.saveChanges}
         </Button>

@@ -5,6 +5,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"github.com/crmmc/grokforge/internal/store"
@@ -16,6 +17,7 @@ type ResolvedModel struct {
 	Family         *store.ModelFamily
 	Mode           *store.ModelMode
 	EffectiveFloor string // mode PoolFloorOverride > family PoolFloor
+	QuotaCost      int    // mode QuotaCost (default 1)
 	UpstreamModel  string
 	UpstreamMode   string
 }
@@ -37,12 +39,85 @@ func NewModelRegistry(modelStore *store.ModelStore) *ModelRegistry {
 	}
 }
 
+// TestFamilyWithModes is a test helper struct that bundles a family with its modes.
+type TestFamilyWithModes struct {
+	Family store.ModelFamily
+	Modes  []store.ModelMode
+}
+
+// NewTestRegistry creates a pre-populated ModelRegistry for testing.
+// It does not require a store — data is loaded directly from the provided families.
+func NewTestRegistry(data []TestFamilyWithModes) *ModelRegistry {
+	r := &ModelRegistry{
+		byRequestName: make(map[string]*ResolvedModel),
+		enabledByType: make(map[string][]*ResolvedModel),
+	}
+	for i := range data {
+		family := &data[i].Family
+		for j := range data[i].Modes {
+			mode := &data[i].Modes[j]
+			if !mode.Enabled {
+				continue
+			}
+			requestName := store.DeriveRequestName(family.Model, mode.Mode, mode.Mode == "default")
+			effectiveFloor := family.PoolFloor
+			if mode.PoolFloorOverride != nil && *mode.PoolFloorOverride != "" {
+				effectiveFloor = *mode.PoolFloorOverride
+			}
+			cost := mode.QuotaCost
+			if cost <= 0 {
+				cost = 1
+			}
+			rm := &ResolvedModel{
+				RequestName:    requestName,
+				Family:         family,
+				Mode:           mode,
+				EffectiveFloor: effectiveFloor,
+				QuotaCost:      cost,
+				UpstreamModel:  mode.UpstreamModel,
+				UpstreamMode:   mode.UpstreamMode,
+			}
+			r.byRequestName[requestName] = rm
+			r.enabledByType[family.Type] = append(r.enabledByType[family.Type], rm)
+		}
+	}
+	return r
+}
+
 // Resolve looks up a request name and returns the resolved model.
 func (r *ModelRegistry) Resolve(requestName string) (*ResolvedModel, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	rm, ok := r.byRequestName[requestName]
 	return rm, ok
+}
+
+// AllRequestNames returns all registered request names (sorted).
+func (r *ModelRegistry) AllRequestNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.byRequestName))
+	for name := range r.byRequestName {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// ResolvePoolFloor implements token.ModelResolver.
+// Returns the effective pool floor and quota cost for a request name.
+func (r *ModelRegistry) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rm, found := r.byRequestName[requestName]
+	if !found {
+		return "", 0, false
+	}
+	cost = rm.QuotaCost
+	if cost <= 0 {
+		cost = 1
+	}
+	return rm.EffectiveFloor, cost, true
 }
 
 // EnabledByType returns all enabled models of a given type.
@@ -110,6 +185,7 @@ func (r *ModelRegistry) Refresh(ctx context.Context) error {
 				Family:         family,
 				Mode:           mode,
 				EffectiveFloor: effectiveFloor,
+				QuotaCost:      mode.QuotaCost,
 				UpstreamModel:  mode.UpstreamModel,
 				UpstreamMode:   mode.UpstreamMode,
 			}
