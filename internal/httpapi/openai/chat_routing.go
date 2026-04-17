@@ -23,14 +23,14 @@ func buildFileURL(r *http.Request, mediaType, filename string) string {
 const maxImageEditInputs = 3
 
 // resolveModelType resolves the model type from the registry.
-// Returns "chat" if registry is nil or model not found.
+// Returns empty string if registry is nil or model not found.
 func (h *Handler) resolveModelType(model string) string {
 	if h.ModelRegistry == nil {
-		return "chat"
+		return ""
 	}
 	rm, ok := h.ModelRegistry.Resolve(model)
 	if !ok || rm.Family == nil {
-		return "chat"
+		return ""
 	}
 	return rm.Family.Type
 }
@@ -50,6 +50,17 @@ func (h *Handler) isVideoModel(model string) bool {
 func (h *Handler) isMediaModel(model string) bool {
 	t := h.resolveModelType(model)
 	return t == "image" || t == "image_edit" || t == "video"
+}
+
+func (h *Handler) resolveUpstream(model string) (string, string) {
+	if h.ModelRegistry == nil {
+		return "", ""
+	}
+	rm, ok := h.ModelRegistry.Resolve(model)
+	if !ok {
+		return "", ""
+	}
+	return rm.UpstreamModel, rm.UpstreamMode
 }
 
 func (h *Handler) handleChatImageGeneration(w http.ResponseWriter, r *http.Request, req *ChatRequest) {
@@ -73,7 +84,6 @@ func (h *Handler) handleChatImageGeneration(w http.ResponseWriter, r *http.Reque
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_image_config", err.Error())
 		return
 	}
-
 	result, err := h.ImageFlow.Generate(httpapi.BridgeFlowContext(r.Context()), &flow.ImageRequest{
 		Model:          req.Model,
 		Prompt:         prompt,
@@ -83,7 +93,7 @@ func (h *Handler) handleChatImageGeneration(w http.ResponseWriter, r *http.Reque
 		EnableNSFW:     imageCfg.enableNSFW,
 	})
 	if err != nil {
-		h.writeStreamingOrJSONErrorWithCode(w, req.Stream, http.StatusInternalServerError, "server_error", "generation_failed", err.Error())
+		h.writeStreamingOrJSONError(w, req.Stream, err)
 		return
 	}
 
@@ -124,9 +134,12 @@ func (h *Handler) handleChatImageEdit(w http.ResponseWriter, r *http.Request, re
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_image_config", err.Error())
 		return
 	}
+	upstreamModel, upstreamMode := h.resolveUpstream(req.Model)
 
 	result, err := h.ImageFlow.Edit(httpapi.BridgeFlowContext(r.Context()), &flow.ImageEditRequest{
 		Model:          req.Model,
+		UpstreamModel:  upstreamModel,
+		UpstreamMode:   upstreamMode,
 		Prompt:         prompt,
 		OriginalImages: images,
 		N:              imageCfg.n,
@@ -135,7 +148,7 @@ func (h *Handler) handleChatImageEdit(w http.ResponseWriter, r *http.Request, re
 		EnableNSFW:     imageCfg.enableNSFW,
 	})
 	if err != nil {
-		h.writeStreamingOrJSONErrorWithCode(w, req.Stream, http.StatusInternalServerError, "server_error", "edit_failed", err.Error())
+		h.writeStreamingOrJSONError(w, req.Stream, err)
 		return
 	}
 
@@ -169,15 +182,18 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_video_config", err.Error())
 		return
 	}
+	upstreamModel, upstreamMode := h.resolveUpstream(req.Model)
 
 	videoReq := &flow.VideoRequest{
-		Prompt:      prompt,
-		Model:       req.Model,
-		Size:        videoCfg.size,
-		AspectRatio: videoCfg.aspectRatio,
-		Seconds:     videoCfg.seconds,
-		Quality:     videoCfg.quality,
-		Preset:      videoCfg.preset,
+		Prompt:        prompt,
+		Model:         req.Model,
+		UpstreamModel: upstreamModel,
+		UpstreamMode:  upstreamMode,
+		Size:          videoCfg.size,
+		AspectRatio:   videoCfg.aspectRatio,
+		Seconds:       videoCfg.seconds,
+		Quality:       videoCfg.quality,
+		Preset:        videoCfg.preset,
 	}
 	if len(images) > 0 {
 		videoReq.ReferenceImage = images[0]
@@ -185,7 +201,7 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 
 	videoURL, err := h.VideoFlow.GenerateSync(httpapi.BridgeFlowContext(r.Context()), videoReq)
 	if err != nil {
-		h.writeStreamingOrJSONErrorWithCode(w, req.Stream, http.StatusInternalServerError, "server_error", "video_generation_failed", err.Error())
+		h.writeStreamingOrJSONError(w, req.Stream, err)
 		return
 	}
 

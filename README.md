@@ -41,7 +41,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 - **Single binary deployment** — Frontend embedded via `go:embed`, just copy and run
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
-- **Dual-pool token routing** — ssoBasic / ssoSuper grouped by model, 3 selection algorithms + priority tiers + auto fallback
+- **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
 - **Three independent quotas** — Chat / Image / Video metered and recovered separately
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
 - **Structured logging** — slog + file rotation, JSON / Text formats
@@ -63,7 +63,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 ### Token Management
 
-- [x] **Dual-pool routing** — ssoBasic / ssoSuper grouped by model, auto fallback
+- [x] **Multi-pool routing** — ssoBasic / ssoSuper / ssoHeavy selected by `pool_floor`
 - [x] **3 selection algorithms** — high_quota_first / random / round_robin
 - [x] **Priority tiers** — Higher priority tokens are selected first
 - [x] **Three quota categories** — Chat / Image / Video independently metered and recovered
@@ -96,18 +96,11 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 | Model | Description |
 |-------|-------------|
-| `grok-3` | Grok 3 Standard |
-| `grok-3-mini` | Grok 3 Lite |
-| `grok-3-thinking` | Grok 3 Chain-of-Thought |
-| `grok-4` | Grok 4 Standard |
-| `grok-4-heavy` | Grok 4 Enhanced |
-| `grok-4-mini` | Grok 4 Lite |
-| `grok-4-thinking` | Grok 4 Chain-of-Thought |
-| `grok-4.1-expert` | Grok 4.1 Expert |
-| `grok-4.1-fast` | Grok 4.1 Fast |
-| `grok-4.1-mini` | Grok 4.1 Lite |
-| `grok-4.1-thinking` | Grok 4.1 Chain-of-Thought |
-| `grok-4.20-beta` | Grok 4.20 Beta |
+| `grok-4.20` | Default Grok 4.20 mode |
+| `grok-4.20-fast` | Faster Grok 4.20 variant |
+| `grok-4.20-expert` | Higher-floor Grok 4.20 expert mode |
+| `grok-4.20-heavy` | Heavy-pool Grok 4.20 mode |
+| `grok-4.20-mini` | Grok 4.20 Mini |
 
 </details>
 
@@ -116,10 +109,10 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 | Model | Description |
 |-------|-------------|
-| `grok-imagine-1.0` | Image generation |
-| `grok-imagine-1.0-fast` | Fast image generation |
-| `grok-imagine-1.0-edit` | Image editing (supports reference images) |
-| `grok-imagine-1.0-video` | Video generation |
+| `grok-imagine-image` | Image generation |
+| `grok-imagine-image-lite` | Lower-floor image generation mode |
+| `grok-imagine-image-edit` | Image editing (supports reference images) |
+| `grok-imagine-video` | Video generation |
 
 </details>
 
@@ -143,7 +136,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -320,7 +313,7 @@ sequenceDiagram
     C->>H: POST /v1/chat/completions
     H->>H: Auth check + param parsing
     H->>F: Route to chat/image/video flow
-    F->>T: Request available Token (dual-pool + algorithm selection)
+    F->>T: Request available Token (`pool_floor` + algorithm selection)
     T-->>F: Return Token
     F->>X: Build upstream request
     X->>G: SSE / WebSocket request
@@ -359,7 +352,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "Explain quantum computing in one sentence"}],
     "stream": true
   }'
@@ -372,7 +365,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4-thinking",
+    "model": "grok-4.20-expert",
     "messages": [{"role": "user", "content": "Prove that √2 is irrational"}],
     "reasoning_effort": "high"
   }'
@@ -385,7 +378,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "What is the weather in Beijing today?"}],
     "tools": [{
       "type": "function",
@@ -411,7 +404,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{
       "role": "user",
       "content": [
@@ -429,7 +422,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-imagine-1.0",
+    "model": "grok-imagine-image",
     "messages": [{"role": "user", "content": "A shiba inu in a spacesuit walking on the moon"}]
   }'
 ```
@@ -441,7 +434,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-imagine-1.0-video",
+    "model": "grok-imagine-video",
     "messages": [{"role": "user", "content": "A cat dancing on a piano"}]
   }'
 ```
@@ -475,13 +468,13 @@ GrokForge is compatible with all OpenAI API clients — just point the API URL t
 </details>
 
 <details>
-<summary><b>What's the difference between Basic and Super pools?</b></summary>
+<summary><b>What's the difference between Basic, Super, and Heavy pools?</b></summary>
 
-- **Basic pool (ssoBasic)**: Free-tier Grok account tokens, standard models (no heavy/expert-exclusive models)
-- **Super pool (ssoSuper)**: Paid SuperGrok account tokens, all models including `grok-4-heavy` and other premium models
-- Models are configured per pool with format `model_name#cost` (e.g. `grok-4-thinking#4`, cost defaults to 1)
-- GrokForge automatically selects tokens from the matching pool based on the requested model
-- When the preferred pool has no available tokens, it falls back to the other pool
+- **Basic pool (`ssoBasic`)**: Lowest capability floor. Can serve models/modes whose `pool_floor` is `basic`.
+- **Super pool (`ssoSuper`)**: Higher capability floor. Can serve `super` and `basic` models/modes.
+- **Heavy pool (`ssoHeavy`)**: Highest capability floor. Reserved for `heavy` models/modes and can also serve lower-floor requests.
+- Model routing is defined in the admin Models page (`model_family` + `model_mode`), not by editing per-pool model lists.
+- `pool_floor` is a hard requirement. If no eligible token exists in pools with level >= the model's floor, the request fails with no silent downgrade.
 
 </details>
 
@@ -501,8 +494,8 @@ Usually triggered by Cloudflare protection. Solutions:
 
 Depends on the recovery mode:
 
-- **auto mode** (default): Auto-replenish at configured intervals (default 120 minutes)
-- **upstream mode**: Sync real quotas from Grok's rate-limits API
+- **auto mode** (default): Restore configured default quotas after the pool's cooling window expires
+- **upstream mode**: Sync real quotas from Grok's rate-limits API when the cooling window expires
 
 Tokens enter `cooling` status when quotas are exhausted and automatically switch back to `active` after recovery.
 
@@ -524,7 +517,8 @@ Tokens enter `cooling` status when quotas are exhausted and automatically switch
 - **SQLite** (default): Zero config, data stored in `data/grokforge.db`
 - **PostgreSQL**: Recommended for production, set `db_driver = "postgres"` and `db_dsn`
 
-Both databases have identical functionality with auto-migration on startup.
+Both databases have identical functionality with current-schema initialization on startup.
+If the schema changes in local development, delete `data/grokforge.db` and rebuild instead of expecting in-place migration.
 
 </details>
 
@@ -552,7 +546,7 @@ grokforge/
 │   ├── flow/            # Business orchestration (chat / image / video)
 │   ├── token/           # Token pool management (routing / selection / quota / refresh)
 │   ├── xai/             # Upstream communication (SSE / WebSocket)
-│   ├── store/           # Persistence (GORM + migrations)
+│   ├── store/           # Persistence (GORM + current schema/constraints)
 │   ├── config/          # Config management (TOML + DB override + hot-reload)
 │   ├── cfrefresh/       # Cloudflare defense (FlareSolverr integration)
 │   ├── cache/           # Cache management (image / video local cache)

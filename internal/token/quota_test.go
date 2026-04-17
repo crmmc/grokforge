@@ -3,6 +3,7 @@ package token
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -109,6 +110,20 @@ func TestQuota_SyncQuota(t *testing.T) {
 			if r.URL.Path != "/rest/rate-limits" {
 				t.Errorf("unexpected path: %s", r.URL.Path)
 			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read request body: %v", err)
+			}
+			var payload map[string]any
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Fatalf("decode request body: %v", err)
+			}
+			if payload["modelName"] != rateLimitsProbeModeName {
+				t.Fatalf("expected modelName=%q, got %#v", rateLimitsProbeModeName, payload["modelName"])
+			}
+			if _, ok := payload["requestKind"]; ok {
+				t.Fatalf("unexpected legacy requestKind in payload: %#v", payload)
+			}
 			resp := RateLimitsResponse{
 				RemainingQueries:  50,
 				WindowSizeSeconds: 7200,
@@ -127,16 +142,17 @@ func TestQuota_SyncQuota(t *testing.T) {
 		m.AddToken(token)
 
 		ctx := context.Background()
-		err := m.SyncQuota(ctx, token, server.URL)
+		err := m.SyncQuota(ctx, token.ID, token.Token, server.URL)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if token.ChatQuota != 50 {
-			t.Errorf("expected ChatQuota=50, got %d", token.ChatQuota)
+		tok := m.GetToken(2)
+		if tok.ChatQuota != 50 {
+			t.Errorf("expected ChatQuota=50, got %d", tok.ChatQuota)
 		}
-		if token.InitialChatQuota != 50 {
-			t.Errorf("expected InitialChatQuota=50, got %d", token.InitialChatQuota)
+		if tok.InitialChatQuota != 50 {
+			t.Errorf("expected InitialChatQuota=50, got %d", tok.InitialChatQuota)
 		}
 	})
 
@@ -162,15 +178,16 @@ func TestQuota_SyncQuota(t *testing.T) {
 		m.AddToken(token)
 
 		ctx := context.Background()
-		err := m.SyncQuota(ctx, token, server.URL)
+		err := m.SyncQuota(ctx, token.ID, token.Token, server.URL)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if token.Status != string(StatusActive) {
-			t.Errorf("expected status=active, got %s", token.Status)
+		tok := m.GetToken(3)
+		if tok.Status != string(StatusActive) {
+			t.Errorf("expected status=active, got %s", tok.Status)
 		}
-		if token.CoolUntil != nil {
+		if tok.CoolUntil != nil {
 			t.Error("expected CoolUntil to be nil")
 		}
 	})
@@ -195,18 +212,19 @@ func TestQuota_SyncQuota(t *testing.T) {
 		m.AddToken(token)
 
 		ctx := context.Background()
-		err := m.SyncQuota(ctx, token, server.URL)
+		err := m.SyncQuota(ctx, token.ID, token.Token, server.URL)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
 
-		if token.ChatQuota != 0 {
-			t.Errorf("expected ChatQuota=0, got %d", token.ChatQuota)
+		tok := m.GetToken(10)
+		if tok.ChatQuota != 0 {
+			t.Errorf("expected ChatQuota=0, got %d", tok.ChatQuota)
 		}
-		if token.Status != string(StatusCooling) {
-			t.Errorf("expected status=cooling, got %s", token.Status)
+		if tok.Status != string(StatusCooling) {
+			t.Errorf("expected status=cooling, got %s", tok.Status)
 		}
-		if token.CoolUntil == nil {
+		if tok.CoolUntil == nil {
 			t.Error("expected CoolUntil to be set")
 		}
 	})
@@ -236,7 +254,7 @@ func TestQuota_SyncQuota(t *testing.T) {
 		m.ClearDirty(clearIDs)
 
 		ctx := context.Background()
-		m.SyncQuota(ctx, token, server.URL)
+		m.SyncQuota(ctx, token.ID, token.Token, server.URL)
 
 		dirty := m.GetDirtyTokens()
 		found := false
@@ -277,27 +295,28 @@ func TestSyncQuota_RestoresImageVideoQuotas(t *testing.T) {
 	}
 	m.AddToken(token)
 
-	err := m.SyncQuota(context.Background(), token, server.URL)
+	err := m.SyncQuota(context.Background(), token.ID, token.Token, server.URL)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if token.ChatQuota != 50 {
-		t.Errorf("expected ChatQuota=50, got %d", token.ChatQuota)
+	tok := m.GetToken(20)
+	if tok.ChatQuota != 50 {
+		t.Errorf("expected ChatQuota=50, got %d", tok.ChatQuota)
 	}
-	if token.InitialChatQuota != 50 {
-		t.Errorf("expected InitialChatQuota=50, got %d", token.InitialChatQuota)
+	if tok.InitialChatQuota != 50 {
+		t.Errorf("expected InitialChatQuota=50, got %d", tok.InitialChatQuota)
 	}
-	if token.ImageQuota != 10 {
-		t.Errorf("expected ImageQuota=10, got %d", token.ImageQuota)
+	if tok.ImageQuota != 10 {
+		t.Errorf("expected ImageQuota=10, got %d", tok.ImageQuota)
 	}
-	if token.InitialImageQuota != 10 {
-		t.Errorf("expected InitialImageQuota=10, got %d", token.InitialImageQuota)
+	if tok.InitialImageQuota != 10 {
+		t.Errorf("expected InitialImageQuota=10, got %d", tok.InitialImageQuota)
 	}
-	if token.VideoQuota != 5 {
-		t.Errorf("expected VideoQuota=5, got %d", token.VideoQuota)
+	if tok.VideoQuota != 5 {
+		t.Errorf("expected VideoQuota=5, got %d", tok.VideoQuota)
 	}
-	if token.InitialVideoQuota != 5 {
-		t.Errorf("expected InitialVideoQuota=5, got %d", token.InitialVideoQuota)
+	if tok.InitialVideoQuota != 5 {
+		t.Errorf("expected InitialVideoQuota=5, got %d", tok.InitialVideoQuota)
 	}
 }

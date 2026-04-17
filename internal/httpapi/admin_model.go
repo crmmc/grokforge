@@ -2,11 +2,12 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"log/slog"
 	"net/http"
+	"strings"
+	"sync"
 
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -29,39 +30,178 @@ type RegistryRefresher interface {
 	Refresh(ctx context.Context) error
 }
 
+type txCapableModelStore interface {
+	BeginTx(ctx context.Context) (*store.ModelStoreTx, error)
+}
+
 // FamilyResponse wraps a ModelFamily with its modes for API responses.
 type FamilyResponse struct {
 	store.ModelFamily
 	Modes []*store.ModelMode `json:"modes"`
 }
 
-// refreshRegistry calls Refresh on the registry, logging errors but not failing.
-func refreshRegistry(ctx context.Context, reg RegistryRefresher) {
+type familyCreateRequest struct {
+	Model        string  `json:"model"`
+	DisplayName  string  `json:"display_name"`
+	Type         string  `json:"type"`
+	Enabled      *bool   `json:"enabled"`
+	PoolFloor    string  `json:"pool_floor"`
+	QuotaDefault *string `json:"quota_default"`
+	Description  string  `json:"description"`
+}
+
+type familyUpdateRequest struct {
+	Model         string         `json:"model"`
+	DisplayName   string         `json:"display_name"`
+	Type          string         `json:"type"`
+	Enabled       *bool          `json:"enabled"`
+	PoolFloor     string         `json:"pool_floor"`
+	DefaultModeID optionalUint   `json:"default_mode_id"`
+	QuotaDefault  optionalString `json:"quota_default"`
+	Description   string         `json:"description"`
+}
+
+type modeCreateRequest struct {
+	ModelID           uint    `json:"model_id"`
+	Mode              string  `json:"mode"`
+	Enabled           *bool   `json:"enabled"`
+	PoolFloorOverride *string `json:"pool_floor_override"`
+	UpstreamMode      string  `json:"upstream_mode"`
+	UpstreamModel     string  `json:"upstream_model"`
+	QuotaOverride     *string `json:"quota_override"`
+}
+
+type modeUpdateRequest struct {
+	ModelID           uint    `json:"model_id"`
+	Mode              string  `json:"mode"`
+	Enabled           *bool   `json:"enabled"`
+	PoolFloorOverride *string `json:"pool_floor_override"`
+	UpstreamMode      string  `json:"upstream_mode"`
+	UpstreamModel     string  `json:"upstream_model"`
+	QuotaOverride     *string `json:"quota_override"`
+}
+
+func refreshRegistry(ctx context.Context, reg RegistryRefresher) error {
 	if reg == nil {
-		return
+		return nil
 	}
-	if err := reg.Refresh(ctx); err != nil {
-		slog.Error("failed to refresh model registry after CRUD", "error", err)
+	return reg.Refresh(ctx)
+}
+
+var adminModelMu sync.Mutex
+
+func mutateAndRefreshRegistry(
+	ctx context.Context,
+	ms ModelStoreInterface,
+	reg RegistryRefresher,
+	mutate func(context.Context, ModelStoreInterface) error,
+) error {
+	adminModelMu.Lock()
+	defer adminModelMu.Unlock()
+
+	txStore, ok := ms.(txCapableModelStore)
+	registryRef, registryOK := reg.(*registry.ModelRegistry)
+	if !ok || !registryOK || registryRef == nil {
+		if err := mutate(ctx, ms); err != nil {
+			return err
+		}
+		return refreshRegistry(ctx, reg)
+	}
+
+	txHandle, err := txStore.BeginTx(ctx)
+	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = txHandle.Rollback()
+		}
+	}()
+
+	transactionalStore := txHandle.Store()
+	if err := mutate(ctx, transactionalStore); err != nil {
+		return err
+	}
+
+	snapshot, err := registryRef.BuildSnapshotFromStore(ctx, transactionalStore)
+	if err != nil {
+		return err
+	}
+	if err := registryRef.CommitAndApply(txHandle, snapshot); err != nil {
+		return err
+	}
+	committed = true
+	return nil
+}
+
+func loadFamilyResponse(ctx context.Context, ms ModelStoreInterface, familyID uint) (*FamilyResponse, error) {
+	family, err := ms.GetFamily(ctx, familyID)
+	if err != nil {
+		return nil, err
+	}
+	modes, err := ms.ListModesByFamily(ctx, family.ID)
+	if err != nil {
+		return nil, err
+	}
+	if modes == nil {
+		modes = []*store.ModelMode{}
+	}
+	return &FamilyResponse{ModelFamily: *family, Modes: modes}, nil
+}
+
+func writeModelStoreError(w http.ResponseWriter, err error, fallbackCode, fallbackMsg string) {
+	switch {
+	case errors.Is(err, store.ErrConflict):
+		WriteError(w, http.StatusConflict, "conflict", "name_conflict", err.Error())
+	case errors.Is(err, store.ErrInvalidInput):
+		WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_model_definition", err.Error())
+	default:
+		WriteError(w, http.StatusInternalServerError, "server_error", fallbackCode, fallbackMsg)
 	}
 }
 
-// --- Family handlers ---
+func boolValue(v *bool, defaultValue bool) bool {
+	if v == nil {
+		return defaultValue
+	}
+	return *v
+}
+
+func normalizeRequestIdentifier(value string) string {
+	return strings.TrimSpace(value)
+}
+
+func normalizeOptionalRequestString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
 
 // handleListFamilies returns all families, each with its modes attached.
 func handleListFamilies(ms ModelStoreInterface, reg RegistryRefresher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		families, err := ms.ListFamilies(r.Context())
 		if err != nil {
-			WriteError(w, 500, "server_error", "list_failed", "Failed to list model families")
+			WriteError(w, http.StatusInternalServerError, "server_error", "list_failed", "Failed to list model families")
 			return
 		}
 		result := make([]FamilyResponse, 0, len(families))
-		for _, f := range families {
-			modes, _ := ms.ListModesByFamily(r.Context(), f.ID)
+		for _, family := range families {
+			modes, err := ms.ListModesByFamily(r.Context(), family.ID)
+			if err != nil {
+				WriteError(w, http.StatusInternalServerError, "server_error", "list_failed", "Failed to list model family modes")
+				return
+			}
 			if modes == nil {
 				modes = []*store.ModelMode{}
 			}
-			result = append(result, FamilyResponse{ModelFamily: *f, Modes: modes})
+			result = append(result, FamilyResponse{ModelFamily: *family, Modes: modes})
 		}
 		WriteJSON(w, http.StatusOK, result)
 	}
@@ -70,33 +210,40 @@ func handleListFamilies(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 // handleCreateFamily creates a new model family.
 func handleCreateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var f store.ModelFamily
-		if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_json", "Invalid JSON in request body")
+		var req familyCreateRequest
+		if err := decodeJSONBodyStrict(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_json", "Invalid JSON in request body")
 			return
 		}
-		if f.Model == "" {
-			WriteError(w, 400, "invalid_request", "model_required", "Model name is required")
+		if normalizeRequestIdentifier(req.Model) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "model_required", "Model name is required")
 			return
 		}
-		if f.Type == "" {
-			WriteError(w, 400, "invalid_request", "type_required", "Type is required")
+		if normalizeRequestIdentifier(req.Type) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "type_required", "Type is required")
 			return
 		}
-		if err := ms.CreateFamily(r.Context(), &f); err != nil {
-			if errors.Is(err, store.ErrConflict) {
-				WriteError(w, 409, "conflict", "name_conflict", err.Error())
-				return
-			}
-			WriteError(w, 500, "server_error", "create_failed", "Failed to create model family")
+		family := &store.ModelFamily{
+			Model:        normalizeRequestIdentifier(req.Model),
+			DisplayName:  req.DisplayName,
+			Type:         normalizeRequestIdentifier(req.Type),
+			Enabled:      boolValue(req.Enabled, true),
+			PoolFloor:    normalizeRequestIdentifier(req.PoolFloor),
+			QuotaDefault: normalizeOptionalRequestString(req.QuotaDefault),
+			Description:  req.Description,
+		}
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.CreateFamily(ctx, family)
+		}); err != nil {
+			writeModelStoreError(w, err, "create_failed", "Failed to create model family")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
-		modes, _ := ms.ListModesByFamily(r.Context(), f.ID)
-		if modes == nil {
-			modes = []*store.ModelMode{}
+		resp, err := loadFamilyResponse(r.Context(), ms, family.ID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to load created model family")
+			return
 		}
-		WriteJSON(w, http.StatusCreated, FamilyResponse{ModelFamily: f, Modes: modes})
+		WriteJSON(w, http.StatusCreated, resp)
 	}
 }
 
@@ -105,23 +252,19 @@ func handleGetFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Handler
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid family ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid family ID")
 			return
 		}
-		f, err := ms.GetFamily(r.Context(), id)
+		resp, err := loadFamilyResponse(r.Context(), ms, id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "family_not_found", "Model family not found")
+				WriteError(w, http.StatusNotFound, "not_found", "family_not_found", "Model family not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "get_failed", "Failed to get model family")
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to get model family")
 			return
 		}
-		modes, _ := ms.ListModesByFamily(r.Context(), f.ID)
-		if modes == nil {
-			modes = []*store.ModelMode{}
-		}
-		WriteJSON(w, http.StatusOK, FamilyResponse{ModelFamily: *f, Modes: modes})
+		WriteJSON(w, http.StatusOK, resp)
 	}
 }
 
@@ -130,39 +273,66 @@ func handleUpdateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid family ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid family ID")
 			return
 		}
 		existing, err := ms.GetFamily(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "family_not_found", "Model family not found")
+				WriteError(w, http.StatusNotFound, "not_found", "family_not_found", "Model family not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "get_failed", "Failed to get model family")
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to get model family")
 			return
 		}
-		var f store.ModelFamily
-		if err := json.NewDecoder(r.Body).Decode(&f); err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_json", "Invalid JSON in request body")
+
+		var req familyUpdateRequest
+		if err := decodeJSONBodyStrict(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_json", "Invalid JSON in request body")
 			return
 		}
-		f.ID = existing.ID
-		f.CreatedAt = existing.CreatedAt
-		if err := ms.UpdateFamily(r.Context(), &f); err != nil {
-			if errors.Is(err, store.ErrConflict) {
-				WriteError(w, 409, "conflict", "name_conflict", err.Error())
-				return
-			}
-			WriteError(w, 500, "server_error", "update_failed", "Failed to update model family")
+		if normalizeRequestIdentifier(req.Model) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "model_required", "Model name is required")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
-		modes, _ := ms.ListModesByFamily(r.Context(), f.ID)
-		if modes == nil {
-			modes = []*store.ModelMode{}
+		if normalizeRequestIdentifier(req.Type) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "type_required", "Type is required")
+			return
 		}
-		WriteJSON(w, http.StatusOK, FamilyResponse{ModelFamily: f, Modes: modes})
+
+		family := &store.ModelFamily{
+			ID:          existing.ID,
+			Model:       normalizeRequestIdentifier(req.Model),
+			DisplayName: req.DisplayName,
+			Type:        normalizeRequestIdentifier(req.Type),
+			Enabled:     boolValue(req.Enabled, existing.Enabled),
+			PoolFloor:   normalizeRequestIdentifier(req.PoolFloor),
+			Description: req.Description,
+			CreatedAt:   existing.CreatedAt,
+		}
+		if req.DefaultModeID.Set {
+			family.DefaultModeID = req.DefaultModeID.Value
+		} else {
+			family.DefaultModeID = existing.DefaultModeID
+		}
+		if req.QuotaDefault.Set {
+			family.QuotaDefault = normalizeOptionalRequestString(req.QuotaDefault.Value)
+		} else {
+			family.QuotaDefault = existing.QuotaDefault
+		}
+
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.UpdateFamily(ctx, family)
+		}); err != nil {
+			writeModelStoreError(w, err, "update_failed", "Failed to update model family")
+			return
+		}
+		resp, err := loadFamilyResponse(r.Context(), ms, family.ID)
+		if err != nil {
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to load updated model family")
+			return
+		}
+		WriteJSON(w, http.StatusOK, resp)
 	}
 }
 
@@ -171,50 +341,55 @@ func handleDeleteFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid family ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid family ID")
 			return
 		}
-		if err := ms.DeleteFamily(r.Context(), id); err != nil {
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.DeleteFamily(ctx, id)
+		}); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "family_not_found", "Model family not found")
+				WriteError(w, http.StatusNotFound, "not_found", "family_not_found", "Model family not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "delete_failed", "Failed to delete model family")
+			writeModelStoreError(w, err, "delete_failed", "Failed to delete model family")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
 
-// --- Mode handlers ---
-
 // handleCreateMode creates a new model mode.
 func handleCreateMode(ms ModelStoreInterface, reg RegistryRefresher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var m store.ModelMode
-		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_json", "Invalid JSON in request body")
+		var req modeCreateRequest
+		if err := decodeJSONBodyStrict(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_json", "Invalid JSON in request body")
 			return
 		}
-		if m.ModelID == 0 {
-			WriteError(w, 400, "invalid_request", "model_id_required", "model_id is required")
+		if req.ModelID == 0 {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "model_id_required", "model_id is required")
 			return
 		}
-		if m.Mode == "" {
-			WriteError(w, 400, "invalid_request", "mode_required", "Mode name is required")
+		if normalizeRequestIdentifier(req.Mode) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "mode_required", "Mode name is required")
 			return
 		}
-		if err := ms.CreateMode(r.Context(), &m); err != nil {
-			if errors.Is(err, store.ErrConflict) {
-				WriteError(w, 409, "conflict", "name_conflict", err.Error())
-				return
-			}
-			WriteError(w, 500, "server_error", "create_failed", "Failed to create model mode")
+		mode := &store.ModelMode{
+			ModelID:           req.ModelID,
+			Mode:              normalizeRequestIdentifier(req.Mode),
+			Enabled:           boolValue(req.Enabled, true),
+			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
+			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
+			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
+			QuotaOverride:     normalizeOptionalRequestString(req.QuotaOverride),
+		}
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.CreateMode(ctx, mode)
+		}); err != nil {
+			writeModelStoreError(w, err, "create_failed", "Failed to create model mode")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
-		WriteJSON(w, http.StatusCreated, m)
+		WriteJSON(w, http.StatusCreated, mode)
 	}
 }
 
@@ -223,19 +398,19 @@ func handleGetMode(ms ModelStoreInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid mode ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid mode ID")
 			return
 		}
-		m, err := ms.GetMode(r.Context(), id)
+		mode, err := ms.GetMode(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "mode_not_found", "Model mode not found")
+				WriteError(w, http.StatusNotFound, "not_found", "mode_not_found", "Model mode not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "get_failed", "Failed to get model mode")
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to get model mode")
 			return
 		}
-		WriteJSON(w, http.StatusOK, m)
+		WriteJSON(w, http.StatusOK, mode)
 	}
 }
 
@@ -244,35 +419,51 @@ func handleUpdateMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid mode ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid mode ID")
 			return
 		}
 		existing, err := ms.GetMode(r.Context(), id)
 		if err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "mode_not_found", "Model mode not found")
+				WriteError(w, http.StatusNotFound, "not_found", "mode_not_found", "Model mode not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "get_failed", "Failed to get model mode")
+			WriteError(w, http.StatusInternalServerError, "server_error", "get_failed", "Failed to get model mode")
 			return
 		}
-		var m store.ModelMode
-		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_json", "Invalid JSON in request body")
+
+		var req modeUpdateRequest
+		if err := decodeJSONBodyStrict(r, &req); err != nil {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_json", "Invalid JSON in request body")
 			return
 		}
-		m.ID = existing.ID
-		m.CreatedAt = existing.CreatedAt
-		if err := ms.UpdateMode(r.Context(), &m); err != nil {
-			if errors.Is(err, store.ErrConflict) {
-				WriteError(w, 409, "conflict", "name_conflict", err.Error())
-				return
-			}
-			WriteError(w, 500, "server_error", "update_failed", "Failed to update model mode")
+		if req.ModelID == 0 {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "model_id_required", "model_id is required")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
-		WriteJSON(w, http.StatusOK, m)
+		if normalizeRequestIdentifier(req.Mode) == "" {
+			WriteError(w, http.StatusBadRequest, "invalid_request", "mode_required", "Mode name is required")
+			return
+		}
+
+		mode := &store.ModelMode{
+			ID:                existing.ID,
+			ModelID:           req.ModelID,
+			Mode:              normalizeRequestIdentifier(req.Mode),
+			Enabled:           boolValue(req.Enabled, existing.Enabled),
+			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
+			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
+			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
+			QuotaOverride:     normalizeOptionalRequestString(req.QuotaOverride),
+			CreatedAt:         existing.CreatedAt,
+		}
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.UpdateMode(ctx, mode)
+		}); err != nil {
+			writeModelStoreError(w, err, "update_failed", "Failed to update model mode")
+			return
+		}
+		WriteJSON(w, http.StatusOK, mode)
 	}
 }
 
@@ -281,18 +472,19 @@ func handleDeleteMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid mode ID")
+			WriteError(w, http.StatusBadRequest, "invalid_request", "invalid_id", "Invalid mode ID")
 			return
 		}
-		if err := ms.DeleteMode(r.Context(), id); err != nil {
+		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
+			return txStore.DeleteMode(ctx, id)
+		}); err != nil {
 			if errors.Is(err, store.ErrNotFound) {
-				WriteError(w, 404, "not_found", "mode_not_found", "Model mode not found")
+				WriteError(w, http.StatusNotFound, "not_found", "mode_not_found", "Model mode not found")
 				return
 			}
-			WriteError(w, 500, "server_error", "delete_failed", "Failed to delete model mode")
+			writeModelStoreError(w, err, "delete_failed", "Failed to delete model mode")
 			return
 		}
-		refreshRegistry(r.Context(), reg)
 		w.WriteHeader(http.StatusNoContent)
 	}
 }

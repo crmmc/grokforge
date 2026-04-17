@@ -11,7 +11,7 @@ import (
 
 var (
 	// ErrNoTokenAvailable is returned when no token is available in the pool.
-	ErrNoTokenAvailable = errors.New("no token available")
+	ErrNoTokenAvailable = errors.New("no available token")
 )
 
 // TokenManager manages token pools and state transitions.

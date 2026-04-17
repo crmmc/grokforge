@@ -6,6 +6,7 @@ display_name = "Grok 4.20"
 type         = "chat"
 pool_floor   = "basic"
 default_mode = "default"
+quota_default = "{\"chat\": 1}"
 
   [[family.mode]]
   mode           = "default"
@@ -22,14 +23,13 @@ default_mode = "default"
   upstream_model      = "grok-420"
   upstream_mode       = "MODEL_MODE_EXPERT"
   pool_floor_override = "super"
-  quota_cost          = 4
+  quota_override      = "{\"chat\": 2}"
 
   [[family.mode]]
   mode                = "heavy"
   upstream_model      = "grok-420"
   upstream_mode       = "MODEL_MODE_HEAVY"
   pool_floor_override = "heavy"
-  quota_cost          = 4
 
 [[family]]
 model        = "grok-4.20-mini"
@@ -51,14 +51,10 @@ pool_floor   = "super"
 default_mode = "default"
 
   [[family.mode]]
-  mode           = "default"
-  upstream_model = "grok-3"
-  upstream_mode  = "MODEL_MODE_FAST"
+  mode = "default"
 
   [[family.mode]]
   mode                = "lite"
-  upstream_model      = "grok-3"
-  upstream_mode       = "MODEL_MODE_FAST"
   pool_floor_override = "basic"
 
 [[family]]

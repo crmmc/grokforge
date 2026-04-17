@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/crmmc/grokforge/internal/store"
+	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -78,6 +79,16 @@ func (m *mockVideoClient) UploadFile(ctx context.Context, fileName, fileMimeType
 	return "file-1", "generated/ref-image", nil
 }
 
+func withVideoUpstream(req *VideoRequest) *VideoRequest {
+	if req.UpstreamModel == "" {
+		req.UpstreamModel = "grok-3"
+	}
+	if req.UpstreamMode == "" {
+		req.UpstreamMode = "MODEL_MODE_FAST"
+	}
+	return req
+}
+
 func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
@@ -86,14 +97,14 @@ func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 		videoURL: "https://example.com/video.mp4",
 	}
 
-	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1}
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 
-	url, err := vf.GenerateSync(context.Background(), &VideoRequest{
+	url, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "A sunset over mountains",
-		Model:  "grok-imagine-1.0-video",
+		Model:  "grok-imagine-video",
 		Size:   "1280x720",
-	})
+	}))
 	if err != nil {
 		t.Fatalf("GenerateSync() error = %v", err)
 	}
@@ -110,13 +121,13 @@ func TestVideoFlow_GenerateSync_ChatError(t *testing.T) {
 		chatErr: errors.New("connection refused"),
 	}
 
-	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1}
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 
-	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "Test",
-		Model:  "grok-imagine-1.0-video",
-	})
+		Model:  "grok-imagine-video",
+	}))
 	if err == nil {
 		t.Fatal("GenerateSync() expected error")
 	}
@@ -133,13 +144,16 @@ func TestVideoFlow_GenerateSync_PresetAppended(t *testing.T) {
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, &VideoFlowConfig{
 		TimeoutSeconds:      5,
 		PollIntervalSeconds: 1,
+		ModelResolver:       testModelResolver(),
 	})
 
 	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
-		Prompt: "make it move",
-		Model:  "grok-imagine-1.0-video",
-		Size:   "1280x720",
-		Preset: "normal",
+		Prompt:        "make it move",
+		Model:         "grok-imagine-video",
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODEL_MODE_FAST",
+		Size:          "1280x720",
+		Preset:        "normal",
 	})
 	if err != nil {
 		t.Fatalf("GenerateSync() error = %v", err)
@@ -153,6 +167,12 @@ func TestVideoFlow_GenerateSync_PresetAppended(t *testing.T) {
 	got := client.lastChatReq.Messages[0].Content
 	if got != "make it move --mode=normal" {
 		t.Errorf("chat prompt = %q, want %q", got, "make it move --mode=normal")
+	}
+	if client.lastChatReq.UpstreamModel != "grok-3" {
+		t.Errorf("upstream model = %q, want %q", client.lastChatReq.UpstreamModel, "grok-3")
+	}
+	if client.lastChatReq.UpstreamMode != "MODEL_MODE_FAST" {
+		t.Errorf("upstream mode = %q, want %q", client.lastChatReq.UpstreamMode, "MODEL_MODE_FAST")
 	}
 }
 
@@ -179,15 +199,15 @@ func TestVideoFlow_GenerateSync_AspectRatioDirect(t *testing.T) {
 			}
 
 			vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, &VideoFlowConfig{
-				TimeoutSeconds: 5, PollIntervalSeconds: 1,
+				TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver(),
 			})
 
-			_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+			_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 				Prompt:      "test",
-				Model:       "grok-imagine-1.0-video",
+				Model:       "grok-imagine-video",
 				Size:        tt.size,
 				AspectRatio: tt.aspectRatio,
-			})
+			}))
 			if err != nil {
 				t.Fatalf("GenerateSync() error = %v", err)
 			}
@@ -226,15 +246,39 @@ func TestVideoFlow_GenerateSync_Timeout(t *testing.T) {
 	cfg := &VideoFlowConfig{
 		TimeoutSeconds:      1,
 		PollIntervalSeconds: 1,
+		ModelResolver:       testModelResolver(),
 	}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 
-	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "Test",
-		Model:  "grok-imagine-1.0-video",
-	})
+		Model:  "grok-imagine-video",
+	}))
 	if err == nil {
 		t.Fatal("GenerateSync() expected timeout error")
+	}
+}
+
+func TestVideoFlow_GenerateSync_UnknownModelWithResolverFails(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	client := &mockVideoClient{
+		videoURL: "https://example.com/video.mp4",
+	}
+	cfg := &VideoFlowConfig{
+		TimeoutSeconds:      5,
+		PollIntervalSeconds: 1,
+		ModelResolver:       testModelResolver(),
+	}
+	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
+
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
+		Prompt: "Test",
+		Model:  "unknown-video-model",
+	}))
+	if !errors.Is(err, tkn.ErrModelNotFound) {
+		t.Fatalf("expected ErrModelNotFound, got %v", err)
 	}
 }
 
@@ -246,13 +290,13 @@ func TestVideoFlow_GenerateSync_NoConsumeOnFailure(t *testing.T) {
 		chatErr: errors.New("generation failed"),
 	}
 
-	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1}
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 
-	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "Test",
-		Model:  "grok-imagine-1.0-video",
-	})
+		Model:  "grok-imagine-video",
+	}))
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -272,13 +316,13 @@ func TestVideoFlow_GenerateSync_ConsumeOnSuccess(t *testing.T) {
 		videoURL: "https://example.com/video.mp4",
 	}
 
-	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1}
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 
-	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "Test",
-		Model:  "grok-imagine-1.0-video",
-	})
+		Model:  "grok-imagine-video",
+	}))
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -287,5 +331,25 @@ func TestVideoFlow_GenerateSync_ConsumeOnSuccess(t *testing.T) {
 	defer tokenSvc.mu.Unlock()
 	if len(tokenSvc.consumeCalls) != 1 {
 		t.Errorf("Consume should be called once on success, got %d calls", len(tokenSvc.consumeCalls))
+	}
+}
+
+func TestVideoFlow_GenerateSync_MissingUpstreamMapping(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	client := &mockVideoClient{
+		videoURL: "https://example.com/video.mp4",
+	}
+
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
+	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
+
+	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
+		Prompt: "Test",
+		Model:  "grok-imagine-video",
+	})
+	if err == nil || err.Error() != "upstream model is required" {
+		t.Fatalf("expected upstream model is required, got %v", err)
 	}
 }

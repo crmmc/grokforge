@@ -75,6 +75,23 @@ func TestHandleChat_InvalidModel(t *testing.T) {
 	assert.Equal(t, "model_not_found", resp.Error.Code)
 }
 
+func TestHandleChat_RegistryRequired(t *testing.T) {
+	cfg := config.DefaultConfig()
+	s := httpapi.NewServer(&httpapi.ServerConfig{Config: cfg, ChatProvider: &Handler{Cfg: cfg}})
+	body := `{"model":"grok-3","messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, 500, w.Code)
+	var resp httpapi.APIError
+	err := json.Unmarshal(w.Body.Bytes(), &resp)
+	require.NoError(t, err)
+	assert.Equal(t, "model_registry_unavailable", resp.Error.Code)
+}
+
 func TestHandleChat_InvalidJSON(t *testing.T) {
 	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{}})
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions",
@@ -192,7 +209,9 @@ func (m *mockImagineClient) Generate(_ context.Context, _, _ string, _ bool) (<-
 
 func newTestImageFlow(mock *mockImagineClient) *flow.ImageFlow {
 	tokenSvc := &chatMockTokenSvc{}
-	return flow.NewImageFlow(tokenSvc, func(token string) flow.ImagineGenerator { return mock })
+	imageFlow := flow.NewImageFlow(tokenSvc, func(token string) flow.ImagineGenerator { return mock })
+	imageFlow.SetModelResolver(flowTestModelResolver())
+	return imageFlow
 }
 
 // chatMockTokenSvc is a minimal TokenServicer for httpapi chat tests.
@@ -211,6 +230,24 @@ func (m *chatMockTokenSvc) ReportSuccess(id uint)                  {}
 func (m *chatMockTokenSvc) ReportRateLimit(id uint, reason string) {}
 func (m *chatMockTokenSvc) ReportError(id uint, reason string)     {}
 func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)     {}
+
+type chatUnavailableTokenSvc struct {
+	err error
+}
+
+func (m *chatUnavailableTokenSvc) Pick(pool string, _ tkn.QuotaCategory) (*store.Token, error) {
+	return nil, m.err
+}
+func (m *chatUnavailableTokenSvc) PickExcluding(pool string, _ tkn.QuotaCategory, _ map[uint]struct{}) (*store.Token, error) {
+	return nil, m.err
+}
+func (m *chatUnavailableTokenSvc) Consume(tokenID uint, _ tkn.QuotaCategory, _ int) (int, error) {
+	return 0, m.err
+}
+func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                  {}
+func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, reason string) {}
+func (m *chatUnavailableTokenSvc) ReportError(id uint, reason string)     {}
+func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string)     {}
 
 type chatMockAPIKeyStore struct{}
 
@@ -295,25 +332,25 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 func testMediaRegistry() *registry.ModelRegistry {
 	return registry.NewTestRegistry([]registry.TestFamilyWithModes{
 		{
-			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-1.0", Type: "image", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(1)},
-			Modes:  []store.ModelMode{{ID: 1, ModelID: 1, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
+			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-image", Type: "image", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(1)},
+			Modes: []store.ModelMode{
+				{ID: 1, ModelID: 1, Mode: "default", Enabled: true},
+				{ID: 2, ModelID: 1, Mode: "lite", Enabled: true, PoolFloorOverride: ptrString("basic")},
+			},
 		},
 		{
-			Family: store.ModelFamily{ID: 2, Model: "grok-imagine-1.0-fast", Type: "image", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(2)},
-			Modes:  []store.ModelMode{{ID: 2, ModelID: 2, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
-		},
-		{
-			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-1.0-edit", Type: "image_edit", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(3)},
+			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-image-edit", Type: "image_edit", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(3)},
 			Modes:  []store.ModelMode{{ID: 3, ModelID: 3, Mode: "default", Enabled: true, UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST"}},
 		},
 		{
-			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-1.0-video", Type: "video", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(4)},
+			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-video", Type: "video", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(4)},
 			Modes:  []store.ModelMode{{ID: 4, ModelID: 4, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
 		},
 	})
 }
 
-func ptrUint(v uint) *uint { return &v }
+func ptrUint(v uint) *uint       { return &v }
+func ptrString(v string) *string { return &v }
 
 func TestHandleChat_ImageModelRoute(t *testing.T) {
 	mock := &mockImagineClient{
@@ -322,7 +359,7 @@ func TestHandleChat_ImageModelRoute(t *testing.T) {
 	imageFlow := newTestImageFlow(mock)
 	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{ImageFlow: imageFlow, ModelRegistry: testMediaRegistry()}})
 
-	body := `{"model":"grok-imagine-1.0","messages":[{"role":"user","content":"draw a cat"}]}`
+	body := `{"model":"grok-imagine-image","messages":[{"role":"user","content":"draw a cat"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -345,7 +382,7 @@ func TestHandleChat_ImageModelRoute_BridgesAPIKeyID(t *testing.T) {
 		APIKeyStore:  &chatMockAPIKeyStore{},
 	})
 
-	body := `{"model":"grok-imagine-1.0","messages":[{"role":"user","content":"draw a cat"}]}`
+	body := `{"model":"grok-imagine-image","messages":[{"role":"user","content":"draw a cat"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer test-api-key")
 	req.Header.Set("Content-Type", "application/json")
@@ -360,15 +397,56 @@ func TestHandleChat_ImageModelRoute_BridgesAPIKeyID(t *testing.T) {
 	assert.Equal(t, uint(42), recorder.records[0].APIKeyID)
 }
 
+func TestHandleChat_ImageModelRoute_NoTokenAvailable(t *testing.T) {
+	imageFlow := flow.NewImageFlow(&chatUnavailableTokenSvc{err: tkn.ErrNoTokenAvailable}, func(token string) flow.ImagineGenerator {
+		return &mockImagineClient{}
+	})
+	imageFlow.SetModelResolver(flowTestModelResolver())
+	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{ImageFlow: imageFlow, ModelRegistry: testMediaRegistry()}})
+
+	body := `{"model":"grok-imagine-image","messages":[{"role":"user","content":"draw a cat"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var resp httpapi.APIError
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "no_token_available", resp.Error.Code)
+}
+
+func TestHandleChat_ImageEditRoute_NoTokenAvailable(t *testing.T) {
+	imageFlow := flow.NewImageFlow(&chatUnavailableTokenSvc{err: tkn.ErrNoTokenAvailable}, func(token string) flow.ImagineGenerator {
+		return &mockImagineClient{}
+	})
+	imageFlow.SetEditClientFactory(func(token string) flow.ImageEditClient { return &chatVideoClientMock{} })
+	imageFlow.SetModelResolver(flowTestModelResolver())
+	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{ImageFlow: imageFlow, ModelRegistry: testMediaRegistry()}})
+
+	body := `{"model":"grok-imagine-image-edit","messages":[{"role":"user","content":[{"type":"text","text":"edit this"},{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="}}]}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var resp httpapi.APIError
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "no_token_available", resp.Error.Code)
+}
+
 func TestHandleChat_VideoModelRoute(t *testing.T) {
 	videoFlow := flow.NewVideoFlow(
 		&chatMockTokenSvc{},
 		func(token string) flow.VideoClient { return &chatVideoClientMock{} },
-		&flow.VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1},
+		&flow.VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: flowTestModelResolver()},
 	)
 	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{VideoFlow: videoFlow, ModelRegistry: testMediaRegistry()}})
 
-	body := `{"model":"grok-imagine-1.0-video","messages":[{"role":"user","content":"make a short clip"}]}`
+	body := `{"model":"grok-imagine-video","messages":[{"role":"user","content":"make a short clip"}]}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
@@ -377,4 +455,40 @@ func TestHandleChat_VideoModelRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "[video](")
+}
+
+func TestHandleChat_VideoModelRoute_NoTokenAvailable(t *testing.T) {
+	videoFlow := flow.NewVideoFlow(
+		&chatUnavailableTokenSvc{err: tkn.ErrNoTokenAvailable},
+		func(token string) flow.VideoClient { return &chatVideoClientMock{} },
+		&flow.VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: flowTestModelResolver()},
+	)
+	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{VideoFlow: videoFlow, ModelRegistry: testMediaRegistry()}})
+
+	body := `{"model":"grok-imagine-video","messages":[{"role":"user","content":"make a short clip"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+
+	s.Router().ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
+	var resp httpapi.APIError
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
+	assert.Equal(t, "no_token_available", resp.Error.Code)
+}
+
+func flowTestModelResolver() tkn.ModelResolver {
+	return registryResolverAdapter{reg: testMediaRegistry()}
+}
+
+type registryResolverAdapter struct {
+	reg *registry.ModelRegistry
+}
+
+func (r registryResolverAdapter) ResolvePoolFloor(requestName string) (string, bool) {
+	if r.reg == nil {
+		return "", false
+	}
+	return r.reg.ResolvePoolFloor(requestName)
 }

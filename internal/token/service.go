@@ -2,6 +2,7 @@ package token
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
@@ -57,6 +58,9 @@ func (s *TokenService) LoadTokens(ctx context.Context) error {
 	}
 
 	for _, t := range tokens {
+		if err := normalizeTokenPool(t); err != nil {
+			return err
+		}
 		s.manager.AddToken(t)
 	}
 
@@ -92,10 +96,11 @@ func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token,
 	if token == nil {
 		return nil, ErrTokenNotFound
 	}
-	if err := s.manager.SyncQuota(ctx, token, s.baseURL); err != nil {
+	authToken := token.Token // string copy, safe to use outside lock
+	if err := s.manager.SyncQuota(ctx, id, authToken, s.baseURL); err != nil {
 		return nil, err
 	}
-	return token, nil
+	return s.manager.GetToken(id), nil // return fresh state
 }
 
 // ReportSuccess marks a token as successfully used.
@@ -204,8 +209,12 @@ func (s *TokenService) Manager() *TokenManager {
 }
 
 // AddToPool adds a token to the in-memory pool (called after admin import).
-func (s *TokenService) AddToPool(token *store.Token) {
+func (s *TokenService) AddToPool(token *store.Token) error {
+	if err := normalizeTokenPool(token); err != nil {
+		return err
+	}
 	s.manager.AddToken(token)
+	return nil
 }
 
 // RemoveFromPool removes a token from the in-memory pool (called after admin delete).
@@ -219,7 +228,22 @@ func (s *TokenService) SyncToken(ctx context.Context, id uint) error {
 	if err != nil {
 		return err
 	}
+	if err := normalizeTokenPool(dbToken); err != nil {
+		return err
+	}
 	s.manager.RemoveToken(id)
 	s.manager.AddToken(dbToken)
+	return nil
+}
+
+func normalizeTokenPool(token *store.Token) error {
+	if token == nil {
+		return nil
+	}
+	pool, err := NormalizePoolName(token.Pool)
+	if err != nil {
+		return fmt.Errorf("token %d has invalid pool %q: %w", token.ID, token.Pool, err)
+	}
+	token.Pool = pool
 	return nil
 }

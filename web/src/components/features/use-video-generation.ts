@@ -36,6 +36,7 @@ export function useVideoGeneration({
   const handleGenerate = async () => {
     if (!prompt.trim()) { setError(t.function.enterPrompt); return }
     if (!getApiKey()) { setError(t.function.configureApiKey); return }
+    if (!selectedModel) { setError(t.function.noModelsAvailable); return }
 
     setLoading(true)
     setError(null)
@@ -49,7 +50,7 @@ export function useVideoGeneration({
     try {
       const params: VideoGenerateParams = {
         prompt: prompt.trim(),
-        model: selectedModel || undefined,
+        model: selectedModel,
         aspect_ratio: ratio as VideoGenerateParams['aspect_ratio'],
         duration: parseInt(duration),
         resolution: resolution as '480p' | '720p',

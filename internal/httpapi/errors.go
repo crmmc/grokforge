@@ -73,7 +73,11 @@ func MapXAIError(err error) (int, *APIError) {
 
 	case errors.Is(err, token.ErrNoTokenAvailable):
 		return 503, NewAPIError(503, "server_error", "no_token_available",
-			"No token available for the requested model")
+			"No available token for the requested model")
+
+	case errors.Is(err, token.ErrModelNotFound):
+		return 404, NewAPIError(404, "not_found", "model_not_found",
+			"The requested model is not configured")
 
 	default:
 		// ErrNetwork, ErrStreamClosed, and unknown errors

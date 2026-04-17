@@ -45,7 +45,7 @@ type ChatRequest struct {
 	// Messages is the conversation history.
 	Messages []Message `json:"messages"`
 
-	// Model is the model identifier (e.g., "grok-3").
+	// Model is the request model identifier exposed by this gateway.
 	Model string `json:"model,omitempty"`
 
 	// Stream enables streaming response.
@@ -70,11 +70,11 @@ type ChatRequest struct {
 	ToolOverrides     map[string]any `json:"-"`
 	ModelConfig       map[string]any `json:"-"`
 
-	// UpstreamModel is the Grok API model name (e.g., "grok-3", "grok-4").
+	// UpstreamModel is the Grok API model name (for example "grok-420").
 	// Set by flow layer from ModelRegistry. Used by buildChatBody().
 	UpstreamModel string `json:"-"`
 
-	// UpstreamMode is the Grok API model mode (e.g., "MODEL_MODE_GROK_3").
+	// UpstreamMode is the Grok API model mode (for example "MODEL_MODE_AUTO").
 	// Set by flow layer from ModelRegistry. Used by buildChatBody().
 	UpstreamMode string `json:"-"`
 }

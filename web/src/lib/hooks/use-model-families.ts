@@ -23,7 +23,6 @@ export interface ModelMode {
   mode: string
   enabled: boolean
   pool_floor_override: string | null
-  quota_cost: number
   upstream_mode: string
   upstream_model: string
   quota_override: string | null
@@ -53,12 +52,17 @@ export function useModelFamilies() {
 
 // --- Family Mutations ---
 
+function invalidateModelCaches(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: modelFamilyKeys.all })
+  qc.invalidateQueries({ queryKey: ['models'] })
+}
+
 export function useCreateFamily() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (data: Partial<ModelFamily>) =>
       api.post<FamilyWithModes>('/models/families', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }
 
@@ -67,7 +71,7 @@ export function useUpdateFamily() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ModelFamily> }) =>
       api.put<FamilyWithModes>(`/models/families/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }
 
@@ -75,7 +79,7 @@ export function useDeleteFamily() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/models/families/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }
 
@@ -86,7 +90,7 @@ export function useCreateMode() {
   return useMutation({
     mutationFn: (data: Partial<ModelMode>) =>
       api.post<ModelMode>('/models/modes', data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }
 
@@ -95,7 +99,7 @@ export function useUpdateMode() {
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<ModelMode> }) =>
       api.put<ModelMode>(`/models/modes/${id}`, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }
 
@@ -103,6 +107,6 @@ export function useDeleteMode() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: number) => api.delete<void>(`/models/modes/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: modelFamilyKeys.all }),
+    onSuccess: () => invalidateModelCaches(qc),
   })
 }

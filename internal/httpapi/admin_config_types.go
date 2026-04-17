@@ -2,12 +2,11 @@ package httpapi
 
 // ConfigResponse mirrors config.Config but with masked secrets for API responses.
 type ConfigResponse struct {
-	App         AppConfigResponse         `json:"app"`
-	Image       ImageConfigResponse       `json:"image"`
-	ImagineFast ImagineFastConfigResponse `json:"imagine_fast"`
-	Proxy       ProxyConfigResponse       `json:"proxy"`
-	Retry       RetryConfigResponse       `json:"retry"`
-	Token       TokenConfigResponse       `json:"token"`
+	App   AppConfigResponse   `json:"app"`
+	Image ImageConfigResponse `json:"image"`
+	Proxy ProxyConfigResponse `json:"proxy"`
+	Retry RetryConfigResponse `json:"retry"`
+	Token TokenConfigResponse `json:"token"`
 }
 
 // AppConfigResponse is the API response for app config (secrets masked).
@@ -59,12 +58,6 @@ type ImageConfigResponse struct {
 	BlockedParallelEnabled  bool `json:"blocked_parallel_enabled"`
 }
 
-// ImagineFastConfigResponse is the API response for imagine-fast config.
-type ImagineFastConfigResponse struct {
-	N    int    `json:"n"`
-	Size string `json:"size"`
-}
-
 // RetryConfigResponse is the API response for retry config.
 type RetryConfigResponse struct {
 	MaxTokens               int     `json:"max_tokens"`
@@ -94,12 +87,11 @@ type TokenConfigResponse struct {
 
 // ConfigUpdateRequest represents the fields that can be hot-reloaded.
 type ConfigUpdateRequest struct {
-	App         *AppConfigUpdate         `json:"app,omitempty"`
-	Image       *ImageConfigUpdate       `json:"image,omitempty"`
-	ImagineFast *ImagineFastConfigUpdate `json:"imagine_fast,omitempty"`
-	Proxy       *ProxyConfigUpdate       `json:"proxy,omitempty"`
-	Retry       *RetryConfigUpdate       `json:"retry,omitempty"`
-	Token       *TokenConfigUpdate       `json:"token,omitempty"`
+	App   *AppConfigUpdate   `json:"app,omitempty"`
+	Image *ImageConfigUpdate `json:"image,omitempty"`
+	Proxy *ProxyConfigUpdate `json:"proxy,omitempty"`
+	Retry *RetryConfigUpdate `json:"retry,omitempty"`
+	Token *TokenConfigUpdate `json:"token,omitempty"`
 }
 
 // ImageConfigUpdate contains hot-reloadable image config fields.
@@ -107,12 +99,6 @@ type ImageConfigUpdate struct {
 	NSFW                    *bool `json:"nsfw,omitempty"`
 	BlockedParallelAttempts *int  `json:"blocked_parallel_attempts,omitempty"`
 	BlockedParallelEnabled  *bool `json:"blocked_parallel_enabled,omitempty"`
-}
-
-// ImagineFastConfigUpdate contains hot-reloadable imagine-fast config fields.
-type ImagineFastConfigUpdate struct {
-	N    *int    `json:"n,omitempty"`
-	Size *string `json:"size,omitempty"`
 }
 
 // ProxyConfigUpdate contains hot-reloadable proxy config fields.

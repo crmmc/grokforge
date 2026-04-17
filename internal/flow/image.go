@@ -77,6 +77,8 @@ type ImageData struct {
 // ImageEditRequest represents an image edit request.
 type ImageEditRequest struct {
 	Model          string
+	UpstreamModel  string
+	UpstreamMode   string
 	Prompt         string
 	OriginalImages [][]byte
 	N              int
@@ -120,7 +122,6 @@ type ImageFlow struct {
 	clientFactory     ImagineClientFactory
 	editClientFactory ImageEditClientFactory
 	usageLog          UsageRecorder
-	tokenConfigFn     func() *config.TokenConfig
 	appConfigFn       func() *config.AppConfig
 	imageConfigFn     func() *config.ImageConfig
 	modelResolver     tkn.ModelResolver
@@ -137,16 +138,6 @@ func NewImageFlow(tokenSvc TokenServicer, clientFactory ImagineClientFactory) *I
 // SetUsageRecorder sets the usage recorder for logging API usage.
 func (f *ImageFlow) SetUsageRecorder(ur UsageRecorder) {
 	f.usageLog = ur
-}
-
-// SetTokenConfig sets model-to-pool mapping config for token selection.
-func (f *ImageFlow) SetTokenConfig(cfg *config.TokenConfig) {
-	f.tokenConfigFn = func() *config.TokenConfig { return cfg }
-}
-
-// SetTokenConfigProvider sets a dynamic token config provider.
-func (f *ImageFlow) SetTokenConfigProvider(fn func() *config.TokenConfig) {
-	f.tokenConfigFn = fn
 }
 
 // SetEditClientFactory sets the app-chat client factory used by image edits.
@@ -195,7 +186,7 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 	// Pick token per request
 	tok, err := f.pickTokenForModel(req.Model)
 	if err != nil {
-		return nil, fmt.Errorf("no token available: %w", err)
+		return nil, err
 	}
 
 	// Generate N images (consume quota per image, only after success)
@@ -255,30 +246,25 @@ func (f *ImageFlow) pickTokenForModel(model string) (*store.Token, error) {
 }
 
 func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]struct{}) (*store.Token, error) {
-	if f.modelResolver != nil {
-		pools, ok := tkn.GetPoolForModel(model, f.modelResolver)
-		if ok {
-			var lastErr error
-			for _, pool := range pools {
-				tok, err := f.tokenSvc.PickExcluding(pool, tkn.CategoryImage, exclude)
-				if err == nil {
-					return tok, nil
-				}
-				lastErr = err
-			}
-			if lastErr != nil {
-				return nil, lastErr
-			}
+	if f.modelResolver == nil {
+		return nil, tkn.ErrModelNotFound
+	}
+	pools, ok := tkn.GetPoolForModel(model, f.modelResolver)
+	if !ok {
+		return nil, tkn.ErrModelNotFound
+	}
+	var lastErr error
+	for _, pool := range pools {
+		tok, err := f.tokenSvc.PickExcluding(pool, tkn.CategoryImage, exclude)
+		if err == nil {
+			return tok, nil
 		}
+		lastErr = err
 	}
-	return f.tokenSvc.PickExcluding(tkn.PoolBasic, tkn.CategoryImage, exclude)
-}
-
-func (f *ImageFlow) tokenConfig() *config.TokenConfig {
-	if f.tokenConfigFn == nil {
-		return nil
+	if lastErr != nil {
+		return nil, lastErr
 	}
-	return f.tokenConfigFn()
+	return nil, tkn.ErrNoTokenAvailable
 }
 
 func (f *ImageFlow) appConfig() *config.AppConfig {

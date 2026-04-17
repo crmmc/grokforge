@@ -312,41 +312,27 @@ func TestBuildChatBodyUpstream(t *testing.T) {
 		}
 	})
 
-	t.Run("empty UpstreamModel falls back to Model", func(t *testing.T) {
+	t.Run("empty UpstreamModel returns error", func(t *testing.T) {
 		req := &ChatRequest{
 			Messages: []Message{{Role: "user", Content: "Hello"}},
 			Model:    "grok-4",
 		}
-		body, err := buildChatBody(req)
-		if err != nil {
-			t.Fatalf("buildChatBody error: %v", err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(body, &payload); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if payload["modelName"] != "grok-4" {
-			t.Errorf("modelName = %v, want grok-4", payload["modelName"])
+		_, err := buildChatBody(req)
+		if err == nil || err.Error() != "upstream model is required" {
+			t.Fatalf("buildChatBody error = %v, want upstream model is required", err)
 		}
 	})
 
-	t.Run("empty UpstreamMode uses empty string", func(t *testing.T) {
+	t.Run("empty UpstreamMode returns error", func(t *testing.T) {
 		req := &ChatRequest{
 			Messages:      []Message{{Role: "user", Content: "Hello"}},
 			Model:         "grok-3",
 			UpstreamModel: "grok-3",
 			UpstreamMode:  "",
 		}
-		body, err := buildChatBody(req)
-		if err != nil {
-			t.Fatalf("buildChatBody error: %v", err)
-		}
-		var payload map[string]any
-		if err := json.Unmarshal(body, &payload); err != nil {
-			t.Fatalf("unmarshal: %v", err)
-		}
-		if payload["modelMode"] != "" {
-			t.Errorf("modelMode = %v, want empty string", payload["modelMode"])
+		_, err := buildChatBody(req)
+		if err == nil || err.Error() != "upstream mode is required" {
+			t.Fatalf("buildChatBody error = %v, want upstream mode is required", err)
 		}
 	})
 }

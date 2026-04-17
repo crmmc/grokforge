@@ -23,8 +23,7 @@ var (
 
 // RateLimitsRequest is the request body for rate-limits API.
 type RateLimitsRequest struct {
-	RequestKind string `json:"requestKind"`
-	ModelName   string `json:"modelName"`
+	ModelName string `json:"modelName"`
 }
 
 // RateLimitsResponse is the response from rate-limits API.
@@ -35,6 +34,7 @@ type RateLimitsResponse struct {
 
 const rateLimitsPath = "/rest/rate-limits"
 const minCoolingDuration = 5 * time.Minute
+const rateLimitsProbeModeName = "auto"
 
 // Consume deducts quota from the token for the given category.
 // cost allows variable deduction for different model types.
@@ -77,17 +77,21 @@ func (m *TokenManager) Consume(tokenID uint, cat QuotaCategory, cost int) (remai
 }
 
 // SyncQuota fetches quota from upstream API and updates token state.
-// The upstream rate-limits API returns a single remainingQueries value
-// which maps to ChatQuota (the primary category).
-// If quota recovered and token is cooling, restores to active.
-func (m *TokenManager) SyncQuota(ctx context.Context, token *store.Token, baseURL string) error {
-	resp, err := fetchRateLimits(ctx, token.Token, baseURL)
+// Accepts token ID and auth token string to avoid holding a pointer across
+// the network call (which would race with other goroutines).
+func (m *TokenManager) SyncQuota(ctx context.Context, tokenID uint, authToken string, baseURL string) error {
+	resp, err := fetchRateLimits(ctx, authToken, baseURL)
 	if err != nil {
 		return fmt.Errorf("fetch rate limits: %w", err)
 	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	token, ok := m.tokens[tokenID]
+	if !ok {
+		return ErrTokenNotFound
+	}
 
 	token.ChatQuota = resp.RemainingQueries
 	token.InitialChatQuota = resp.RemainingQueries
@@ -104,13 +108,11 @@ func (m *TokenManager) SyncQuota(ctx context.Context, token *store.Token, baseUR
 
 	switch {
 	case resp.RemainingQueries > 0 && Status(token.Status) == StatusCooling:
-		// Restore cooling token to active if quota recovered
 		token.Status = string(StatusActive)
 		token.StatusReason = ""
 		token.CoolUntil = nil
 		token.FailCount = 0
 	case resp.RemainingQueries <= 0 && Status(token.Status) == StatusActive:
-		// Prevent zombie: active token with no quota must enter cooling
 		now := time.Now()
 		token.Status = string(StatusCooling)
 		token.CoolUntil = &now
@@ -120,11 +122,12 @@ func (m *TokenManager) SyncQuota(ctx context.Context, token *store.Token, baseUR
 	return nil
 }
 
-// fetchRateLimits calls the rate-limits API.
+// fetchRateLimits calls the rate-limits API using the stable "auto" mode name.
+// The upstream endpoint is mode-based ("auto", "fast", "expert", "heavy"),
+// not version-model based (for example "grok-3").
 func fetchRateLimits(ctx context.Context, authToken, baseURL string) (*RateLimitsResponse, error) {
 	reqBody := RateLimitsRequest{
-		RequestKind: "DEFAULT",
-		ModelName:   "grok-3",
+		ModelName: rateLimitsProbeModeName,
 	}
 
 	body, err := json.Marshal(reqBody)
@@ -176,6 +179,8 @@ func (m *TokenManager) coolingDurationForToken(token *store.Token) time.Duration
 	switch token.Pool {
 	case PoolSuper:
 		duration = time.Duration(m.cfg.SuperCoolDurationMin) * time.Minute
+	case PoolHeavy:
+		duration = time.Duration(m.cfg.HeavyCoolDurationMin) * time.Minute
 	default:
 		duration = time.Duration(m.cfg.BasicCoolDurationMin) * time.Minute
 	}

@@ -89,3 +89,37 @@ func TestAllPoolNames(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalizePoolName(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{input: "ssoBasic", want: PoolBasic},
+		{input: "basic", want: PoolBasic},
+		{input: "ssoSuper", want: PoolSuper},
+		{input: "super", want: PoolSuper},
+		{input: "ssoHeavy", want: PoolHeavy},
+		{input: "heavy", want: PoolHeavy},
+		{input: "weird", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, err := NormalizePoolName(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error for %q", tt.input)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NormalizePoolName(%q) error = %v", tt.input, err)
+			}
+			if got != tt.want {
+				t.Fatalf("NormalizePoolName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}

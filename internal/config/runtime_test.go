@@ -41,9 +41,11 @@ func TestRuntimeCloneIsolation(t *testing.T) {
 
 func TestApplyDBOverrides_ResolvesImageToggle(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.ApplyDBOverrides(map[string]string{
+	if err := cfg.ApplyDBOverrides(map[string]string{
 		"image.blocked_parallel_enabled": "false",
-	})
+	}); err != nil {
+		t.Fatalf("ApplyDBOverrides() error = %v", err)
+	}
 
 	if EffectiveBlockedParallelEnabled(&cfg.Image) {
 		t.Fatal("expected blocked_parallel_enabled override to disable parallel recovery")

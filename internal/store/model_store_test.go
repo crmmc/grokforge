@@ -33,6 +33,25 @@ func newTestFamily(model, typ string) *ModelFamily {
 	}
 }
 
+func newTestMode(modelID uint, mode string) *ModelMode {
+	return &ModelMode{
+		ModelID:       modelID,
+		Mode:          mode,
+		Enabled:       true,
+		UpstreamModel: "test-upstream",
+		UpstreamMode:  "MODE_" + mode,
+	}
+}
+
+func createDefaultMode(t *testing.T, s *ModelStore, ctx context.Context, familyID uint) *ModelMode {
+	t.Helper()
+	mode := newTestMode(familyID, "default")
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	return mode
+}
+
 func TestModelFamily_CRUD(t *testing.T) {
 	db := setupModelTestDB(t)
 	s := NewModelStore(db)
@@ -109,9 +128,10 @@ func TestModelMode_CRUD(t *testing.T) {
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
+	createDefaultMode(t, s, ctx, f.ID)
 
 	// Create mode
-	m := &ModelMode{ModelID: f.ID, Mode: "mini", UpstreamMode: "mini", UpstreamModel: "grok-3"}
+	m := &ModelMode{ModelID: f.ID, Mode: "mini", Enabled: true, UpstreamMode: "mini", UpstreamModel: "grok-3"}
 	if err := s.CreateMode(ctx, m); err != nil {
 		t.Fatalf("create mode: %v", err)
 	}
@@ -133,8 +153,8 @@ func TestModelMode_CRUD(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list modes: %v", err)
 	}
-	if len(modes) != 1 {
-		t.Errorf("expected 1 mode, got %d", len(modes))
+	if len(modes) != 2 {
+		t.Errorf("expected 2 modes, got %d", len(modes))
 	}
 
 	// Update mode
@@ -166,11 +186,12 @@ func TestModelMode_UniqueMode(t *testing.T) {
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
-	m1 := &ModelMode{ModelID: f.ID, Mode: "mini"}
+	createDefaultMode(t, s, ctx, f.ID)
+	m1 := newTestMode(f.ID, "mini")
 	if err := s.CreateMode(ctx, m1); err != nil {
 		t.Fatalf("create first mode: %v", err)
 	}
-	m2 := &ModelMode{ModelID: f.ID, Mode: "mini"}
+	m2 := newTestMode(f.ID, "mini")
 	err := s.CreateMode(ctx, m2)
 	if err == nil {
 		t.Fatal("expected error for duplicate mode in same family")
@@ -190,9 +211,11 @@ func TestModelMode_CrossFamily(t *testing.T) {
 	if err := s.CreateFamily(ctx, f2); err != nil {
 		t.Fatalf("create f2: %v", err)
 	}
+	createDefaultMode(t, s, ctx, f1.ID)
+	createDefaultMode(t, s, ctx, f2.ID)
 	// Same mode name in different families should be allowed
-	m1 := &ModelMode{ModelID: f1.ID, Mode: "fast"}
-	m2 := &ModelMode{ModelID: f2.ID, Mode: "fast"}
+	m1 := newTestMode(f1.ID, "fast")
+	m2 := newTestMode(f2.ID, "fast")
 	if err := s.CreateMode(ctx, m1); err != nil {
 		t.Fatalf("create mode in f1: %v", err)
 	}
@@ -205,17 +228,21 @@ func TestConflict_CreateFamily(t *testing.T) {
 	s := NewModelStore(db)
 	ctx := context.Background()
 
-	// Create family "grok-3" with mode "mini" -> derived name "grok-3-mini"
+	// Create family "grok-3" with a default mode, then add non-default mode "mini"
 	f := newTestFamily("grok-3", "chat")
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
-	m := &ModelMode{ModelID: f.ID, Mode: "mini"}
-	if err := s.CreateMode(ctx, m); err != nil {
+	defaultMode := newTestMode(f.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	miniMode := newTestMode(f.ID, "mini")
+	if err := s.CreateMode(ctx, miniMode); err != nil {
 		t.Fatalf("create mode: %v", err)
 	}
 
-	// Creating family "grok-3-mini" should conflict with derived name
+	// Creating family "grok-3-mini" should conflict with the non-default request name
 	f2 := newTestFamily("grok-3-mini", "chat")
 	err := s.CreateFamily(ctx, f2)
 	if !errors.Is(err, ErrConflict) {
@@ -240,8 +267,13 @@ func TestConflict_CreateMode(t *testing.T) {
 		t.Fatalf("create family: %v", err)
 	}
 
-	// Creating mode "mini" under "grok-3" -> derived "grok-3-mini" conflicts with family
-	m := &ModelMode{ModelID: f2.ID, Mode: "mini"}
+	defaultMode := newTestMode(f2.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+
+	// Creating a non-default mode "mini" under "grok-3" -> derived "grok-3-mini" conflicts with family
+	m := newTestMode(f2.ID, "mini")
 	err := s.CreateMode(ctx, m)
 	if !errors.Is(err, ErrConflict) {
 		t.Errorf("expected ErrConflict, got %v", err)
@@ -286,12 +318,16 @@ func TestConflict_UpdateMode(t *testing.T) {
 	if err := s.CreateFamily(ctx, f2); err != nil {
 		t.Fatalf("create f2: %v", err)
 	}
-	m := &ModelMode{ModelID: f2.ID, Mode: "mini"}
+	defaultMode := newTestMode(f2.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	m := newTestMode(f2.ID, "mini")
 	if err := s.CreateMode(ctx, m); err != nil {
 		t.Fatalf("create mode: %v", err)
 	}
 
-	// Update mode name to "fast" -> derived "grok-3-fast" conflicts
+	// Update non-default mode name to "fast" -> derived "grok-3-fast" conflicts
 	m.Mode = "fast"
 	err := s.UpdateMode(ctx, m)
 	if !errors.Is(err, ErrConflict) {
@@ -303,12 +339,16 @@ func TestConflict_D08Example(t *testing.T) {
 	s := NewModelStore(db)
 	ctx := context.Background()
 
-	// Scenario A: grok-4 + mini mode exists, then create grok-4-mini family
+	// Scenario A: grok-4 has a default mode plus non-default "mini", then create grok-4-mini family
 	f1 := newTestFamily("grok-4", "chat")
 	if err := s.CreateFamily(ctx, f1); err != nil {
 		t.Fatalf("create grok-4: %v", err)
 	}
-	m := &ModelMode{ModelID: f1.ID, Mode: "mini"}
+	defaultMode := newTestMode(f1.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	m := newTestMode(f1.ID, "mini")
 	if err := s.CreateMode(ctx, m); err != nil {
 		t.Fatalf("create mini mode: %v", err)
 	}
@@ -318,7 +358,7 @@ func TestConflict_D08Example(t *testing.T) {
 		t.Errorf("scenario A: expected ErrConflict, got %v", err)
 	}
 
-	// Scenario B: fresh DB, grok-4-mini family exists, then add mini mode to grok-4
+	// Scenario B: fresh DB, grok-4-mini family exists, then add non-default mini mode to grok-4
 	db2 := setupModelTestDB(t)
 	s2 := NewModelStore(db2)
 
@@ -330,7 +370,11 @@ func TestConflict_D08Example(t *testing.T) {
 	if err := s2.CreateFamily(ctx, fb); err != nil {
 		t.Fatalf("create grok-4: %v", err)
 	}
-	m2 := &ModelMode{ModelID: fb.ID, Mode: "mini"}
+	defaultMode2 := newTestMode(fb.ID, "default")
+	if err := s2.CreateMode(ctx, defaultMode2); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	m2 := newTestMode(fb.ID, "mini")
 	err = s2.CreateMode(ctx, m2)
 	if !errors.Is(err, ErrConflict) {
 		t.Errorf("scenario B: expected ErrConflict, got %v", err)
@@ -346,10 +390,8 @@ func TestConflict_NoFalsePositive(t *testing.T) {
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
-	m := &ModelMode{ModelID: f.ID, Mode: "fast"}
-	if err := s.CreateMode(ctx, m); err != nil {
-		t.Fatalf("create mode: %v", err)
-	}
+	m := createDefaultMode(t, s, ctx, f.ID)
+	f.DefaultModeID = &m.ID
 
 	// Updating family without changing model name should not conflict
 	f.DisplayName = "Updated Name"
@@ -372,8 +414,9 @@ func TestDeleteFamily_CascadeModes(t *testing.T) {
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
-	for _, mode := range []string{"mini", "fast", "turbo"} {
-		m := &ModelMode{ModelID: f.ID, Mode: mode}
+	createDefaultMode(t, s, ctx, f.ID)
+	for _, mode := range []string{"fast", "turbo"} {
+		m := newTestMode(f.ID, mode)
 		if err := s.CreateMode(ctx, m); err != nil {
 			t.Fatalf("create mode %s: %v", mode, err)
 		}
@@ -403,7 +446,7 @@ func TestDeleteMode_ClearDefaultModeID(t *testing.T) {
 	if err := s.CreateFamily(ctx, f); err != nil {
 		t.Fatalf("create family: %v", err)
 	}
-	m := &ModelMode{ModelID: f.ID, Mode: "default"}
+	m := newTestMode(f.ID, "default")
 	if err := s.CreateMode(ctx, m); err != nil {
 		t.Fatalf("create mode: %v", err)
 	}
@@ -423,6 +466,38 @@ func TestDeleteMode_ClearDefaultModeID(t *testing.T) {
 	got, _ := s.GetFamily(ctx, f.ID)
 	if got.DefaultModeID != nil {
 		t.Errorf("expected nil default_mode_id after deleting default mode, got %v", *got.DefaultModeID)
+	}
+}
+
+func TestDeleteMode_DefaultWithRemainingModesFails(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	defaultMode := &ModelMode{ModelID: f.ID, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODE_DEFAULT"}
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	expertMode := &ModelMode{ModelID: f.ID, Mode: "expert", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODE_EXPERT"}
+	if err := s.CreateMode(ctx, expertMode); err != nil {
+		t.Fatalf("create expert mode: %v", err)
+	}
+
+	f.DefaultModeID = &defaultMode.ID
+	if err := s.UpdateFamily(ctx, f); err != nil {
+		t.Fatalf("set default mode: %v", err)
+	}
+
+	err := s.DeleteMode(ctx, defaultMode.ID)
+	if err == nil {
+		t.Fatal("expected error when deleting default mode with remaining modes")
+	}
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
 }
 func TestCreateFamily_InvalidType(t *testing.T) {
@@ -449,6 +524,41 @@ func TestCreateFamily_InvalidPoolFloor(t *testing.T) {
 	}
 }
 
+func TestCreateFamily_NormalizesTrimmedIdentifiersAndBlankQuota(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	blankQuota := "   "
+	f := &ModelFamily{
+		Model:        "  grok-3  ",
+		Type:         "  chat  ",
+		PoolFloor:    "  basic  ",
+		Enabled:      true,
+		QuotaDefault: &blankQuota,
+	}
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+
+	got, err := s.GetFamily(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("get family: %v", err)
+	}
+	if got.Model != "grok-3" {
+		t.Fatalf("expected trimmed model, got %q", got.Model)
+	}
+	if got.Type != "chat" {
+		t.Fatalf("expected trimmed type, got %q", got.Type)
+	}
+	if got.PoolFloor != "basic" {
+		t.Fatalf("expected trimmed pool floor, got %q", got.PoolFloor)
+	}
+	if got.QuotaDefault != nil {
+		t.Fatalf("expected blank quota_default to normalize to nil, got %v", *got.QuotaDefault)
+	}
+}
+
 func TestUpdateFamily_DefaultModeID_Validation(t *testing.T) {
 	db := setupModelTestDB(t)
 	s := NewModelStore(db)
@@ -464,10 +574,7 @@ func TestUpdateFamily_DefaultModeID_Validation(t *testing.T) {
 	}
 
 	// Create mode under f2
-	m := &ModelMode{ModelID: f2.ID, Mode: "fast"}
-	if err := s.CreateMode(ctx, m); err != nil {
-		t.Fatalf("create mode: %v", err)
-	}
+	m := createDefaultMode(t, s, ctx, f2.ID)
 
 	// Try to set f1's default_mode_id to a mode belonging to f2
 	f1.DefaultModeID = &m.ID
@@ -500,7 +607,7 @@ func TestListEnabledFamilies(t *testing.T) {
 		}
 	}
 
-	// Disable f2 after creation (GORM default:true treats false as zero value on create)
+	// Disable f2 after creation to verify enabled filtering on updates too.
 	f2.Enabled = false
 	if err := s.UpdateFamily(ctx, f2); err != nil {
 		t.Fatalf("disable f2: %v", err)
@@ -537,5 +644,366 @@ func TestDeriveRequestName(t *testing.T) {
 			t.Errorf("DeriveRequestName(%q, %q, %v) = %q, want %q",
 				tt.family, tt.mode, tt.isDefault, got, tt.want)
 		}
+	}
+}
+
+func TestCreateFamily_PersistsDisabledState(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := &ModelFamily{
+		Model:     "grok-disabled",
+		Type:      "chat",
+		PoolFloor: "basic",
+		Enabled:   false,
+	}
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+
+	got, err := s.GetFamily(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("get family: %v", err)
+	}
+	if got.Enabled {
+		t.Fatal("expected family to stay disabled after create")
+	}
+}
+
+func TestCreateMode_PersistsDisabledState(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	defaultMode := newTestMode(f.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+
+	mode := &ModelMode{
+		ModelID:       f.ID,
+		Mode:          "expert",
+		Enabled:       false,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODE_EXPERT",
+	}
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create disabled mode: %v", err)
+	}
+
+	got, err := s.GetMode(ctx, mode.ID)
+	if err != nil {
+		t.Fatalf("get mode: %v", err)
+	}
+	if got.Enabled {
+		t.Fatal("expected mode to stay disabled after create")
+	}
+}
+
+func TestCreateMode_FirstModeDefaultBecomesDefault(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	mode := &ModelMode{
+		ModelID:       f.ID,
+		Mode:          "default",
+		Enabled:       true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODE_DEFAULT",
+	}
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	got, err := s.GetFamily(ctx, f.ID)
+	if err != nil {
+		t.Fatalf("get family: %v", err)
+	}
+	if got.DefaultModeID == nil || *got.DefaultModeID != mode.ID {
+		t.Fatalf("expected first mode to become default, got %v", got.DefaultModeID)
+	}
+}
+
+func TestCreateMode_FirstModeMustBeNamedDefault(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	mode := &ModelMode{
+		ModelID:       f.ID,
+		Mode:          "expert",
+		Enabled:       true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODE_EXPERT",
+	}
+	err := s.CreateMode(ctx, mode)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestCreateMode_FirstModeMustBeEnabled(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	mode := &ModelMode{
+		ModelID:       f.ID,
+		Mode:          "default",
+		Enabled:       false,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODE_DEFAULT",
+	}
+	err := s.CreateMode(ctx, mode)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestCreateMode_ImageFamilyAllowsEmptyUpstream(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-imagine-image", "image")
+	f.PoolFloor = "super"
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+
+	mode := &ModelMode{
+		ModelID: f.ID,
+		Mode:    "default",
+		Enabled: true,
+	}
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("expected image mode creation to succeed without upstream, got %v", err)
+	}
+}
+
+func TestCreateMode_ImageFamilyRejectsUpstreamMapping(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-imagine-image", "image")
+	f.PoolFloor = "super"
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+
+	mode := &ModelMode{
+		ModelID:       f.ID,
+		Mode:          "default",
+		Enabled:       true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODEL_MODE_FAST",
+	}
+	err := s.CreateMode(ctx, mode)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestCreateMode_NormalizesTrimmedIdentifiersAndBlankQuota(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	blankQuota := "   "
+	override := "  super  "
+	mode := &ModelMode{
+		ModelID:           f.ID,
+		Mode:              "  default  ",
+		Enabled:           true,
+		PoolFloorOverride: &override,
+		UpstreamModel:     "  grok-3  ",
+		UpstreamMode:      "  MODE_DEFAULT  ",
+		QuotaOverride:     &blankQuota,
+	}
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	got, err := s.GetMode(ctx, mode.ID)
+	if err != nil {
+		t.Fatalf("get mode: %v", err)
+	}
+	if got.Mode != "default" {
+		t.Fatalf("expected trimmed mode, got %q", got.Mode)
+	}
+	if got.UpstreamModel != "grok-3" {
+		t.Fatalf("expected trimmed upstream_model, got %q", got.UpstreamModel)
+	}
+	if got.UpstreamMode != "MODE_DEFAULT" {
+		t.Fatalf("expected trimmed upstream_mode, got %q", got.UpstreamMode)
+	}
+	if got.PoolFloorOverride == nil || *got.PoolFloorOverride != "super" {
+		t.Fatalf("expected trimmed pool floor override, got %v", got.PoolFloorOverride)
+	}
+	if got.QuotaOverride != nil {
+		t.Fatalf("expected blank quota_override to normalize to nil, got %v", *got.QuotaOverride)
+	}
+}
+
+func TestUpdateFamily_TypeChangeRequiresExistingModeUpstream(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	family := newTestFamily("grok-imagine-image", "image")
+	if err := s.CreateFamily(ctx, family); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+
+	mode := &ModelMode{
+		ModelID: family.ID,
+		Mode:    "default",
+		Enabled: true,
+	}
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	family.Type = "chat"
+	err := s.UpdateFamily(ctx, family)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestModelConstraints_ModelIDRequiresExistingFamily(t *testing.T) {
+	db := setupModelTestDB(t)
+
+	mode := &ModelMode{
+		ModelID:       999,
+		Mode:          "default",
+		Enabled:       true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODE_DEFAULT",
+	}
+	if err := db.Create(mode).Error; err == nil {
+		t.Fatal("expected foreign-key error for orphan mode")
+	}
+}
+
+func TestModelConstraints_DefaultModeMustBelongToSameFamily(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f1 := newTestFamily("grok-3", "chat")
+	f2 := newTestFamily("grok-4", "chat")
+	if err := s.CreateFamily(ctx, f1); err != nil {
+		t.Fatalf("create f1: %v", err)
+	}
+	if err := s.CreateFamily(ctx, f2); err != nil {
+		t.Fatalf("create f2: %v", err)
+	}
+
+	mode := newTestMode(f2.ID, "default")
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	if err := db.Model(&ModelFamily{}).
+		Where("id = ?", f1.ID).
+		Update("default_mode_id", mode.ID).Error; err == nil {
+		t.Fatal("expected same-family constraint error for default_mode_id")
+	}
+}
+
+func TestUpdateMode_CannotDisableDefaultMode(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	defaultMode := newTestMode(f.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+
+	defaultMode.Enabled = false
+	err := s.UpdateMode(ctx, defaultMode)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestUpdateMode_CannotMoveFamily(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f1 := newTestFamily("grok-3", "chat")
+	f2 := newTestFamily("grok-4", "chat")
+	if err := s.CreateFamily(ctx, f1); err != nil {
+		t.Fatalf("create f1: %v", err)
+	}
+	if err := s.CreateFamily(ctx, f2); err != nil {
+		t.Fatalf("create f2: %v", err)
+	}
+	mode := newTestMode(f1.ID, "default")
+	if err := s.CreateMode(ctx, mode); err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	mode.ModelID = f2.ID
+	err := s.UpdateMode(ctx, mode)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
+	}
+}
+
+func TestUpdateFamily_DefaultModeMustBeEnabled(t *testing.T) {
+	db := setupModelTestDB(t)
+	s := NewModelStore(db)
+	ctx := context.Background()
+
+	f := newTestFamily("grok-3", "chat")
+	if err := s.CreateFamily(ctx, f); err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	defaultMode := newTestMode(f.ID, "default")
+	if err := s.CreateMode(ctx, defaultMode); err != nil {
+		t.Fatalf("create default mode: %v", err)
+	}
+	expertMode := newTestMode(f.ID, "expert")
+	expertMode.Enabled = false
+	expertMode.UpstreamMode = "MODE_EXPERT"
+	if err := s.CreateMode(ctx, expertMode); err != nil {
+		t.Fatalf("create expert mode: %v", err)
+	}
+
+	f.DefaultModeID = &expertMode.ID
+	err := s.UpdateFamily(ctx, f)
+	if !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("expected ErrInvalidInput, got %v", err)
 	}
 }

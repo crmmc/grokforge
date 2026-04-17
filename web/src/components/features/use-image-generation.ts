@@ -24,6 +24,7 @@ export function useImageGeneration({
   const handleGenerate = async () => {
     if (!prompt.trim()) { setError(t.function.enterPrompt); return }
     if (!getApiKey()) { setError(t.function.configureApiKey); return }
+    if (!selectedModel) { setError(t.function.noModelsAvailable); return }
 
     setLoading(true)
     setError(null)
@@ -33,7 +34,7 @@ export function useImageGeneration({
     try {
       const params: ImageGenerateParams = {
         prompt: prompt.trim(),
-        model: editMode ? 'grok-imagine-1.0-edit' : selectedModel,
+        model: selectedModel,
         size,
         n: parseInt(count),
         response_format: format as 'url' | 'b64_json' | 'base64',

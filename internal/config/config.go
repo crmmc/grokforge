@@ -2,22 +2,19 @@
 package config
 
 import (
-	"log/slog"
+	"fmt"
 	"os"
-	"strconv"
-	"strings"
 
 	"github.com/BurntSushi/toml"
 )
 
 // Config is the root configuration structure.
 type Config struct {
-	App         AppConfig         `toml:"app"`
-	Image       ImageConfig       `toml:"image"`
-	ImagineFast ImagineFastConfig `toml:"imagine_fast"`
-	Proxy       ProxyConfig       `toml:"proxy"`
-	Retry       RetryConfig       `toml:"retry"`
-	Token       TokenConfig       `toml:"token"`
+	App   AppConfig   `toml:"app"`
+	Image ImageConfig `toml:"image"`
+	Proxy ProxyConfig `toml:"proxy"`
+	Retry RetryConfig `toml:"retry"`
+	Token TokenConfig `toml:"token"`
 }
 
 // AppConfig contains application settings.
@@ -60,12 +57,6 @@ type ImageConfig struct {
 	BlockedParallelEnabled  *bool `toml:"blocked_parallel_enabled"`
 }
 
-// ImagineFastConfig contains server-side chat defaults for grok-imagine-image-lite.
-type ImagineFastConfig struct {
-	N    int    `toml:"n"`
-	Size string `toml:"size"`
-}
-
 // ProxyConfig contains proxy settings.
 type ProxyConfig struct {
 	BaseProxyURL       string `toml:"base_proxy_url"`
@@ -95,278 +86,17 @@ type RetryConfig struct {
 
 // TokenConfig contains token pool settings.
 type TokenConfig struct {
-	FailThreshold         int `toml:"fail_threshold"`
-	UsageFlushIntervalSec int `toml:"usage_flush_interval_sec"`
-	CoolCheckIntervalSec  int `toml:"cool_check_interval_sec"`
-	BasicCoolDurationMin int `toml:"basic_cool_duration_min"`
-	SuperCoolDurationMin int      `toml:"super_cool_duration_min"`
-	HeavyCoolDurationMin int      `toml:"heavy_cool_duration_min"`
-	DefaultChatQuota     int      `toml:"default_chat_quota"`
-	DefaultImageQuota    int      `toml:"default_image_quota"`
-	DefaultVideoQuota    int      `toml:"default_video_quota"`
-	QuotaRecoveryMode    string   `toml:"quota_recovery_mode"`
-	SelectionAlgorithm   string   `toml:"selection_algorithm" json:"selection_algorithm"`
-}
-
-// ApplyDBOverrides applies database config entries on top of file-based config.
-// Priority: DB > config file > defaults.
-func (c *Config) ApplyDBOverrides(kvs map[string]string) {
-	// Pre-check: browser and UA must be paired from the same source.
-	// If browser has no DB override, don't apply DB UA override either.
-	browserInDB := kvs["proxy.browser"]
-	if browserInDB == "" {
-		// Browser not overridden by DB → remove UA override so both use defaults.
-		delete(kvs, "proxy.user_agent")
-	}
-
-	for k, v := range kvs {
-		switch k {
-		case "app.app_key":
-			c.App.AppKey = v
-		case "app.media_generation_enabled":
-			c.App.MediaGenerationEnabled = v == "true"
-		case "app.temporary":
-			c.App.Temporary = v == "true"
-		case "app.stream":
-			c.App.Stream = v == "true"
-		case "app.thinking":
-			c.App.Thinking = v == "true"
-		case "app.dynamic_statsig":
-			c.App.DynamicStatsig = v == "true"
-		case "app.custom_instruction":
-			c.App.CustomInstruction = v
-		case "app.filter_tags":
-			if v != "" {
-				c.App.FilterTags = strings.Split(v, ",")
-			} else {
-				c.App.FilterTags = []string{}
-			}
-		case "app.disable_memory":
-			c.App.DisableMemory = v == "true"
-		case "app.request_timeout":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.App.RequestTimeout = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.read_header_timeout":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.App.ReadHeaderTimeout = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.max_header_bytes":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.App.MaxHeaderBytes = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.body_limit":
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				c.App.BodyLimit = n
-			} else {
-				slog.Warn("config: invalid int64 override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.chat_body_limit":
-			if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-				c.App.ChatBodyLimit = n
-			} else {
-				slog.Warn("config: invalid int64 override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.admin_max_fails":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.App.AdminMaxFails = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "app.admin_window_sec":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.App.AdminWindowSec = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		// Proxy overrides
-		case "proxy.base_proxy_url":
-			c.Proxy.BaseProxyURL = v
-		case "proxy.asset_proxy_url":
-			c.Proxy.AssetProxyURL = v
-		case "proxy.cf_cookies":
-			c.Proxy.CFCookies = v
-		case "proxy.skip_proxy_ssl_verify":
-			c.Proxy.SkipProxySSLVerify = v == "true"
-		case "proxy.enabled":
-			c.Proxy.Enabled = v == "true"
-		case "proxy.flaresolverr_url":
-			c.Proxy.FlareSolverrURL = v
-		case "proxy.refresh_interval":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Proxy.RefreshInterval = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "proxy.timeout":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Proxy.Timeout = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "proxy.cf_clearance":
-			c.Proxy.CFClearance = v
-		case "proxy.browser":
-			if v != "" {
-				c.Proxy.Browser = v
-			}
-		case "proxy.user_agent":
-			if v != "" {
-				c.Proxy.UserAgent = v
-			}
-		// Retry overrides
-		case "retry.max_tokens":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Retry.MaxTokens = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "retry.per_token_retries":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Retry.PerTokenRetries = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "retry.reset_session_status_codes":
-			if v != "" {
-				parts := strings.Split(v, ",")
-				codes := make([]int, 0, len(parts))
-				for _, p := range parts {
-					if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
-						codes = append(codes, n)
-					}
-				}
-				c.Retry.ResetSessionStatusCodes = codes
-			} else {
-				c.Retry.ResetSessionStatusCodes = []int{}
-			}
-		case "retry.cooling_status_codes":
-			if v != "" {
-				parts := strings.Split(v, ",")
-				codes := make([]int, 0, len(parts))
-				for _, p := range parts {
-					if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
-						codes = append(codes, n)
-					}
-				}
-				c.Retry.CoolingStatusCodes = codes
-			} else {
-				c.Retry.CoolingStatusCodes = []int{}
-			}
-		case "retry.retry_backoff_base":
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				c.Retry.RetryBackoffBase = f
-			} else {
-				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
-			}
-		case "retry.retry_backoff_factor":
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				c.Retry.RetryBackoffFactor = f
-			} else {
-				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
-			}
-		case "retry.retry_backoff_max":
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				c.Retry.RetryBackoffMax = f
-			} else {
-				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
-			}
-		case "retry.retry_budget":
-			if f, err := strconv.ParseFloat(v, 64); err == nil {
-				c.Retry.RetryBudget = f
-			} else {
-				slog.Warn("config: invalid float override ignored", "key", k, "value", v, "error", err)
-			}
-		// Image overrides
-		case "image.nsfw":
-			c.Image.NSFW = v == "true"
-		case "image.blocked_parallel_attempts":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Image.BlockedParallelAttempts = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "image.blocked_parallel_enabled":
-			enabled := v == "true"
-			c.Image.BlockedParallelEnabled = &enabled
-		// ImagineFast overrides
-		case "imagine_fast.n":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.ImagineFast.N = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "imagine_fast.size":
-			c.ImagineFast.Size = v
-		// Token overrides
-		case "token.fail_threshold":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.FailThreshold = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.cool_check_interval_sec":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.CoolCheckIntervalSec = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.usage_flush_interval_sec":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.UsageFlushIntervalSec = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.basic_cool_duration_min":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.BasicCoolDurationMin = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.super_cool_duration_min":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.SuperCoolDurationMin = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.heavy_cool_duration_min":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.HeavyCoolDurationMin = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.default_chat_quota":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.DefaultChatQuota = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.default_image_quota":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.DefaultImageQuota = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.default_video_quota":
-			if n, err := strconv.Atoi(v); err == nil {
-				c.Token.DefaultVideoQuota = n
-			} else {
-				slog.Warn("config: invalid int override ignored", "key", k, "value", v, "error", err)
-			}
-		case "token.quota_recovery_mode":
-			c.Token.QuotaRecoveryMode = v
-		case "token.selection_algorithm":
-			if v != "" {
-				c.Token.SelectionAlgorithm = v
-			}
-		}
-	}
+	FailThreshold         int    `toml:"fail_threshold"`
+	UsageFlushIntervalSec int    `toml:"usage_flush_interval_sec"`
+	CoolCheckIntervalSec  int    `toml:"cool_check_interval_sec"`
+	BasicCoolDurationMin  int    `toml:"basic_cool_duration_min"`
+	SuperCoolDurationMin  int    `toml:"super_cool_duration_min"`
+	HeavyCoolDurationMin  int    `toml:"heavy_cool_duration_min"`
+	DefaultChatQuota      int    `toml:"default_chat_quota"`
+	DefaultImageQuota     int    `toml:"default_image_quota"`
+	DefaultVideoQuota     int    `toml:"default_video_quota"`
+	QuotaRecoveryMode     string `toml:"quota_recovery_mode"`
+	SelectionAlgorithm    string `toml:"selection_algorithm" json:"selection_algorithm"`
 }
 
 // Load loads configuration from the given path.
@@ -382,8 +112,12 @@ func Load(path string) (*Config, error) {
 		return cfg, nil
 	}
 
-	if _, err := toml.DecodeFile(path, cfg); err != nil {
+	md, err := toml.DecodeFile(path, cfg)
+	if err != nil {
 		return nil, err
+	}
+	if undecoded := md.Undecoded(); len(undecoded) > 0 {
+		return nil, fmt.Errorf("unknown config keys: %v", undecoded)
 	}
 
 	return cfg, nil

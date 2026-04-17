@@ -114,5 +114,13 @@ func TestMapXAIError_NoTokenAvailable(t *testing.T) {
 	assert.Equal(t, 503, status)
 	assert.Equal(t, "server_error", apiErr.Error.Type)
 	assert.Equal(t, "no_token_available", apiErr.Error.Code)
-	assert.Contains(t, apiErr.Error.Message, "No token available")
+	assert.Contains(t, apiErr.Error.Message, "No available token")
+}
+
+func TestMapXAIError_ModelNotFound(t *testing.T) {
+	status, apiErr := MapXAIError(token.ErrModelNotFound)
+
+	assert.Equal(t, 404, status)
+	assert.Equal(t, "not_found", apiErr.Error.Type)
+	assert.Equal(t, "model_not_found", apiErr.Error.Code)
 }

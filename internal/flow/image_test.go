@@ -15,6 +15,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
+	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -83,9 +84,11 @@ func newTestImageFlow(mock ImagineGenerator) *ImageFlow {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "test-token", Pool: "basic"}},
 	}
-	return NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
+	flow := NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
 		return mock
 	})
+	flow.SetModelResolver(testModelResolver())
+	return flow
 }
 
 func newTestImageFlowWithEditor(mock ImagineGenerator, editor ImageEditClient) *ImageFlow {
@@ -174,6 +177,7 @@ func TestImageFlow_Generate_Success(t *testing.T) {
 	defer cancel()
 
 	req := &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "a beautiful sunset",
 		Size:   "1024x1024",
 		N:      1,
@@ -200,6 +204,7 @@ func TestImageFlow_Generate_Blocked(t *testing.T) {
 	defer cancel()
 
 	req := &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "blocked content",
 		Size:   "1024x1024",
 		N:      1,
@@ -238,6 +243,7 @@ func TestImageFlow_Generate_BlockedRecoverySuccess(t *testing.T) {
 			return ch, nil
 		})
 	})
+	flow.SetModelResolver(testModelResolver())
 	enabled := true
 	flow.SetImageConfig(&config.ImageConfig{
 		BlockedParallelAttempts: 1,
@@ -245,6 +251,7 @@ func TestImageFlow_Generate_BlockedRecoverySuccess(t *testing.T) {
 	})
 
 	resp, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "recover me",
 		Size:   "1024x1024",
 		N:      1,
@@ -265,6 +272,7 @@ func TestImageFlow_Generate_UsesConfigNSFWDefault(t *testing.T) {
 	flow.SetImageConfig(&config.ImageConfig{NSFW: true})
 
 	_, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "nsfw default",
 		Size:   "1024x1024",
 		N:      1,
@@ -272,6 +280,23 @@ func TestImageFlow_Generate_UsesConfigNSFWDefault(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, mock.nsfwCalls, 1)
 	assert.True(t, mock.nsfwCalls[0])
+}
+
+func TestImageFlow_Generate_UnknownModelWithResolverFails(t *testing.T) {
+	mock := &mockImagineClient{
+		events: []xai.ImageEvent{
+			{Type: xai.ImageEventFinal, ImageData: "final", RequestID: "req-1"},
+		},
+	}
+	flow := newTestImageFlow(mock)
+	flow.SetModelResolver(testModelResolver())
+
+	_, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "unknown-image-model",
+		Prompt: "draw something",
+	})
+	require.Error(t, err)
+	assert.ErrorIs(t, err, tkn.ErrModelNotFound)
 }
 
 func TestImageFlow_Generate_MultipleImages(t *testing.T) {
@@ -287,6 +312,7 @@ func TestImageFlow_Generate_MultipleImages(t *testing.T) {
 	defer cancel()
 
 	req := &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "test",
 		Size:   "1024x1024",
 		N:      3, // Request 3 images
@@ -327,6 +353,7 @@ func TestImageFlow_Generate_AspectRatioMapping(t *testing.T) {
 
 			ctx := context.Background()
 			req := &ImageRequest{
+				Model:  "grok-imagine-image",
 				Prompt: "test",
 				Size:   tt.size,
 				N:      1,
@@ -472,6 +499,9 @@ func TestImageFlow_Edit_Success(t *testing.T) {
 	defer cancel()
 
 	req := &ImageEditRequest{
+		Model:          "grok-imagine-image-edit",
+		UpstreamModel:  "imagine-image-edit",
+		UpstreamMode:   "MODEL_MODE_FAST",
 		Prompt:         "add sunglasses",
 		OriginalImages: [][]byte{createTestPNG()},
 		Size:           "1024x1024",
@@ -484,6 +514,11 @@ func TestImageFlow_Edit_Success(t *testing.T) {
 	assert.Equal(t, base64.StdEncoding.EncodeToString(editBytes), resp.Data[0].B64JSON)
 	require.Len(t, editor.chatRequests, 1)
 	assert.Equal(t, true, editor.chatRequests[0].ToolOverrides["imageGen"])
+	assert.Equal(t, "imagine-image-edit", editor.chatRequests[0].UpstreamModel)
+	assert.Equal(t, "MODEL_MODE_FAST", editor.chatRequests[0].UpstreamMode)
+	modelMap, ok := editor.chatRequests[0].ModelConfig["modelMap"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "imagine-image-edit", modelMap["imageEditModel"])
 }
 
 func TestImageFlow_Edit_Blocked(t *testing.T) {
@@ -497,6 +532,9 @@ func TestImageFlow_Edit_Blocked(t *testing.T) {
 	defer cancel()
 
 	req := &ImageEditRequest{
+		Model:          "grok-imagine-image-edit",
+		UpstreamModel:  "imagine-image-edit",
+		UpstreamMode:   "MODEL_MODE_FAST",
 		Prompt:         "inappropriate edit",
 		OriginalImages: [][]byte{createTestPNG()},
 		Size:           "1024x1024",
@@ -522,6 +560,19 @@ func TestImageFlow_Edit_InvalidRequest(t *testing.T) {
 	require.Error(t, err)
 	assert.Nil(t, resp)
 	assert.Contains(t, err.Error(), "invalid request")
+}
+
+func TestImageFlow_Edit_MissingUpstreamMapping(t *testing.T) {
+	flow := newTestImageFlowWithEditor(&mockImagineClient{}, &mockImageEditClient{})
+
+	resp, err := flow.Edit(context.Background(), &ImageEditRequest{
+		Model:          "grok-imagine-image-edit",
+		Prompt:         "add a hat",
+		OriginalImages: [][]byte{createTestPNG()},
+	})
+	require.Error(t, err)
+	assert.Nil(t, resp)
+	assert.Contains(t, err.Error(), "upstream model is required")
 }
 
 // createTestPNG creates a minimal valid PNG image for testing.
@@ -556,11 +607,12 @@ func TestImageFlow_RecordUsage_TokenID(t *testing.T) {
 		tokens: []*store.Token{{ID: 42, Token: "tok-42", Pool: "basic"}},
 	}
 	f := NewImageFlow(tokenSvc, func(token string) ImagineGenerator { return mock })
+	f.SetModelResolver(testModelResolver())
 	recorder := &imageUsageRecorder{}
 	f.SetUsageRecorder(recorder)
 
 	ctx := context.Background()
-	req := &ImageRequest{Prompt: "test", Size: "1024x1024", N: 1}
+	req := &ImageRequest{Model: "grok-imagine-image", Prompt: "test", Size: "1024x1024", N: 1}
 
 	_, err := f.Generate(ctx, req)
 	require.NoError(t, err)
@@ -585,11 +637,12 @@ func TestImageFlow_RecordUsage_DefaultTokenID(t *testing.T) {
 		tokens: []*store.Token{{ID: 1, Token: "tok-1", Pool: "basic"}},
 	}
 	f := NewImageFlow(tokenSvc, func(token string) ImagineGenerator { return mock })
+	f.SetModelResolver(testModelResolver())
 	recorder := &imageUsageRecorder{}
 	f.SetUsageRecorder(recorder)
 
 	ctx := context.Background()
-	req := &ImageRequest{Prompt: "test", Size: "1024x1024", N: 1}
+	req := &ImageRequest{Model: "grok-imagine-image", Prompt: "test", Size: "1024x1024", N: 1}
 
 	_, err := f.Generate(ctx, req)
 	require.NoError(t, err)
@@ -612,8 +665,10 @@ func TestImageFlow_Generate_NoConsumeOnFailure(t *testing.T) {
 		tokens: []*store.Token{{ID: 1, Token: "tok-1", Pool: "basic"}},
 	}
 	f := NewImageFlow(tokenSvc, func(token string) ImagineGenerator { return mock })
+	f.SetModelResolver(testModelResolver())
 
 	_, err := f.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "test",
 		Size:   "1024x1024",
 		N:      1,
@@ -636,8 +691,10 @@ func TestImageFlow_Generate_ConsumeOnSuccess(t *testing.T) {
 		tokens: []*store.Token{{ID: 42, Token: "tok-42", Pool: "basic"}},
 	}
 	f := NewImageFlow(tokenSvc, func(token string) ImagineGenerator { return mock })
+	f.SetModelResolver(testModelResolver())
 
 	_, err := f.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "test",
 		Size:   "1024x1024",
 		N:      2,
@@ -673,6 +730,7 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 			return ch, nil
 		})
 	})
+	flow.SetModelResolver(testModelResolver())
 	enabled := true
 	flow.SetImageConfig(&config.ImageConfig{
 		BlockedParallelAttempts: 1,
@@ -680,6 +738,7 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 	})
 
 	resp, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "recover me",
 		Size:   "1024x1024",
 		N:      1,
@@ -710,6 +769,7 @@ func TestImageFlow_Generate_Timeout(t *testing.T) {
 	}))
 
 	req := &ImageRequest{
+		Model:  "grok-imagine-image",
 		Prompt: "slow image",
 		Size:   "1024x1024",
 		N:      1,

@@ -45,10 +45,6 @@ type ChatFlowConfig struct {
 	// When set, executeWithRetry calls this on every invocation instead of
 	// using the embedded RetryConfig.
 	RetryConfigProvider func() *RetryConfig
-	// TokenConfig provides static model-to-pool mapping configuration.
-	TokenConfig *config.TokenConfig
-	// TokenConfigProvider provides model-to-pool mapping configuration.
-	TokenConfigProvider func() *config.TokenConfig
 	// ModelResolver resolves model names to pool floor and cost.
 	ModelResolver tkn.ModelResolver
 	// AppConfig provides static Grok-specific parameters.

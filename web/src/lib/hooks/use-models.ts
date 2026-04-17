@@ -23,9 +23,18 @@ export function useImageModels() {
 }
 
 export function useVideoModels() {
+ const { data, isLoading, error } = useAllModels()
+ const models = useMemo(
+    () => data?.data.filter((m) => m.type === 'video').map((m) => m.id) ?? [],
+    [data]
+  )
+  return { models, isLoading, error }
+}
+
+export function useImageEditModels() {
   const { data, isLoading, error } = useAllModels()
   const models = useMemo(
-    () => data?.data.filter((m) => m.type === 'video').map((m) => m.id) ?? [],
+    () => data?.data.filter((m) => m.type === 'image_edit').map((m) => m.id) ?? [],
     [data]
   )
   return { models, isLoading, error }

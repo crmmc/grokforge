@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/crmmc/grokforge/internal/store"
+	tokenpkg "github.com/crmmc/grokforge/internal/token"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -32,7 +33,7 @@ type TokenRefresher interface {
 
 // TokenPoolSyncer syncs admin token changes to in-memory pools.
 type TokenPoolSyncer interface {
-	AddToPool(token *store.Token)
+	AddToPool(token *store.Token) error
 	RemoveFromPool(id uint)
 	SyncToken(ctx context.Context, id uint) error
 }
@@ -271,6 +272,15 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 					"Invalid status. Must be: active, disabled, expired, or cooling")
 				return
 			}
+		}
+		if req.Pool != nil {
+			pool, err := tokenpkg.NormalizePoolName(*req.Pool)
+			if err != nil {
+				WriteError(w, 400, "invalid_request", "invalid_pool",
+					"Invalid pool. Must be one of: ssoBasic, ssoSuper, ssoHeavy, basic, super, heavy")
+				return
+			}
+			req.Pool = &pool
 		}
 
 		// Apply updates

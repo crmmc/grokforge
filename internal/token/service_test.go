@@ -59,6 +59,24 @@ func TestService_LoadTokens(t *testing.T) {
 	assert.Equal(t, uint(2), token.ID)
 }
 
+func TestService_LoadTokens_NormalizesPoolAlias(t *testing.T) {
+	mockStore := &mockTokenStore{
+		tokens: []*store.Token{
+			{ID: 1, Token: "t1", Pool: "heavy", Status: string(StatusActive), ChatQuota: 80},
+		},
+	}
+
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+
+	err := svc.LoadTokens(context.Background())
+	require.NoError(t, err)
+
+	token, err := svc.Pick(PoolHeavy, CategoryChat)
+	require.NoError(t, err)
+	assert.Equal(t, PoolHeavy, token.Pool)
+}
+
 func TestService_Pick(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}

@@ -43,6 +43,9 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid request: %w", err)
 	}
+	if err := validateMediaUpstream(req.UpstreamModel, req.UpstreamMode); err != nil {
+		return nil, err
+	}
 	if f.editClientFactory == nil {
 		return nil, errors.New("image edit client not configured")
 	}
@@ -51,7 +54,7 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 
 	tok, err := f.pickTokenForModel(req.Model)
 	if err != nil {
-		return nil, fmt.Errorf("no token available: %w", err)
+		return nil, err
 	}
 
 	client := f.editClientFactory(tok.Token)
@@ -164,9 +167,11 @@ func (f *ImageFlow) buildImageEditChatRequest(
 		Model:         req.Model,
 		Stream:        true,
 		ToolOverrides: map[string]any{"imageGen": true},
+		UpstreamModel: req.UpstreamModel,
+		UpstreamMode:  req.UpstreamMode,
 		ModelConfig: map[string]any{
 			"modelMap": map[string]any{
-				"imageEditModel":       "imagine",
+				"imageEditModel":       req.UpstreamModel,
 				"imageEditModelConfig": imageEditConfig,
 			},
 		},

@@ -119,7 +119,10 @@ async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Re
 }
 
 export async function generateImage(params: ImageGenerateParams, signal?: AbortSignal): Promise<ImageGenerateResult> {
-  const model = params.image ? 'grok-imagine-1.0-edit' : params.model || 'grok-imagine-1.0'
+  const model = params.model?.trim()
+  if (!model) {
+    throw new FunctionAPIError(400, 'MODEL_REQUIRED', 'Model is required')
+  }
   const response = await requestChatCompletion({
     model,
     messages: buildImageMessages(params.prompt, params.image),
@@ -237,8 +240,12 @@ export async function generateVideo(
   signal?: AbortSignal
 ): Promise<VideoGenerateResult> {
   try {
+    const model = params.model?.trim()
+    if (!model) {
+      throw new FunctionAPIError(400, 'MODEL_REQUIRED', 'Model is required')
+    }
     const response = await requestChatCompletion({
-      model: params.model || 'grok-imagine-1.0-video',
+      model,
       messages: buildVideoMessages(params.prompt, params.image),
       video_config: buildVideoConfig(params),
     }, signal)

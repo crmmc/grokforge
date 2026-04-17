@@ -54,7 +54,7 @@ func TestAdminAPI_IntegrationFlow(t *testing.T) {
 
 	// Test 3: Create tokens via batch import
 	t.Run("batch_import_tokens", func(t *testing.T) {
-		body := `{"operation":"import","tokens":["tok1_long_enough_for_test","tok2_long_enough_for_test","tok3_long_enough_for_test"],"pool":"main"}`
+		body := `{"operation":"import","tokens":["tok1_long_enough_for_test","tok2_long_enough_for_test","tok3_long_enough_for_test"],"pool":"basic"}`
 		req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
 		req.Header.Set("Authorization", "Bearer test-app-key")
 		req.Header.Set("Content-Type", "application/json")

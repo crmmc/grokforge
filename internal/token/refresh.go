@@ -16,16 +16,14 @@ const (
 	maxConcurrentRefresh = 5
 )
 
-// RecoveryMode defines how token quotas are recovered.
+// RecoveryModeAuto restores configured default quotas when cooldown expires.
 const (
-	RecoveryModeUpstream = "upstream" // Sync from upstream API
-	RecoveryModeAuto     = "auto"     // Restore to configured defaults when cooling expires
+	RecoveryModeAuto     = "auto"
+	RecoveryModeUpstream = "upstream"
 )
 
-// Scheduler periodically scans cooling tokens and recovers them.
-// Both modes share the same scan loop (check CoolUntil expiry):
-//   - "upstream": fetches quota from upstream API
-//   - "auto": restores to configured default quotas
+// Scheduler periodically scans cooling tokens and restores quotas when the
+// cooldown window has expired.
 type Scheduler struct {
 	manager    *TokenManager
 	cfg        *config.TokenConfig
@@ -93,9 +91,8 @@ func (s *Scheduler) run(ctx context.Context) {
 	}
 }
 
-// refreshExpiredCooling scans cooling tokens with expired CoolUntil and recovers them.
-// In upstream mode, each token's quota is synced from the API.
-// In auto mode, each token is restored to configured defaults.
+// refreshExpiredCooling scans cooling tokens with expired CoolUntil and
+// restores them to configured defaults.
 func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 	tokens := s.manager.GetCoolingTokens()
 	now := time.Now()
@@ -110,13 +107,7 @@ func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 	if len(toRefresh) == 0 {
 		return
 	}
-
-	mode := s.currentConfig().QuotaRecoveryMode
-	if mode == "" {
-		mode = RecoveryModeAuto
-	}
-
-	slog.Debug("refreshing expired cooling tokens", "count", len(toRefresh), "mode", mode)
+	slog.Debug("refreshing expired cooling tokens", "count", len(toRefresh))
 
 	var wg sync.WaitGroup
 	for _, token := range toRefresh {
@@ -131,38 +122,32 @@ func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
 			safeGo("token_refresh_token", func() {
 				defer wg.Done()
 				defer func() { <-s.sem }()
-				switch mode {
-				case RecoveryModeUpstream:
-					s.refreshToken(ctx, tokenSnapshot)
-				default: // auto
-					s.autoRestoreToken(tokenSnapshot)
-				}
+				s.restoreToken(ctx, tokenSnapshot)
 			})
 		}
 	}
 	wg.Wait()
 }
 
-// refreshToken syncs quota for a single token from upstream API.
-func (s *Scheduler) refreshToken(ctx context.Context, token TokenSnapshot) {
-	storeToken := s.manager.GetToken(token.ID)
-	if storeToken == nil {
+func (s *Scheduler) restoreToken(ctx context.Context, t TokenSnapshot) {
+	cfg := s.currentConfig()
+	mode := RecoveryModeAuto
+	if cfg != nil && cfg.QuotaRecoveryMode != "" {
+		mode = cfg.QuotaRecoveryMode
+	}
+	if mode == RecoveryModeUpstream {
+		s.syncTokenFromUpstream(ctx, t.ID)
 		return
 	}
-	if err := s.manager.SyncQuota(ctx, storeToken, s.baseURL); err != nil {
-		slog.Warn("failed to refresh token quota",
-			"token_id", token.ID,
-			"error", err,
-		)
-		return
-	}
-
-	slog.Debug("refreshed token quota", "token_id", token.ID)
+	s.autoRestoreToken(t)
 }
 
 // autoRestoreToken restores a single token to configured default quotas.
 func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
 	cfg := s.currentConfig()
+	if cfg == nil {
+		cfg = &config.TokenConfig{}
+	}
 	chatQ := cfg.DefaultChatQuota
 	imageQ := cfg.DefaultImageQuota
 	videoQ := cfg.DefaultVideoQuota
@@ -179,6 +164,20 @@ func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
 	s.manager.RestoreToken(t.ID, chatQ, imageQ, videoQ)
 	slog.Debug("auto-restored token quota",
 		"token_id", t.ID, "chat", chatQ, "image", imageQ, "video", videoQ)
+}
+
+func (s *Scheduler) syncTokenFromUpstream(ctx context.Context, id uint) {
+	token := s.manager.GetToken(id)
+	if token == nil {
+		return
+	}
+	authToken := token.Token // string copy, safe to use outside lock
+	if err := s.manager.SyncQuota(ctx, id, authToken, s.baseURL); err != nil {
+		slog.Warn("token: upstream quota sync failed",
+			"token_id", id, "error", err)
+		return
+	}
+	slog.Debug("token: upstream quota restored", "token_id", id)
 }
 
 func (s *Scheduler) currentConfig() *config.TokenConfig {

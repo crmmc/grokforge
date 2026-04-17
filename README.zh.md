@@ -41,7 +41,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 - **单二进制部署** — 前端通过 `go:embed` 嵌入，拷贝即跑，无需额外运行时
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
-- **双池 Token 路由** — ssoBasic / ssoSuper 按模型分组，3 种选择算法 + 优先级分层 + 自动 fallback
+- **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
 - **三类独立配额** — Chat / Image / Video 分别计量与恢复，互不影响
 - **配置热重载** — 管理面板修改即时生效，无需重启
 - **结构化日志** — slog + 文件轮转，支持 JSON / Text 格式
@@ -63,7 +63,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 ### Token 管理
 
-- [x] **双池路由** — ssoBasic / ssoSuper 按模型分组，自动 fallback
+- [x] **多池路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 选择
 - [x] **3 种选择算法** — high_quota_first / random / round_robin
 - [x] **Priority 分层** — 高优先级 token 先被选择
 - [x] **三类配额** — Chat / Image / Video 独立计量与恢复
@@ -96,18 +96,11 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 | 模型 | 描述 |
 |------|------|
-| `grok-3` | Grok 3 标准版 |
-| `grok-3-mini` | Grok 3 轻量版 |
-| `grok-3-thinking` | Grok 3 思维链版 |
-| `grok-4` | Grok 4 标准版 |
-| `grok-4-heavy` | Grok 4 增强版 |
-| `grok-4-mini` | Grok 4 轻量版 |
-| `grok-4-thinking` | Grok 4 思维链版 |
-| `grok-4.1-expert` | Grok 4.1 专家版 |
-| `grok-4.1-fast` | Grok 4.1 快速版 |
-| `grok-4.1-mini` | Grok 4.1 轻量版 |
-| `grok-4.1-thinking` | Grok 4.1 思维链版 |
-| `grok-4.20-beta` | Grok 4.20 测试版 |
+| `grok-4.20` | Grok 4.20 默认模式 |
+| `grok-4.20-fast` | Grok 4.20 快速模式 |
+| `grok-4.20-expert` | 更高门槛的 Grok 4.20 专家模式 |
+| `grok-4.20-heavy` | Heavy 池专用的 Grok 4.20 模式 |
+| `grok-4.20-mini` | Grok 4.20 Mini |
 
 </details>
 
@@ -116,10 +109,10 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 | 模型 | 描述 |
 |------|------|
-| `grok-imagine-1.0` | 图片生成 |
-| `grok-imagine-1.0-fast` | 快速图片生成 |
-| `grok-imagine-1.0-edit` | 图片编辑（支持参考图） |
-| `grok-imagine-1.0-video` | 视频生成 |
+| `grok-imagine-image` | 图片生成 |
+| `grok-imagine-image-lite` | 更低门槛的图片生成模式 |
+| `grok-imagine-image-edit` | 图片编辑（支持参考图） |
+| `grok-imagine-video` | 视频生成 |
 
 </details>
 
@@ -143,7 +136,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -315,7 +308,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "用一句话解释量子计算"}],
     "stream": true
   }'
@@ -328,7 +321,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4-thinking",
+    "model": "grok-4.20-expert",
     "messages": [{"role": "user", "content": "证明 √2 是无理数"}],
     "reasoning_effort": "high"
   }'
@@ -341,7 +334,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{"role": "user", "content": "北京今天天气怎么样？"}],
     "tools": [{
       "type": "function",
@@ -367,7 +360,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4",
+    "model": "grok-4.20",
     "messages": [{
       "role": "user",
       "content": [
@@ -385,7 +378,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-imagine-1.0",
+    "model": "grok-imagine-image",
     "messages": [{"role": "user", "content": "一只穿着太空服的柴犬在月球上散步"}]
   }'
 ```
@@ -397,7 +390,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-imagine-1.0-video",
+    "model": "grok-imagine-video",
     "messages": [{"role": "user", "content": "一只猫咪在钢琴上跳舞"}]
   }'
 ```
@@ -432,7 +425,7 @@ sequenceDiagram
     C->>H: POST /v1/chat/completions
     H->>H: 认证校验 + 参数解析
     H->>F: 路由到 chat/image/video flow
-    F->>T: 请求可用 Token（双池 + 算法选择）
+    F->>T: 请求可用 Token（`pool_floor` + 算法选择）
     T-->>F: 返回 Token
     F->>X: 构建上游请求
     X->>G: SSE / WebSocket 请求
@@ -475,13 +468,13 @@ sequenceDiagram
 </details>
 
 <details>
-<summary><b>Basic 池和 Super 池有什么区别？</b></summary>
+<summary><b>Basic、Super 和 Heavy 池有什么区别？</b></summary>
 
-- **Basic 池 (ssoBasic)**：免费 Grok 账户的 Token，可用标准模型（不含 heavy/expert 等高级专属模型）
-- **Super 池 (ssoSuper)**：付费 SuperGrok 账户的 Token，可用全部模型（包括 `grok-4-heavy` 等高级模型）
-- 模型按池配置，格式为 `model_name#cost`（如 `grok-4-thinking#4`，cost 默认为 1）
-- GrokForge 会根据请求的模型自动从对应池中选择 Token
-- 当首选池无可用 Token 时，自动回退到另一个池
+- **Basic 池 (`ssoBasic`)**：最低能力门槛，只能满足 `pool_floor = basic` 的模型或 mode。
+- **Super 池 (`ssoSuper`)**：更高能力门槛，可满足 `super` 和 `basic` 请求。
+- **Heavy 池 (`ssoHeavy`)**：最高能力门槛，专门承接 `heavy` 请求，也可以服务更低门槛的请求。
+- 模型路由由管理后台的“模型管理”页面维护（`model_family` + `model_mode`），不再通过手写池内模型列表控制。
+- `pool_floor` 是硬门槛。如果在所有等级 >= 该门槛的池中都没有可用 Token，请求会直接失败，不会静默降级。
 
 </details>
 
@@ -501,8 +494,8 @@ sequenceDiagram
 
 取决于配额恢复模式：
 
-- **auto 模式**（默认）：按配置的时间间隔（默认 120 分钟）自动补充到默认值
-- **upstream 模式**：从 Grok 的 rate-limits API 同步真实配额
+- **auto 模式**（默认）：冷却窗口到期后恢复为配置中的默认配额
+- **upstream 模式**：冷却窗口到期后从 Grok 的 rate-limits API 同步真实配额
 
 Token 配额耗尽后会进入 `cooling` 状态，恢复后自动切回 `active`。
 
@@ -524,7 +517,8 @@ Token 配额耗尽后会进入 `cooling` 状态，恢复后自动切回 `active`
 - **SQLite**（默认）：零配置，数据存储在 `data/grokforge.db`
 - **PostgreSQL**：生产环境推荐，配置 `db_driver = "postgres"` 和 `db_dsn`
 
-两种数据库功能完全一致，启动时自动迁移表结构。
+两种数据库功能完全一致，启动时按当前 schema 初始化。
+本地开发如果 schema 变化，直接删除 `data/grokforge.db` 后重建，不保留旧库迁移逻辑。
 
 </details>
 
@@ -552,7 +546,7 @@ grokforge/
 │   ├── flow/            # 业务编排（chat / image / video）
 │   ├── token/           # Token 池管理（路由 / 选择 / 配额 / 刷新）
 │   ├── xai/             # 上游通信（SSE / WebSocket）
-│   ├── store/           # 持久化（GORM + 迁移）
+│   ├── store/           # 持久化（GORM + 当前 schema / 约束）
 │   ├── config/          # 配置管理（TOML + DB 覆盖 + 热重载）
 │   ├── cfrefresh/       # Cloudflare 防护（FlareSolverr 集成）
 │   ├── cache/           # 缓存管理（图片 / 视频本地缓存）

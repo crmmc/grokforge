@@ -3,8 +3,6 @@ package openai
 import (
 	"fmt"
 	"strings"
-
-	"github.com/crmmc/grokforge/internal/config"
 )
 
 const (
@@ -12,7 +10,6 @@ const (
 	defaultChatImageSize    = "1024x1024"
 	defaultChatVideoSeconds = 6
 	defaultChatVideoPreset  = "custom"
-	defaultImageFormat      = "b64_json"
 )
 
 var allowedChatImageSizes = map[string]struct{}{
@@ -56,9 +53,7 @@ func (h *Handler) resolveChatImageConfig(req *ChatRequest) (*resolvedChatImageCo
 		responseFormat: h.defaultChatImageFormat(),
 	}
 
-	if req.Model == imagineFastModelID {
-		h.applyImagineFastConfig(cfg)
-	} else if req.ImageConfig != nil {
+	if req.ImageConfig != nil {
 		if req.ImageConfig.N > 0 {
 			cfg.n = req.ImageConfig.N
 		}
@@ -151,31 +146,3 @@ func normalizeChatImageResponseFormat(value string) (string, error) {
 func (h *Handler) defaultChatImageFormat() string {
 	return "b64_json"
 }
-
-func (h *Handler) applyImagineFastConfig(cfg *resolvedChatImageConfig) {
-	if cfg == nil {
-		return
-	}
-	defaults := config.DefaultConfig()
-	cfgSnapshot := h.currentConfig()
-	if h == nil || cfgSnapshot == nil {
-		cfg.n = defaults.ImagineFast.N
-		cfg.size = defaults.ImagineFast.Size
-		cfg.responseFormat = defaultImageFormat
-		return
-	}
-
-	if cfgSnapshot.ImagineFast.N > 0 {
-		cfg.n = cfgSnapshot.ImagineFast.N
-	} else {
-		cfg.n = defaults.ImagineFast.N
-	}
-	if strings.TrimSpace(cfgSnapshot.ImagineFast.Size) != "" {
-		cfg.size = cfgSnapshot.ImagineFast.Size
-	} else {
-		cfg.size = defaults.ImagineFast.Size
-	}
-	cfg.responseFormat = h.defaultChatImageFormat()
-}
-
-const imagineFastModelID = "grok-imagine-1.0-fast"

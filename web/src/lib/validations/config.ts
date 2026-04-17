@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from "zod";
 
 export const appConfigSchema = z.object({
   app_key: z.string(),
@@ -13,8 +13,8 @@ export const appConfigSchema = z.object({
   host: z.string(),
   port: z.number().int().min(1).max(65535),
   log_json: z.boolean(),
-  log_level: z.enum(['debug', 'info', 'warn', 'error']),
-  db_driver: z.enum(['sqlite', 'postgres']),
+  log_level: z.enum(["debug", "info", "warn", "error"]),
+  db_driver: z.enum(["sqlite", "postgres"]),
   db_path: z.string(),
   db_dsn: z.string(),
   request_timeout: z.number().int().min(1),
@@ -24,7 +24,7 @@ export const appConfigSchema = z.object({
   chat_body_limit: z.number().int().min(4096),
   admin_max_fails: z.number().int().min(1),
   admin_window_sec: z.number().int().min(10),
-})
+});
 
 export const proxyConfigSchema = z.object({
   base_proxy_url: z.string(),
@@ -38,7 +38,7 @@ export const proxyConfigSchema = z.object({
   cf_clearance: z.string(),
   browser: z.string(),
   user_agent: z.string(),
-})
+});
 
 export const retryConfigSchema = z.object({
   max_tokens: z.number().int().min(1).max(20),
@@ -49,7 +49,7 @@ export const retryConfigSchema = z.object({
   retry_backoff_factor: z.number().min(1),
   retry_backoff_max: z.number().min(0),
   retry_budget: z.number().min(0),
-})
+});
 
 export const tokenConfigSchema = z.object({
   fail_threshold: z.number().int().min(1),
@@ -61,24 +61,20 @@ export const tokenConfigSchema = z.object({
   default_chat_quota: z.number().int().min(0),
   default_image_quota: z.number().int().min(0),
   default_video_quota: z.number().int().min(0),
-  quota_recovery_mode: z.enum(['auto', 'upstream']),
-  selection_algorithm: z.enum(['high_quota_first', 'random', 'round_robin']),
-})
+  quota_recovery_mode: z.enum(["auto", "upstream"]),
+  selection_algorithm: z.enum(["high_quota_first", "random", "round_robin"]),
+});
 
 export const imageConfigSchema = z.object({
   nsfw: z.boolean(),
   blocked_parallel_attempts: z.number().int().min(1),
   blocked_parallel_enabled: z.boolean(),
-})
+});
 
 export const configSchema = z.object({
   app: appConfigSchema,
   image: imageConfigSchema,
-  imagine_fast: z.object({
-    n: z.number().int().min(1).max(4),
-    size: z.string(),
-  }),
   proxy: proxyConfigSchema,
   retry: retryConfigSchema,
   token: tokenConfigSchema,
-})
+});
