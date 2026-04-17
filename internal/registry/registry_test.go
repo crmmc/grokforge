@@ -2,13 +2,22 @@ package registry
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
+
+type failingCommitter struct{}
+
+func (failingCommitter) Commit() error {
+	return errors.New("commit failed")
+}
 
 func setupTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
@@ -49,7 +58,7 @@ func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFa
 		Mode:          "default",
 		Enabled:       true,
 		UpstreamModel: "grok-3",
-		UpstreamMode:  "",
+		UpstreamMode:  "MODEL_MODE_DEFAULT",
 	}
 	if err := db.Create(defaultMode).Error; err != nil {
 		t.Fatalf("create default mode: %v", err)
@@ -87,11 +96,9 @@ func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFa
 	}
 
 	standardMode := &store.ModelMode{
-		ModelID:       flux1.ID,
-		Mode:          "standard",
-		Enabled:       true,
-		UpstreamModel: "flux-1",
-		UpstreamMode:  "standard",
+		ModelID: flux1.ID,
+		Mode:    "standard",
+		Enabled: true,
 	}
 	if err := db.Create(standardMode).Error; err != nil {
 		t.Fatalf("create standard mode: %v", err)
@@ -173,6 +180,74 @@ func TestRegistry_ResolveNotFound(t *testing.T) {
 	}
 }
 
+func TestRegistry_ImageModeDoesNotExposeUpstream(t *testing.T) {
+	db := setupTestDB(t)
+	_, flux1 := seedTestData(t, db)
+
+	ms := store.NewModelStore(db)
+	reg := NewModelRegistry(ms)
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("Refresh failed: %v", err)
+	}
+
+	rm, ok := reg.Resolve(flux1.Model)
+	if !ok {
+		t.Fatalf("expected %s to resolve", flux1.Model)
+	}
+	if rm.UpstreamModel != "" || rm.UpstreamMode != "" {
+		t.Fatalf("expected image model upstream mapping to stay empty, got %q / %q", rm.UpstreamModel, rm.UpstreamMode)
+	}
+}
+
+func TestRegistry_RefreshFailsWhenImageModeDefinesUpstream(t *testing.T) {
+	db := setupTestDB(t)
+	_, flux1 := seedTestData(t, db)
+
+	if err := db.Model(&store.ModelMode{}).
+		Where("model_id = ?", flux1.ID).
+		Updates(map[string]any{"upstream_model": "grok-3", "upstream_mode": "MODEL_MODE_FAST"}).Error; err != nil {
+		t.Fatalf("update image mode upstream: %v", err)
+	}
+
+	ms := store.NewModelStore(db)
+	reg := NewModelRegistry(ms)
+	err := reg.Refresh(context.Background())
+	if err == nil || err.Error() != "mode standard for family flux-1 must not define upstream mapping" {
+		t.Fatalf("expected image upstream rejection, got %v", err)
+	}
+}
+
+func TestRegistry_RefreshFailsWhenFamilyHasModesWithoutDefault(t *testing.T) {
+	db := setupTestDB(t)
+
+	family := &store.ModelFamily{
+		Model:     "broken-family",
+		Type:      "chat",
+		Enabled:   true,
+		PoolFloor: "basic",
+	}
+	if err := db.Create(family).Error; err != nil {
+		t.Fatalf("create family: %v", err)
+	}
+	mode := &store.ModelMode{
+		ModelID:       family.ID,
+		Mode:          "default",
+		Enabled:       true,
+		UpstreamModel: "grok-3",
+		UpstreamMode:  "MODEL_MODE_DEFAULT",
+	}
+	if err := db.Create(mode).Error; err != nil {
+		t.Fatalf("create mode: %v", err)
+	}
+
+	ms := store.NewModelStore(db)
+	reg := NewModelRegistry(ms)
+	err := reg.Refresh(context.Background())
+	if err == nil || err.Error() != "family broken-family has modes but no default_mode_id" {
+		t.Fatalf("expected missing default_mode_id error, got %v", err)
+	}
+}
+
 func TestRegistry_EnabledByType(t *testing.T) {
 	db := setupTestDB(t)
 	seedTestData(t, db)
@@ -216,7 +291,7 @@ func TestRegistry_EnabledByType_Empty(t *testing.T) {
 func TestRegistry_DisabledExcluded(t *testing.T) {
 	db := setupTestDB(t)
 
-	// Create family first (GORM default:true treats false as zero value on create)
+	// Create family first, then disable it to confirm disabled families are excluded.
 	disabledFamily := &store.ModelFamily{
 		Model:     "disabled-model",
 		Type:      "chat",
@@ -231,6 +306,7 @@ func TestRegistry_DisabledExcluded(t *testing.T) {
 		Mode:          "default",
 		Enabled:       true,
 		UpstreamModel: "disabled-model",
+		UpstreamMode:  "MODEL_MODE_DEFAULT",
 	}
 	if err := db.Create(disabledMode).Error; err != nil {
 		t.Fatalf("create mode: %v", err)
@@ -279,6 +355,10 @@ func TestRegistry_DisabledModeExcluded(t *testing.T) {
 	if err := db.Create(enabledMode).Error; err != nil {
 		t.Fatalf("create enabled mode: %v", err)
 	}
+	family.DefaultModeID = &enabledMode.ID
+	if err := db.Save(family).Error; err != nil {
+		t.Fatalf("set default mode: %v", err)
+	}
 
 	disabledMode := &store.ModelMode{
 		ModelID:       family.ID,
@@ -305,9 +385,9 @@ func TestRegistry_DisabledModeExcluded(t *testing.T) {
 	if reg.Count() != 1 {
 		t.Errorf("Count() = %d, want 1 (disabled mode excluded)", reg.Count())
 	}
-	_, ok := reg.Resolve("grok-5-fast")
+	_, ok := reg.Resolve("grok-5")
 	if !ok {
-		t.Error("enabled mode 'grok-5-fast' should be resolvable")
+		t.Error("enabled default mode 'grok-5' should be resolvable")
 	}
 	_, ok = reg.Resolve("grok-5-slow")
 	if ok {
@@ -341,6 +421,41 @@ func TestRegistry_EffectiveFloor(t *testing.T) {
 	}
 	if rm2.EffectiveFloor != "heavy" {
 		t.Errorf("EffectiveFloor = %q, want 'heavy' (mode override)", rm2.EffectiveFloor)
+	}
+}
+
+func TestRegistry_CommitAndApply_DoesNotSwapOnCommitError(t *testing.T) {
+	reg := NewTestRegistry([]TestFamilyWithModes{
+		{
+			Family: store.ModelFamily{ID: 1, Model: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(1)},
+			Modes:  []store.ModelMode{{ID: 1, ModelID: 1, Mode: "default", Enabled: true, UpstreamModel: "grok-4", UpstreamMode: "MODEL_MODE_DEFAULT"}},
+		},
+	})
+
+	newSnapshot := &ModelSnapshot{
+		byRequestName: map[string]*ResolvedModel{
+			"grok-5": {
+				RequestName:    "grok-5",
+				Family:         &store.ModelFamily{ID: 2, Model: "grok-5", Type: "chat", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(2)},
+				Mode:           &store.ModelMode{ID: 2, ModelID: 2, Mode: "default", Enabled: true, UpstreamModel: "grok-5", UpstreamMode: "MODEL_MODE_DEFAULT"},
+				EffectiveFloor: "super",
+				UpstreamModel:  "grok-5",
+				UpstreamMode:   "MODEL_MODE_DEFAULT",
+			},
+		},
+		enabledByType: map[string][]*ResolvedModel{},
+	}
+
+	err := reg.CommitAndApply(failingCommitter{}, newSnapshot)
+	if err == nil {
+		t.Fatal("expected commit error")
+	}
+
+	if _, ok := reg.Resolve("grok-5"); ok {
+		t.Fatal("new snapshot should not be visible after commit failure")
+	}
+	if _, ok := reg.Resolve("grok-4"); !ok {
+		t.Fatal("original snapshot should remain visible after commit failure")
 	}
 }
 
@@ -406,4 +521,67 @@ func TestRegistry_AllEnabled(t *testing.T) {
 			t.Error("modifying AllEnabled() result should not affect registry")
 		}
 	}
+}
+
+func ptrUint(v uint) *uint {
+	return &v
+}
+
+// BE-016: Concurrent Resolve + Refresh — no data race under -race.
+func TestRegistry_ConcurrentResolveAndRefresh(t *testing.T) {
+	db := setupTestDB(t)
+	seedTestData(t, db)
+
+	ms := store.NewModelStore(db)
+	reg := NewModelRegistry(ms)
+	if err := reg.Refresh(context.Background()); err != nil {
+		t.Fatalf("initial Refresh failed: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	var wg sync.WaitGroup
+
+	// 10 goroutines doing Resolve
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			names := []string{"grok-4", "grok-4-heavy", "flux-1", "nonexistent"}
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					for _, name := range names {
+						reg.Resolve(name)
+						reg.ResolvePoolFloor(name)
+					}
+					_ = reg.AllEnabled()
+					_ = reg.EnabledByType("chat")
+					_ = reg.Count()
+				}
+			}
+		}()
+	}
+
+	// 5 goroutines doing Refresh
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					_ = reg.Refresh(context.Background())
+				}
+			}
+		}()
+	}
+
+	wg.Wait()
+	// If we get here without -race detecting issues, the test passes.
 }
