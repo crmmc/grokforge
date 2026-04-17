@@ -19,13 +19,14 @@ type SeedFile struct {
 
 // SeedFamily represents a model family in the seed file.
 type SeedFamily struct {
-	Model       string     `toml:"model"`
-	DisplayName string     `toml:"display_name"`
-	Type        string     `toml:"type"`
-	PoolFloor   string     `toml:"pool_floor"`
-	DefaultMode string     `toml:"default_mode"`
-	Description string     `toml:"description"`
-	Modes       []SeedMode `toml:"mode"`
+	Model        string     `toml:"model"`
+	DisplayName  string     `toml:"display_name"`
+	Type         string     `toml:"type"`
+	PoolFloor    string     `toml:"pool_floor"`
+	DefaultMode  string     `toml:"default_mode"`
+	QuotaDefault string     `toml:"quota_default"`
+	Description  string     `toml:"description"`
+	Modes        []SeedMode `toml:"mode"`
 }
 
 // SeedMode represents a mode variant in the seed file.
@@ -34,7 +35,7 @@ type SeedMode struct {
 	UpstreamModel     string `toml:"upstream_model"`
 	UpstreamMode      string `toml:"upstream_mode"`
 	PoolFloorOverride string `toml:"pool_floor_override,omitempty"`
-	QuotaCost         int    `toml:"quota_cost,omitempty"`
+	QuotaOverride     string `toml:"quota_override"`
 }
 
 // SeedModels imports seed data into an empty model_family table.
@@ -54,14 +55,16 @@ func SeedModels(ctx context.Context, db *gorm.DB, configDir string, fallbackFS e
 		return fmt.Errorf("load seed data: %w", err)
 	}
 
-	for _, sf := range seed.Families {
-		if err := importFamily(ctx, db, sf); err != nil {
-			return fmt.Errorf("import family %s: %w", sf.Model, err)
+	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		modelStore := NewModelStore(tx)
+		for _, sf := range seed.Families {
+			if err := importFamily(ctx, modelStore, sf); err != nil {
+				return fmt.Errorf("import family %s: %w", sf.Model, err)
+			}
 		}
-	}
-
-	slog.Info("seed models imported", "families", len(seed.Families))
-	return nil
+		slog.Info("seed models imported", "families", len(seed.Families))
+		return nil
+	})
 }
 
 // loadSeedData reads the seed file from configDir or falls back to embed.FS.
@@ -75,6 +78,8 @@ func loadSeedData(configDir string, fallbackFS embed.FS) (*SeedFile, error) {
 			}
 			slog.Info("loaded external seed file", "path", externalPath)
 			return &seed, nil
+		} else if !os.IsNotExist(err) {
+			return nil, fmt.Errorf("stat external seed %s: %w", externalPath, err)
 		}
 	}
 
@@ -85,51 +90,54 @@ func loadSeedData(configDir string, fallbackFS embed.FS) (*SeedFile, error) {
 	return &seed, nil
 }
 
-// importFamily creates a family and its modes in a single transaction.
-func importFamily(ctx context.Context, db *gorm.DB, sf SeedFamily) error {
-	return db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		family := &ModelFamily{
-			Model:       sf.Model,
-			DisplayName: sf.DisplayName,
-			Type:        sf.Type,
-			PoolFloor:   sf.PoolFloor,
-			Enabled:     true,
-			Description: sf.Description,
-		}
-		if err := tx.Create(family).Error; err != nil {
-			return fmt.Errorf("create family: %w", err)
-		}
+// importFamily creates a family and its modes using the same validation path as admin CRUD.
+func importFamily(ctx context.Context, modelStore *ModelStore, sf SeedFamily) error {
+	family := &ModelFamily{
+		Model:       sf.Model,
+		DisplayName: sf.DisplayName,
+		Type:        sf.Type,
+		PoolFloor:   sf.PoolFloor,
+		Enabled:     true,
+		Description: sf.Description,
+	}
+	if sf.QuotaDefault != "" {
+		family.QuotaDefault = &sf.QuotaDefault
+	}
+	if err := modelStore.CreateFamily(ctx, family); err != nil {
+		return fmt.Errorf("create family: %w", err)
+	}
 
-		var defaultModeID *uint
-		for _, sm := range sf.Modes {
-			mode := &ModelMode{
-				ModelID:       family.ID,
-				Mode:          sm.Mode,
-				Enabled:       true,
-				UpstreamModel: sm.UpstreamModel,
-				UpstreamMode:  sm.UpstreamMode,
-				QuotaCost:     sm.QuotaCost,
-			}
-			if mode.QuotaCost <= 0 {
-				mode.QuotaCost = 1
-			}
-			if sm.PoolFloorOverride != "" {
-				override := sm.PoolFloorOverride
-				mode.PoolFloorOverride = &override
-			}
-			if err := tx.Create(mode).Error; err != nil {
-				return fmt.Errorf("create mode %s: %w", sm.Mode, err)
-			}
-			if sm.Mode == sf.DefaultMode {
-				defaultModeID = &mode.ID
-			}
+	var defaultModeID *uint
+	for _, sm := range sf.Modes {
+		mode := &ModelMode{
+			ModelID:       family.ID,
+			Mode:          sm.Mode,
+			Enabled:       true,
+			UpstreamModel: sm.UpstreamModel,
+			UpstreamMode:  sm.UpstreamMode,
 		}
+		if sm.PoolFloorOverride != "" {
+			override := sm.PoolFloorOverride
+			mode.PoolFloorOverride = &override
+		}
+		if sm.QuotaOverride != "" {
+			override := sm.QuotaOverride
+			mode.QuotaOverride = &override
+		}
+		if err := modelStore.CreateMode(ctx, mode); err != nil {
+			return fmt.Errorf("create mode %s: %w", sm.Mode, err)
+		}
+		if sm.Mode == sf.DefaultMode {
+			defaultModeID = &mode.ID
+		}
+	}
 
-		if defaultModeID != nil {
-			if err := tx.Model(family).Update("default_mode_id", *defaultModeID).Error; err != nil {
-				return fmt.Errorf("set default_mode_id: %w", err)
-			}
-		}
-		return nil
-	})
+	if defaultModeID == nil && len(sf.Modes) > 0 {
+		return fmt.Errorf("default_mode %q not found in family modes", sf.DefaultMode)
+	}
+	family.DefaultModeID = defaultModeID
+	if err := modelStore.UpdateFamily(ctx, family); err != nil {
+		return fmt.Errorf("set default_mode_id: %w", err)
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import {
 import { useToast } from '@/components/ui/toaster'
 import { useTranslation } from '@/lib/i18n/context'
 import { ImportTokensInput } from './import-tokens-input'
+import { getAPIErrorMessage } from '@/lib/api-client'
 
 interface ImportDialogProps {
   open: boolean
@@ -69,6 +70,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
 
       if (result.success > 0) {
         setTokens('')
+        setPool('ssoBasic')
         setChatQuota('')
         setImageQuota('')
         setVideoQuota('')
@@ -78,10 +80,10 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         setNsfwEnabled(false)
         onOpenChange(false)
       }
-    } catch {
+    } catch (error) {
       toast({
         title: t.common.error,
-        description: t.tokens.importFailed,
+        description: getAPIErrorMessage(error, t.tokens.importFailed),
         variant: 'destructive',
       })
     }
@@ -89,6 +91,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
 
   const handleClose = () => {
     setTokens('')
+    setPool('ssoBasic')
     setChatQuota('')
     setImageQuota('')
     setVideoQuota('')

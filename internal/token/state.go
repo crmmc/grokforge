@@ -1,7 +1,11 @@
 // Package token provides token lifecycle management with state machine and pool selection.
 package token
 
-import "time"
+import (
+	"errors"
+	"strings"
+	"time"
+)
 
 // Status represents the state of a token in the pool.
 type Status string
@@ -23,6 +27,8 @@ const (
 	PoolSuper = "ssoSuper"
 	PoolHeavy = "ssoHeavy"
 )
+
+var ErrInvalidPool = errors.New("invalid token pool")
 
 // PoolLevel represents the numeric tier of a pool for comparison.
 // Higher level pools can serve models with lower pool_floor requirements.
@@ -68,6 +74,20 @@ func PoolNameForLevel(level PoolLevel) string {
 // AllPoolNames returns all pool names in ascending level order.
 func AllPoolNames() []string {
 	return []string{PoolBasic, PoolSuper, PoolHeavy}
+}
+
+// NormalizePoolName converts accepted pool aliases to canonical pool names.
+func NormalizePoolName(pool string) (string, error) {
+	switch strings.TrimSpace(pool) {
+	case PoolBasic, "basic":
+		return PoolBasic, nil
+	case PoolSuper, "super":
+		return PoolSuper, nil
+	case PoolHeavy, "heavy":
+		return PoolHeavy, nil
+	default:
+		return "", ErrInvalidPool
+	}
 }
 
 // Default cooling configuration.

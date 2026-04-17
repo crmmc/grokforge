@@ -94,15 +94,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 		}
 
-		if req.ImagineFast != nil {
-			if req.ImagineFast.N != nil {
-				cfg.ImagineFast.N = *req.ImagineFast.N
-			}
-			if req.ImagineFast.Size != nil {
-				cfg.ImagineFast.Size = *req.ImagineFast.Size
-			}
-		}
-
 		if req.Proxy != nil {
 			if req.Proxy.BaseProxyURL != nil {
 				cfg.Proxy.BaseProxyURL = *req.Proxy.BaseProxyURL
@@ -201,7 +192,13 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				cfg.Token.DefaultVideoQuota = *req.Token.DefaultVideoQuota
 			}
 			if req.Token.QuotaRecoveryMode != nil {
-				cfg.Token.QuotaRecoveryMode = *req.Token.QuotaRecoveryMode
+				mode := *req.Token.QuotaRecoveryMode
+				if mode != "auto" && mode != "upstream" {
+					WriteError(w, 400, "invalid_request", "invalid_quota_recovery_mode",
+						"Invalid quota recovery mode. Must be one of: auto, upstream")
+					return
+				}
+				cfg.Token.QuotaRecoveryMode = mode
 			}
 			if req.Token.SelectionAlgorithm != nil {
 				if !token.ValidAlgorithm(*req.Token.SelectionAlgorithm) {
@@ -274,14 +271,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.Image.BlockedParallelEnabled != nil {
 				dbUpdates["image.blocked_parallel_enabled"] = fmt.Sprintf("%t", *req.Image.BlockedParallelEnabled)
-			}
-		}
-		if req.ImagineFast != nil {
-			if req.ImagineFast.N != nil {
-				dbUpdates["imagine_fast.n"] = fmt.Sprintf("%d", *req.ImagineFast.N)
-			}
-			if req.ImagineFast.Size != nil {
-				dbUpdates["imagine_fast.size"] = *req.ImagineFast.Size
 			}
 		}
 		if req.Proxy != nil {

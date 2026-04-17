@@ -59,10 +59,13 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent
 // sent without a role prefix; all others are prefixed with "role: ".
 func buildChatBody(req *ChatRequest) ([]byte, error) {
 	message := flattenMessages(req.Messages)
-	grokModel := req.UpstreamModel
-	if grokModel == "" {
-		grokModel = req.Model // defensive fallback
+	if strings.TrimSpace(req.UpstreamModel) == "" {
+		return nil, fmt.Errorf("upstream model is required")
 	}
+	if strings.TrimSpace(req.UpstreamMode) == "" {
+		return nil, fmt.Errorf("upstream mode is required")
+	}
+	grokModel := req.UpstreamModel
 	fileAttachments := req.FileAttachments
 	if fileAttachments == nil {
 		fileAttachments = []string{}

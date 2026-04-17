@@ -89,6 +89,8 @@ func (f *VideoFlow) buildVideoChatRequest(req *VideoRequest, parentPostID, resol
 		Model:         req.Model,
 		Stream:        true,
 		ToolOverrides: map[string]any{"videoGen": true},
+		UpstreamModel: req.UpstreamModel,
+		UpstreamMode:  req.UpstreamMode,
 		ModelConfig: map[string]any{
 			"modelMap": map[string]any{
 				"videoGenModelConfig": map[string]any{

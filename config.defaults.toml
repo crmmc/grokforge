@@ -65,13 +65,6 @@ blocked_parallel_attempts = 5
 # Enable blocked parallel retry
 blocked_parallel_enabled = true
 
-# ==================== Imagine Fast Defaults ====================
-[imagine_fast]
-# Default number of images for grok-imagine-1.0-fast
-n = 1
-# Default image size
-size = "1024x1024"
-
 # ==================== Proxy Configuration ====================
 [proxy]
 # Base proxy URL (proxy to Grok)
@@ -137,7 +130,7 @@ default_chat_quota = 50
 default_image_quota = 20
 # Default video quota per token
 default_video_quota = 10
-# Quota recovery mode: "auto" (restore defaults on cooldown expiry) or "upstream" (sync from Grok API)
+# Quota recovery mode: auto (restore configured defaults) or upstream (sync Grok rate limits)
 quota_recovery_mode = "auto"
 # Token selection algorithm: high_quota_first / random / round_robin
 selection_algorithm = "high_quota_first"

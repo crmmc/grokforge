@@ -61,10 +61,6 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			BlockedParallelAttempts: cfg.Image.BlockedParallelAttempts,
 			BlockedParallelEnabled:  config.EffectiveBlockedParallelEnabled(&cfg.Image),
 		},
-		ImagineFast: ImagineFastConfigResponse{
-			N:    cfg.ImagineFast.N,
-			Size: cfg.ImagineFast.Size,
-		},
 		Proxy: ProxyConfigResponse{
 			BaseProxyURL:       cfg.Proxy.BaseProxyURL,
 			AssetProxyURL:      cfg.Proxy.AssetProxyURL,

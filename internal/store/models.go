@@ -64,7 +64,7 @@ type APIKey struct {
 type Token struct {
 	ID                uint           `gorm:"primaryKey" json:"id"`
 	Token             string         `gorm:"uniqueIndex;size:512" json:"token"`
-	Pool              string         `gorm:"index;size:32" json:"pool"`   // ssoBasic or ssoSuper
+	Pool              string         `gorm:"index;size:32" json:"pool"`   // canonical: ssoBasic, ssoSuper, ssoHeavy
 	Status            string         `gorm:"index;size:32" json:"status"` // active, disabled, expired, cooling
 	ChatQuota         int            `json:"chat_quota"`
 	InitialChatQuota  int            `gorm:"default:0" json:"-"`
@@ -111,34 +111,35 @@ type UsageLog struct {
 	CreatedAt    time.Time `gorm:"index;index:idx_created_status,priority:1" json:"created_at"`
 }
 
-// ModelFamily represents a model family (e.g., grok-3, grok-4).
+// ModelFamily represents a model family (for example "grok-4.20").
 type ModelFamily struct {
-	ID            uint      `gorm:"primaryKey" json:"id"`
-	Model         string    `gorm:"uniqueIndex;size:128" json:"model"`
-	DisplayName   string    `gorm:"size:128" json:"display_name"`
-	Type          string    `gorm:"size:32" json:"type"`
-	Enabled       bool      `gorm:"default:true" json:"enabled"`
-	PoolFloor     string    `gorm:"size:32;default:basic" json:"pool_floor"`
-	DefaultModeID *uint     `json:"default_mode_id"`
-	QuotaDefault  *string   `gorm:"type:text" json:"quota_default"`
-	Description   string    `gorm:"type:text" json:"description"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	ID            uint       `gorm:"primaryKey" json:"id"`
+	Model         string     `gorm:"uniqueIndex;size:128" json:"model"`
+	DisplayName   string     `gorm:"size:128" json:"display_name"`
+	Type          string     `gorm:"size:32" json:"type"`
+	Enabled       bool       `json:"enabled"`
+	PoolFloor     string     `gorm:"size:32;default:basic" json:"pool_floor"`
+	DefaultModeID *uint      `json:"default_mode_id"`
+	DefaultMode   *ModelMode `gorm:"foreignKey:DefaultModeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`
+	QuotaDefault  *string    `gorm:"type:text" json:"quota_default"`
+	Description   string     `gorm:"type:text" json:"description"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
 }
 
 // ModelMode represents a mode variant within a model family.
 type ModelMode struct {
-	ID                uint      `gorm:"primaryKey" json:"id"`
-	ModelID           uint      `gorm:"uniqueIndex:idx_model_mode;index" json:"model_id"`
-	Mode              string    `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
-	Enabled           bool      `gorm:"default:true" json:"enabled"`
-	PoolFloorOverride *string   `gorm:"size:32" json:"pool_floor_override"`
-	QuotaCost         int       `gorm:"default:1" json:"quota_cost"`
-	UpstreamMode      string    `gorm:"size:128" json:"upstream_mode"`
-	UpstreamModel     string    `gorm:"size:128" json:"upstream_model"`
-	QuotaOverride     *string   `gorm:"type:text" json:"quota_override"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	ID                uint         `gorm:"primaryKey" json:"id"`
+	ModelID           uint         `gorm:"uniqueIndex:idx_model_mode;index" json:"model_id"`
+	Family            *ModelFamily `gorm:"foreignKey:ModelID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
+	Mode              string       `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
+	Enabled           bool         `json:"enabled"`
+	PoolFloorOverride *string      `gorm:"size:32" json:"pool_floor_override"`
+	UpstreamMode      string       `gorm:"size:128" json:"upstream_mode"`
+	UpstreamModel     string       `gorm:"size:128" json:"upstream_model"`
+	QuotaOverride     *string      `gorm:"type:text" json:"quota_override"`
+	CreatedAt         time.Time    `json:"created_at"`
+	UpdatedAt         time.Time    `json:"updated_at"`
 }
 
 // AllModels returns all models for AutoMigrate.
@@ -153,77 +154,13 @@ func AllModels() []any {
 	}
 }
 
-// MigrateUsageLog handles UsageLog schema changes that AutoMigrate cannot do
-// (column rename from "latency" to "duration_ms").
-func MigrateUsageLog(db *gorm.DB) error {
-	if db.Migrator().HasColumn(&UsageLog{}, "latency") {
-		if err := db.Migrator().RenameColumn(&UsageLog{}, "latency", "duration_ms"); err != nil {
-			return fmt.Errorf("rename latency to duration_ms: %w", err)
-		}
-	}
-	return nil
-}
-
-// migrateTokenQuotasData copies data from old columns and drops them.
-// Must be called AFTER AutoMigrate so new columns exist.
-func migrateTokenQuotasData(db *gorm.DB) error {
-	m := db.Migrator()
-	tok := &Token{}
-
-	if m.HasColumn(tok, "quota") {
-		if err := db.Exec("UPDATE tokens SET chat_quota = quota WHERE chat_quota = 0").Error; err != nil {
-			return fmt.Errorf("migrate quota → chat_quota: %w", err)
-		}
-		if err := db.Exec("UPDATE tokens SET image_quota = 20 WHERE image_quota = 0").Error; err != nil {
-			return fmt.Errorf("set default image_quota: %w", err)
-		}
-		if err := db.Exec("UPDATE tokens SET video_quota = 10 WHERE video_quota = 0").Error; err != nil {
-			return fmt.Errorf("set default video_quota: %w", err)
-		}
-		if err := m.DropColumn(tok, "quota"); err != nil {
-			return fmt.Errorf("drop quota column: %w", err)
-		}
-	}
-	if m.HasColumn(tok, "used_today") {
-		if err := m.DropColumn(tok, "used_today"); err != nil {
-			return fmt.Errorf("drop used_today column: %w", err)
-		}
-	}
-
-	if err := db.Exec(`
-		UPDATE tokens
-		SET initial_chat_quota = chat_quota
-		WHERE initial_chat_quota IS NULL OR initial_chat_quota < chat_quota OR initial_chat_quota = 0
-	`).Error; err != nil {
-		return fmt.Errorf("backfill initial_chat_quota: %w", err)
-	}
-	if err := db.Exec(`
-		UPDATE tokens
-		SET initial_image_quota = image_quota
-		WHERE initial_image_quota IS NULL OR initial_image_quota < image_quota OR initial_image_quota = 0
-	`).Error; err != nil {
-		return fmt.Errorf("backfill initial_image_quota: %w", err)
-	}
-	if err := db.Exec(`
-		UPDATE tokens
-		SET initial_video_quota = video_quota
-		WHERE initial_video_quota IS NULL OR initial_video_quota < video_quota OR initial_video_quota = 0
-	`).Error; err != nil {
-		return fmt.Errorf("backfill initial_video_quota: %w", err)
-	}
-
-	return nil
-}
-
-// AutoMigrate runs GORM AutoMigrate for all models and handles data migrations.
+// AutoMigrate creates the current schema and installs current constraints.
 func AutoMigrate(db *gorm.DB) error {
-	// Handle column renames before generic AutoMigrate
-	if err := MigrateUsageLog(db); err != nil {
+	if err := enableSQLiteForeignKeys(db); err != nil {
 		return err
 	}
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return err
 	}
-	// Migrate quota data after new columns exist
-	return migrateTokenQuotasData(db)
+	return ensureModelConstraints(db)
 }

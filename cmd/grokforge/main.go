@@ -101,7 +101,10 @@ func main() {
 	if err != nil {
 		logging.Error("failed to load config overrides from database", "error", err)
 	} else if len(dbOverrides) > 0 {
-		cfg.ApplyDBOverrides(dbOverrides)
+		if err := cfg.ApplyDBOverrides(dbOverrides); err != nil {
+			logging.Error("failed to apply config overrides from database", "error", err)
+			os.Exit(1)
+		}
 		logging.Info("applied database config overrides", "count", len(dbOverrides))
 	}
 	runtimeCfg := config.NewRuntime(cfg)
@@ -129,7 +132,7 @@ func main() {
 		return &runtimeCfg.Get().Token
 	})
 	scheduler.Start(rootCtx)
-	logging.Info("token quota recovery scheduler started", "mode", cfg.Token.QuotaRecoveryMode)
+	logging.Info("token quota recovery scheduler started")
 
 	// Start token state persistence loop
 	tokenPersister := token.NewPersister(tokenSvc.Manager(), db)
@@ -150,7 +153,6 @@ func main() {
 		&flow.VideoFlowConfig{
 			TimeoutSeconds:      300,
 			PollIntervalSeconds: 5,
-			TokenConfig:         &cfg.Token,
 			ModelResolver:       reg,
 		},
 	)
@@ -170,7 +172,7 @@ func main() {
 			}
 			return client
 		},
-			&flow.ChatFlowConfig{
+		&flow.ChatFlowConfig{
 			RetryConfig: flow.DefaultRetryConfig(),
 			RetryConfigProvider: func() *flow.RetryConfig {
 				current := runtimeCfg.Get()
@@ -186,9 +188,6 @@ func main() {
 					CoolingStatusCodes:      append([]int(nil), retry.CoolingStatusCodes...),
 					RetryBudget:             time.Duration(retry.RetryBudget * float64(time.Second)),
 				}
-			},
-			TokenConfigProvider: func() *config.TokenConfig {
-				return &runtimeCfg.Get().Token
 			},
 			ModelResolver: reg,
 			ResolveUpstream: func(name string) (string, string, bool) {
@@ -232,9 +231,6 @@ func main() {
 	// Create ImageFlow with per-request token selection
 	imageFlow := flow.NewImageFlow(tokenSvc, func(token string) flow.ImagineGenerator {
 		return newImagineClient(runtimeCfg, token)
-	})
-	imageFlow.SetTokenConfigProvider(func() *config.TokenConfig {
-		return &runtimeCfg.Get().Token
 	})
 	imageFlow.SetEditClientFactory(func(token string) flow.ImageEditClient {
 		client, err := newXAIClient(runtimeCfg, token, true)

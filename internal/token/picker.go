@@ -11,7 +11,7 @@ var ErrModelNotFound = errors.New("model not found")
 
 // ModelResolver resolves a model request name to pool floor info.
 type ModelResolver interface {
-	ResolvePoolFloor(requestName string) (floor string, cost int, ok bool)
+	ResolvePoolFloor(requestName string) (floor string, ok bool)
 }
 
 // GetPoolForModel returns the eligible pool names for a given model based on its pool_floor.
@@ -23,7 +23,7 @@ func GetPoolForModel(model string, resolver ModelResolver) ([]string, bool) {
 		return nil, false
 	}
 
-	floor, _, ok := resolver.ResolvePoolFloor(model)
+	floor, ok := resolver.ResolvePoolFloor(model)
 	if !ok {
 		return nil, false
 	}

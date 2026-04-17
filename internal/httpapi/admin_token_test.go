@@ -241,6 +241,80 @@ func TestAdminToken_BatchImport_UsesLatestConfig(t *testing.T) {
 	}
 }
 
+func TestAdminToken_UpdateToken_NormalizesPoolAlias(t *testing.T) {
+	mockStore := newMockTokenStore()
+	mockStore.tokens[1] = &store.Token{
+		ID:     1,
+		Token:  "token_secret_value_with_sufficient_length",
+		Pool:   "ssoBasic",
+		Status: store.TokenStatusActive,
+	}
+
+	handler := handleUpdateToken(mockStore, nil)
+	body := `{"pool":"heavy"}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := mockStore.tokens[1].Pool; got != tokenPkg.PoolHeavy {
+		t.Fatalf("expected canonical pool %q, got %q", tokenPkg.PoolHeavy, got)
+	}
+}
+
+func TestAdminToken_UpdateToken_RejectsInvalidPool(t *testing.T) {
+	mockStore := newMockTokenStore()
+	mockStore.tokens[1] = &store.Token{
+		ID:     1,
+		Token:  "token_secret_value_with_sufficient_length",
+		Pool:   "ssoBasic",
+		Status: store.TokenStatusActive,
+	}
+
+	handler := handleUpdateToken(mockStore, nil)
+	body := `{"pool":"mystery"}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestAdminToken_BatchImport_NormalizesPoolAlias(t *testing.T) {
+	mockStore := newMockTokenStore()
+	handler := handleBatchTokensFromProvider(mockStore, nil, func() *config.TokenConfig {
+		return &config.TokenConfig{DefaultChatQuota: 50, DefaultImageQuota: 20, DefaultVideoQuota: 10}
+	})
+
+	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"heavy"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if got := mockStore.tokens[1].Pool; got != tokenPkg.PoolHeavy {
+		t.Fatalf("expected canonical pool %q, got %q", tokenPkg.PoolHeavy, got)
+	}
+}
+
 func TestAdminToken_UpdateToken(t *testing.T) {
 	mockStore := newMockTokenStore()
 	mockStore.tokens[1] = &store.Token{
@@ -340,7 +414,7 @@ func TestAdminToken_BatchImport(t *testing.T) {
 	mockStore := newMockTokenStore()
 	handler := handleBatchTokens(mockStore, nil, nil)
 
-	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test","token3_long_enough_for_test"],"pool":"default","quota":100}`
+	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test","token3_long_enough_for_test"],"pool":"basic","chat_quota":100}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -367,6 +441,22 @@ func TestAdminToken_BatchImport(t *testing.T) {
 	}
 	if len(mockStore.tokens) != 3 {
 		t.Errorf("expected 3 tokens in store, got %d", len(mockStore.tokens))
+	}
+}
+
+func TestAdminToken_BatchImport_RejectsLegacyQuotaField(t *testing.T) {
+	mockStore := newMockTokenStore()
+	handler := handleBatchTokens(mockStore, nil, nil)
+
+	body := `{"operation":"import","tokens":["token1_long_enough_for_test"],"pool":"basic","quota":100}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
 	}
 }
 
@@ -855,7 +945,7 @@ func TestAdminToken_BatchImport_ShortTokenRejected(t *testing.T) {
 	mockStore := newMockTokenStore()
 	handler := handleBatchTokens(mockStore, nil, nil)
 
-	body := `{"operation":"import","tokens":["short","also_short_token","valid_token_long_enough_here"],"pool":"default","quota":100}`
+	body := `{"operation":"import","tokens":["short","also_short_token","valid_token_long_enough_here"],"pool":"basic","chat_quota":100}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -893,7 +983,7 @@ func TestAdminToken_BatchImport_WithRemarkAndNsfw(t *testing.T) {
 
 	handler := handleBatchTokens(mockStore, nil, nil)
 
-	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test"],"pool":"ssoBasic","quota":100,"remark":"Imported tokens","nsfw_enabled":true}`
+	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test"],"pool":"ssoBasic","chat_quota":100,"remark":"Imported tokens","nsfw_enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -1326,6 +1416,44 @@ func TestHandleBatchImport_AutoQuota(t *testing.T) {
 	for _, tok := range mockStore.tokens {
 		if tok.ChatQuota != 200 {
 			t.Errorf("expected auto-resolved quota 200, got %d", tok.ChatQuota)
+		}
+	}
+}
+
+func TestHandleBatchImport_PerQuotaFields(t *testing.T) {
+	mockStore := newMockTokenStore()
+	cfg := &config.TokenConfig{
+		DefaultChatQuota:  80,
+		DefaultImageQuota: 20,
+		DefaultVideoQuota: 10,
+	}
+	chatQuota := 120
+	imageQuota := 8
+	videoQuota := 3
+
+	req := BatchTokenRequest{
+		Operation:  BatchOpImport,
+		Tokens:     []string{"token_long_enough_for_per_quota_test"},
+		Pool:       "ssoSuper",
+		ChatQuota:  &chatQuota,
+		ImageQuota: &imageQuota,
+		VideoQuota: &videoQuota,
+	}
+
+	resp := handleBatchImport(context.Background(), mockStore, nil, req, cfg)
+	if resp.Success != 1 {
+		t.Fatalf("expected 1 success, got %d", resp.Success)
+	}
+
+	for _, tok := range mockStore.tokens {
+		if tok.ChatQuota != chatQuota {
+			t.Errorf("expected chat quota %d, got %d", chatQuota, tok.ChatQuota)
+		}
+		if tok.ImageQuota != imageQuota {
+			t.Errorf("expected image quota %d, got %d", imageQuota, tok.ImageQuota)
+		}
+		if tok.VideoQuota != videoQuota {
+			t.Errorf("expected video quota %d, got %d", videoQuota, tok.VideoQuota)
 		}
 	}
 }

@@ -49,11 +49,13 @@ func (h *Handler) decodeChatRequest(w http.ResponseWriter, r *http.Request) (*Ch
 }
 
 func (h *Handler) validateModel(r *http.Request, model string) *httpapi.APIError {
-	if h.ModelRegistry != nil {
-		if _, ok := h.ModelRegistry.Resolve(model); !ok {
-			return httpapi.NewAPIError(http.StatusNotFound, "not_found", "model_not_found",
-				"The model `"+model+"` does not exist")
-		}
+	if h.ModelRegistry == nil {
+		return httpapi.NewAPIError(http.StatusInternalServerError, "server_error", "model_registry_unavailable",
+			"Model registry is not configured")
+	}
+	if _, ok := h.ModelRegistry.Resolve(model); !ok {
+		return httpapi.NewAPIError(http.StatusNotFound, "not_found", "model_not_found",
+			"The model `"+model+"` does not exist")
 	}
 	if !httpapi.CheckModelWhitelist(r.Context(), model) {
 		return httpapi.NewAPIError(http.StatusForbidden, "forbidden", "model_not_allowed",

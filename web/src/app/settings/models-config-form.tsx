@@ -6,7 +6,6 @@ import { Save, Loader2 } from 'lucide-react'
 import { Button, Input, Label, Switch } from '@/components/ui'
 import { ConfigSection } from './config-section'
 import { GrokDefaultsSection } from './grok-defaults-section'
-import { ImageFastDefaultsSection } from './image-fast-defaults-section'
 import { tokenConfigSchema } from '@/lib/validations/config'
 import type { ConfigResponse, TokenConfigResponse } from '@/types'
 import { useTranslation } from '@/lib/i18n/context'
@@ -24,9 +23,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
   const { t } = useTranslation()
   const [imageNsfw, setImageNsfw] = useState(config.image?.nsfw ?? false)
   const [imageDirty, setImageDirty] = useState(false)
-  const [imagineFastN, setImagineFastN] = useState(config.imagine_fast?.n ?? 1)
-  const [imagineFastSize, setImagineFastSize] = useState(config.imagine_fast?.size ?? '1024x1024')
-  const [imagineFastDirty, setImagineFastDirty] = useState(false)
   const [grokTemporary, setGrokTemporary] = useState(config.app?.temporary ?? false)
   const [grokDisableMemory, setGrokDisableMemory] = useState(config.app?.disable_memory ?? false)
   const [grokStream, setGrokStream] = useState(config.app?.stream ?? true)
@@ -46,9 +42,11 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
 
   const doSubmit = (data: TokenInput) => {
     onSubmit({
-      token: data,
+      token: {
+        ...data,
+        quota_recovery_mode: 'auto',
+      },
       image: { nsfw: imageNsfw } as ConfigResponse['image'],
-      imagine_fast: { n: imagineFastN, size: imagineFastSize },
       app: {
         temporary: grokTemporary,
         disable_memory: grokDisableMemory,
@@ -89,14 +87,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
             <Label htmlFor="fail_threshold">{t.config.failThreshold}</Label>
             <Input id="fail_threshold" type="number" className="max-w-[200px]" min="1" {...register('fail_threshold', { valueAsNumber: true })} />
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="quota_recovery_mode">{t.config.quotaRecoveryMode}</Label>
-            <select id="quota_recovery_mode" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...register('quota_recovery_mode')}>
-              <option value="auto">{t.config.quotaRecoveryAuto}</option>
-              <option value="upstream">{t.config.quotaRecoveryUpstream}</option>
-            </select>
-            <p className="text-xs text-muted">{t.config.quotaRecoveryModeDesc}</p>
-          </div>
         </div>
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
@@ -135,13 +125,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
         <p className="text-sm text-muted">{t.config.imageNsfwDesc}</p>
       </ConfigSection>
 
-      <ImageFastDefaultsSection
-        t={t}
-        imagineFastN={imagineFastN} setImagineFastN={setImagineFastN}
-        imagineFastSize={imagineFastSize} setImagineFastSize={setImagineFastSize}
-        setImagineFastDirty={setImagineFastDirty}
-      />
-
       {/* Selection Algorithm */}
       <ConfigSection title={t.config.selectionAlgorithm} description={t.config.selectionAlgorithmDesc}>
         <div className="max-w-xs space-y-2">
@@ -168,7 +151,7 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
 
       {/* Submit Button */}
       <div className="sticky bottom-0 z-10 flex justify-end bg-background/95 backdrop-blur-sm py-4 border-t mt-6 -mx-1 px-1">
-        <Button type="submit" disabled={(!isDirty && !imageDirty && !imagineFastDirty && !grokDirty) || isPending} className="shadow-sm">
+        <Button type="submit" disabled={(!isDirty && !imageDirty && !grokDirty) || isPending} className="shadow-sm">
           {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           {t.config.saveChanges}
         </Button>

@@ -36,6 +36,9 @@ var ErrNotFound = errors.New("record not found")
 // ErrConflict is returned when a derived request name conflicts with existing models.
 var ErrConflict = errors.New("request name conflict")
 
+// ErrInvalidInput is returned when a request violates model definition rules.
+var ErrInvalidInput = errors.New("invalid input")
+
 // TokenStore provides CRUD operations for Token.
 type TokenStore struct {
 	db *gorm.DB

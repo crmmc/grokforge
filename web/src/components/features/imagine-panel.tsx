@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Button, Card, CardContent, Select, SelectOption, Textarea, Label, Progress } from '@/components/ui'
 import { ImageGrid } from './image-grid'
-import { useImageModels } from '@/lib/hooks/use-models'
+import { useImageEditModels, useImageModels } from '@/lib/hooks/use-models'
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/context'
 import { RefImageUpload } from './ref-image-upload'
@@ -25,6 +25,7 @@ const FORMAT_OPTIONS = [
 export function ImaginePanel() {
   const { t } = useTranslation()
   const { models: imageModels, isLoading: modelsLoading } = useImageModels()
+  const { models: imageEditModels, isLoading: editModelsLoading } = useImageEditModels()
   const [selectedModel, setSelectedModel] = React.useState('')
   const [prompt, setPrompt] = React.useState('')
   const [size, setSize] = React.useState('1024x1024')
@@ -37,10 +38,20 @@ export function ImaginePanel() {
     value: String(i + 1),
     label: i > 0 ? t.function.imageCountPlural.replace('{n}', String(i + 1)) : t.function.imageCount.replace('{n}', String(i + 1)),
   }))
+  const activeModels = editMode ? imageEditModels : imageModels
+  const modelsLoadingState = editMode ? editModelsLoading : modelsLoading
 
   React.useEffect(() => {
-    if (imageModels.length > 0 && !selectedModel) setSelectedModel(imageModels[0])
-  }, [imageModels, selectedModel])
+    if (activeModels.length === 0) {
+      if (selectedModel !== '') {
+        setSelectedModel('')
+      }
+      return
+    }
+    if (!activeModels.includes(selectedModel)) {
+      setSelectedModel(activeModels[0])
+    }
+  }, [activeModels, selectedModel])
 
   const handleImageChange = (base64: string | null) => {
     setEditImage(base64)
@@ -58,12 +69,12 @@ export function ImaginePanel() {
           {/* Model */}
           <div className="space-y-2">
             <Label>{t.function.model}</Label>
-            <Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoading || imageModels.length === 0}>
-              {modelsLoading ? (
+            <Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoadingState || activeModels.length === 0}>
+              {modelsLoadingState ? (
                 <SelectOption value="">{t.function.loadingModels}</SelectOption>
-              ) : imageModels.length === 0 ? (
+              ) : activeModels.length === 0 ? (
                 <SelectOption value="">{t.function.noModelsAvailable}</SelectOption>
-              ) : imageModels.map((m) => <SelectOption key={m} value={m}>{m}</SelectOption>)}
+              ) : activeModels.map((m) => <SelectOption key={m} value={m}>{m}</SelectOption>)}
             </Select>
           </div>
           {/* Prompt */}

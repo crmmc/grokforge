@@ -21,20 +21,22 @@ import (
 // Maps models to pool floors: basic models → "basic", super models → "super".
 type testResolver struct{}
 
-func (r *testResolver) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+func (r *testResolver) ResolvePoolFloor(requestName string) (floor string, ok bool) {
 	basicModels := map[string]bool{
 		"grok-2": true, "grok-2-mini": true, "grok-2-imageGen": true, "grok-2-vision": true,
+		"grok-imagine-image-lite": true,
 	}
 	superModels := map[string]bool{
 		"grok-3": true, "grok-3-mini": true, "grok-3-reasoning": true, "grok-3-deepsearch": true, "grok-4": true,
+		"grok-imagine-image": true, "grok-imagine-image-edit": true, "grok-imagine-video": true,
 	}
 	if basicModels[requestName] {
-		return "basic", 1, true
+		return "basic", true
 	}
 	if superModels[requestName] {
-		return "super", 1, true
+		return "super", true
 	}
-	return "", 0, false
+	return "", false
 }
 
 func testModelResolver() tkn.ModelResolver {

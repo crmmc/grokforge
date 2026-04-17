@@ -9,42 +9,33 @@ import (
 
 // mockResolver implements ModelResolver for testing.
 type mockResolver struct {
-	data map[string]struct {
-		floor string
-		cost  int
-	}
+	data map[string]string
 }
 
-func (m *mockResolver) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+func (m *mockResolver) ResolvePoolFloor(requestName string) (floor string, ok bool) {
 	if m == nil {
-		return "", 0, false
+		return "", false
 	}
-	entry, found := m.data[requestName]
+	floor, found := m.data[requestName]
 	if !found {
-		return "", 0, false
+		return "", false
 	}
-	return entry.floor, entry.cost, true
+	return floor, true
 }
 
-func newMockResolver(entries map[string][2]any) *mockResolver {
-	m := &mockResolver{data: make(map[string]struct {
-		floor string
-		cost  int
-	})}
-	for name, v := range entries {
-		m.data[name] = struct {
-			floor string
-			cost  int
-		}{floor: v[0].(string), cost: v[1].(int)}
+func newMockResolver(entries map[string]string) *mockResolver {
+	m := &mockResolver{data: make(map[string]string)}
+	for name, floor := range entries {
+		m.data[name] = floor
 	}
 	return m
 }
 
 func TestGetPoolForModel(t *testing.T) {
-	resolver := newMockResolver(map[string][2]any{
-		"grok-3":       {"basic", 1},
-		"grok-3-super": {"super", 1},
-		"grok-heavy":   {"heavy", 4},
+	resolver := newMockResolver(map[string]string{
+		"grok-3":       "basic",
+		"grok-3-super": "super",
+		"grok-heavy":   "heavy",
 	})
 
 	tests := []struct {
@@ -113,9 +104,9 @@ func TestGetPoolForModel(t *testing.T) {
 
 func TestPickForModel_ThreePool(t *testing.T) {
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	resolver := newMockResolver(map[string][2]any{
-		"grok-basic": {"basic", 1},
-		"grok-super": {"super", 1},
+	resolver := newMockResolver(map[string]string{
+		"grok-basic": "basic",
+		"grok-super": "super",
 	})
 
 	t.Run("picks from first available pool in order", func(t *testing.T) {

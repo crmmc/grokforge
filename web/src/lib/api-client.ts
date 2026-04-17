@@ -14,6 +14,16 @@ export class APIError extends Error {
   }
 }
 
+export function getAPIErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof APIError && error.message) {
+    return error.message
+  }
+  if (error instanceof Error && error.message) {
+    return error.message
+  }
+  return fallback
+}
+
 interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>
 }
@@ -63,7 +73,10 @@ export async function apiFetch<T>(endpoint: string, options: FetchOptions = {}):
     if (response.status === 401) {
       redirectToLogin()
     }
-    throw new APIError(response.status, error.code || 'UNKNOWN', error.error || 'Request failed')
+    const detail = error.error || error
+    const message = typeof detail === 'string' ? detail : detail?.message || 'Request failed'
+    const code = (typeof detail === 'object' ? detail?.code : error.code) || 'UNKNOWN'
+    throw new APIError(response.status, code, message)
   }
 
   if (response.status === 204) {

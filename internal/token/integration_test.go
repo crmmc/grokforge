@@ -80,7 +80,7 @@ func TestIntegration_QuotaLifecycle(t *testing.T) {
 	})
 
 	t.Run("sync updates quota from API", func(t *testing.T) {
-		err := manager.SyncQuota(ctx, tok, server.URL)
+		err := manager.SyncQuota(ctx, tok.ID, tok.Token, server.URL)
 		if err != nil {
 			t.Fatalf("sync failed: %v", err)
 		}
@@ -102,18 +102,13 @@ func TestIntegration_QuotaLifecycle(t *testing.T) {
 
 func TestIntegration_CoolingRecovery(t *testing.T) {
 	db := setupIntegrationDB(t)
-	cfg := &config.TokenConfig{FailThreshold: 3}
+	cfg := &config.TokenConfig{
+		FailThreshold:     3,
+		DefaultChatQuota:  30,
+		DefaultImageQuota: 20,
+		DefaultVideoQuota: 10,
+	}
 	manager := token.NewTokenManager(cfg)
-
-	// Mock upstream API returns quota
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := token.RateLimitsResponse{
-			RemainingQueries:  30,
-			WindowSizeSeconds: 7200,
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
 
 	// Create cooling token with expired CoolUntil
 	coolUntil := time.Now().Add(-1 * time.Minute)
@@ -128,7 +123,7 @@ func TestIntegration_CoolingRecovery(t *testing.T) {
 	manager.AddToken(tok)
 
 	// Start scheduler and persister
-	scheduler := token.NewScheduler(manager, &config.TokenConfig{QuotaRecoveryMode: token.RecoveryModeUpstream}, server.URL)
+	scheduler := token.NewScheduler(manager, cfg, "https://example.com")
 	persister := token.NewPersister(manager, db)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -158,16 +153,6 @@ func TestIntegration_FullCycle(t *testing.T) {
 	cfg := &config.TokenConfig{FailThreshold: 3}
 	manager := token.NewTokenManager(cfg)
 
-	// Mock upstream API
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := token.RateLimitsResponse{
-			RemainingQueries:  100,
-			WindowSizeSeconds: 7200,
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
-	defer server.Close()
-
 	// Create multiple tokens
 	for i := 0; i < 5; i++ {
 		tok := &store.Token{
@@ -181,7 +166,7 @@ func TestIntegration_FullCycle(t *testing.T) {
 	}
 
 	// Start components
-	scheduler := token.NewScheduler(manager, &config.TokenConfig{QuotaRecoveryMode: token.RecoveryModeUpstream}, server.URL)
+	scheduler := token.NewScheduler(manager, cfg, "https://example.com")
 	persister := token.NewPersister(manager, db)
 
 	ctx, cancel := context.WithCancel(context.Background())

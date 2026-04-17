@@ -216,3 +216,15 @@ func TestRestoreToken_RestoresCoolingToken(t *testing.T) {
 	assert.Equal(t, string(StatusActive), tok2.Status)
 	assert.Equal(t, 5, tok2.ChatQuota)
 }
+
+func TestManager_CoolingDurationForHeavyPool(t *testing.T) {
+	cfg := &config.TokenConfig{
+		BasicCoolDurationMin: 6,
+		SuperCoolDurationMin: 12,
+		HeavyCoolDurationMin: 18,
+	}
+	mgr := NewTokenManager(cfg)
+
+	duration := mgr.coolingDurationForToken(&store.Token{Pool: PoolHeavy})
+	assert.Equal(t, 18*time.Minute, duration)
+}

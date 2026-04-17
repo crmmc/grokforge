@@ -27,7 +27,9 @@ func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *conf
 func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, getCfg func() *config.TokenConfig) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req BatchTokenRequest
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
 			WriteError(w, 400, "invalid_request", "invalid_json",
 				"Invalid JSON in request body")
 			return
@@ -79,7 +81,9 @@ type BatchTokenRequest struct {
 	Tokens      []string       `json:"tokens,omitempty"`       // For import: raw token strings
 	IDs         []uint         `json:"ids,omitempty"`          // For delete/enable/disable
 	Pool        string         `json:"pool,omitempty"`         // For import: default pool
-	Quota       *int           `json:"quota,omitempty"`        // For import: default quota (nil = auto-resolve from config)
+	ChatQuota   *int           `json:"chat_quota,omitempty"`   // For import: chat quota
+	ImageQuota  *int           `json:"image_quota,omitempty"`  // For import: image quota
+	VideoQuota  *int           `json:"video_quota,omitempty"`  // For import: video quota
 	Priority    int            `json:"priority"`               // For import: token priority
 	Status      string         `json:"status,omitempty"`       // For import: initial status (active or disabled, default: active)
 	Remark      string         `json:"remark,omitempty"`       // For import: default remark
@@ -107,18 +111,56 @@ type BatchError struct {
 // resolveImportQuota resolves the chat quota for an imported token.
 // If quota is nil or *quota <= 0, auto-resolve based on config defaults.
 func resolveImportQuota(quota *int, cfg *config.TokenConfig) int {
+	return resolveImportQuotaValue(quota, configDefaultChatQuota(cfg), 50)
+}
+
+func resolveImportQuotaValue(quota *int, configValue, fallback int) int {
 	if quota != nil && *quota > 0 {
 		return *quota
 	}
-	if cfg != nil && cfg.DefaultChatQuota > 0 {
-		return cfg.DefaultChatQuota
+	if configValue > 0 {
+		return configValue
 	}
-	return 50 // hardcoded fallback
+	return fallback
+}
+
+func configDefaultChatQuota(cfg *config.TokenConfig) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.DefaultChatQuota
+}
+
+func resolveImportMediaQuotas(req BatchTokenRequest, cfg *config.TokenConfig) (int, int, int) {
+	chat := resolveImportQuota(req.ChatQuota, cfg)
+	image := resolveImportQuotaValue(req.ImageQuota, configDefaultImageQuota(cfg), 20)
+	video := resolveImportQuotaValue(req.VideoQuota, configDefaultVideoQuota(cfg), 10)
+	return chat, image, video
+}
+
+func configDefaultImageQuota(cfg *config.TokenConfig) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.DefaultImageQuota
+}
+
+func configDefaultVideoQuota(cfg *config.TokenConfig) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.DefaultVideoQuota
 }
 
 // handleBatchImport imports multiple tokens.
 func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, cfg *config.TokenConfig) BatchTokenResponse {
 	resp := BatchTokenResponse{Operation: BatchOpImport}
+	pool, err := token.NormalizePoolName(req.Pool)
+	if err != nil {
+		resp.Failed = len(req.Tokens)
+		resp.Errors = append(resp.Errors, BatchError{Message: "invalid pool"})
+		return resp
+	}
 
 	// Resolve import status: default to "active", only allow "active" or "disabled"
 	importStatus := store.TokenStatusActive
@@ -146,20 +188,10 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 			continue
 		}
 
-		chatQ := resolveImportQuota(req.Quota, cfg)
-		imageQ := 20
-		videoQ := 10
-		if cfg != nil {
-			if cfg.DefaultImageQuota > 0 {
-				imageQ = cfg.DefaultImageQuota
-			}
-			if cfg.DefaultVideoQuota > 0 {
-				videoQ = cfg.DefaultVideoQuota
-			}
-		}
+		chatQ, imageQ, videoQ := resolveImportMediaQuotas(req, cfg)
 		token := &store.Token{
 			Token:             tokenStr,
-			Pool:              req.Pool,
+			Pool:              pool,
 			ChatQuota:         chatQ,
 			InitialChatQuota:  chatQ,
 			ImageQuota:        imageQ,
@@ -183,7 +215,16 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 		}
 		// Sync to in-memory pool
 		if syncer != nil {
-			syncer.AddToPool(token)
+			if err := syncer.AddToPool(token); err != nil {
+				_ = ts.DeleteToken(ctx, token.ID)
+				resp.Failed++
+				resp.Errors = append(resp.Errors, BatchError{
+					Index:   i,
+					Token:   maskSecret(tokenStr),
+					Message: "failed to sync token to pool",
+				})
+				continue
+			}
 		}
 		resp.Success++
 	}

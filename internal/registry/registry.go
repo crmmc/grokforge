@@ -17,7 +17,6 @@ type ResolvedModel struct {
 	Family         *store.ModelFamily
 	Mode           *store.ModelMode
 	EffectiveFloor string // mode PoolFloorOverride > family PoolFloor
-	QuotaCost      int    // mode QuotaCost (default 1)
 	UpstreamModel  string
 	UpstreamMode   string
 }
@@ -26,6 +25,25 @@ type ResolvedModel struct {
 type ModelRegistry struct {
 	mu            sync.RWMutex
 	store         *store.ModelStore
+	byRequestName map[string]*ResolvedModel
+	enabledByType map[string][]*ResolvedModel
+}
+
+func requiresUpstreamMapping(modelType string) bool {
+	return modelType != "image"
+}
+
+type modelReader interface {
+	ListEnabledFamilies(ctx context.Context) ([]*store.ModelFamily, error)
+	ListModesByFamily(ctx context.Context, familyID uint) ([]*store.ModelMode, error)
+}
+
+type committer interface {
+	Commit() error
+}
+
+// ModelSnapshot is a prebuilt registry snapshot ready for installation.
+type ModelSnapshot struct {
 	byRequestName map[string]*ResolvedModel
 	enabledByType map[string][]*ResolvedModel
 }
@@ -59,21 +77,17 @@ func NewTestRegistry(data []TestFamilyWithModes) *ModelRegistry {
 			if !mode.Enabled {
 				continue
 			}
-			requestName := store.DeriveRequestName(family.Model, mode.Mode, mode.Mode == "default")
+			isDefault := family.DefaultModeID != nil && *family.DefaultModeID == mode.ID
+			requestName := store.DeriveRequestName(family.Model, mode.Mode, isDefault)
 			effectiveFloor := family.PoolFloor
 			if mode.PoolFloorOverride != nil && *mode.PoolFloorOverride != "" {
 				effectiveFloor = *mode.PoolFloorOverride
-			}
-			cost := mode.QuotaCost
-			if cost <= 0 {
-				cost = 1
 			}
 			rm := &ResolvedModel{
 				RequestName:    requestName,
 				Family:         family,
 				Mode:           mode,
 				EffectiveFloor: effectiveFloor,
-				QuotaCost:      cost,
 				UpstreamModel:  mode.UpstreamModel,
 				UpstreamMode:   mode.UpstreamMode,
 			}
@@ -105,19 +119,15 @@ func (r *ModelRegistry) AllRequestNames() []string {
 }
 
 // ResolvePoolFloor implements token.ModelResolver.
-// Returns the effective pool floor and quota cost for a request name.
-func (r *ModelRegistry) ResolvePoolFloor(requestName string) (floor string, cost int, ok bool) {
+// Returns the effective pool floor for a request name.
+func (r *ModelRegistry) ResolvePoolFloor(requestName string) (floor string, ok bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	rm, found := r.byRequestName[requestName]
 	if !found {
-		return "", 0, false
+		return "", false
 	}
-	cost = rm.QuotaCost
-	if cost <= 0 {
-		cost = 1
-	}
-	return rm.EffectiveFloor, cost, true
+	return rm.EffectiveFloor, true
 }
 
 // EnabledByType returns all enabled models of a given type.
@@ -149,35 +159,89 @@ func (r *ModelRegistry) Count() int {
 	return len(r.byRequestName)
 }
 
+// BuildSnapshotFromStore loads enabled models from a store view and builds a snapshot.
+func (r *ModelRegistry) BuildSnapshotFromStore(ctx context.Context, reader modelReader) (*ModelSnapshot, error) {
+	return buildSnapshot(ctx, reader)
+}
+
+// CommitAndApply commits a mutation transaction and atomically swaps the registry snapshot.
+func (r *ModelRegistry) CommitAndApply(tx committer, snapshot *ModelSnapshot) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	r.applySnapshotLocked(snapshot)
+	return nil
+}
+
 // Refresh reloads enabled models from the database and rebuilds indexes.
 // DB queries run outside the write lock; the lock is held only for the
 // pointer swap (copy-on-write pattern).
 func (r *ModelRegistry) Refresh(ctx context.Context) error {
-	families, err := r.store.ListEnabledFamilies(ctx)
+	snapshot, err := buildSnapshot(ctx, r.store)
 	if err != nil {
-		return fmt.Errorf("list enabled families: %w", err)
+		return err
+	}
+
+	r.mu.Lock()
+	r.applySnapshotLocked(snapshot)
+	r.mu.Unlock()
+
+	return nil
+}
+
+func buildSnapshot(ctx context.Context, reader modelReader) (*ModelSnapshot, error) {
+	families, err := reader.ListEnabledFamilies(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list enabled families: %w", err)
 	}
 
 	newByName := make(map[string]*ResolvedModel)
 	newByType := make(map[string][]*ResolvedModel)
 
 	for _, family := range families {
-		modes, err := r.store.ListModesByFamily(ctx, family.ID)
+		modes, err := reader.ListModesByFamily(ctx, family.ID)
 		if err != nil {
-			return fmt.Errorf("list modes for family %s: %w", family.Model, err)
+			return nil, fmt.Errorf("list modes for family %s: %w", family.Model, err)
+		}
+		if len(modes) > 0 && family.DefaultModeID == nil {
+			return nil, fmt.Errorf("family %s has modes but no default_mode_id", family.Model)
 		}
 
+		defaultFound := false
 		for _, mode := range modes {
 			if !mode.Enabled {
 				continue
 			}
 
 			isDefault := family.DefaultModeID != nil && *family.DefaultModeID == mode.ID
+			if isDefault {
+				defaultFound = true
+			}
 			requestName := store.DeriveRequestName(family.Model, mode.Mode, isDefault)
+			if _, exists := newByName[requestName]; exists {
+				return nil, fmt.Errorf("duplicate request name in registry: %s", requestName)
+			}
+			if requiresUpstreamMapping(family.Type) {
+				if mode.UpstreamModel == "" || mode.UpstreamMode == "" {
+					return nil, fmt.Errorf("mode %s for family %s has empty upstream mapping", mode.Mode, family.Model)
+				}
+			} else if mode.UpstreamModel != "" || mode.UpstreamMode != "" {
+				return nil, fmt.Errorf("mode %s for family %s must not define upstream mapping", mode.Mode, family.Model)
+			}
 
 			effectiveFloor := family.PoolFloor
-			if mode.PoolFloorOverride != nil {
+			if mode.PoolFloorOverride != nil && *mode.PoolFloorOverride != "" {
 				effectiveFloor = *mode.PoolFloorOverride
+			}
+
+			upstreamModel := mode.UpstreamModel
+			upstreamMode := mode.UpstreamMode
+			if !requiresUpstreamMapping(family.Type) {
+				upstreamModel = ""
+				upstreamMode = ""
 			}
 
 			rm := &ResolvedModel{
@@ -185,20 +249,25 @@ func (r *ModelRegistry) Refresh(ctx context.Context) error {
 				Family:         family,
 				Mode:           mode,
 				EffectiveFloor: effectiveFloor,
-				QuotaCost:      mode.QuotaCost,
-				UpstreamModel:  mode.UpstreamModel,
-				UpstreamMode:   mode.UpstreamMode,
+				UpstreamModel:  upstreamModel,
+				UpstreamMode:   upstreamMode,
 			}
 
 			newByName[requestName] = rm
 			newByType[family.Type] = append(newByType[family.Type], rm)
 		}
+		if len(modes) > 0 && !defaultFound {
+			return nil, fmt.Errorf("family %s default_mode_id does not reference an enabled mode", family.Model)
+		}
 	}
 
-	r.mu.Lock()
-	r.byRequestName = newByName
-	r.enabledByType = newByType
-	r.mu.Unlock()
+	return &ModelSnapshot{
+		byRequestName: newByName,
+		enabledByType: newByType,
+	}, nil
+}
 
-	return nil
+func (r *ModelRegistry) applySnapshotLocked(snapshot *ModelSnapshot) {
+	r.byRequestName = snapshot.byRequestName
+	r.enabledByType = snapshot.enabledByType
 }

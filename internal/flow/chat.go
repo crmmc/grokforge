@@ -68,18 +68,18 @@ func MapReasoningEffort(effort string) (grokThinking string, enabled bool) {
 // Complete executes a chat completion with retry logic.
 // Returns a channel of StreamEvents. The channel is closed when done.
 func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	var pools []string
-	if f.cfg != nil && f.cfg.ModelResolver != nil {
-		var ok bool
-		pools, ok = tkn.GetPoolForModel(req.Model, f.cfg.ModelResolver)
-		if !ok {
-			outCh := make(chan StreamEvent, 1)
-			outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
-			close(outCh)
-			return outCh, nil
-		}
-	} else {
-		pools = []string{tkn.PoolBasic}
+	if f.cfg == nil || f.cfg.ModelResolver == nil {
+		outCh := make(chan StreamEvent, 1)
+		outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
+		close(outCh)
+		return outCh, nil
+	}
+	pools, ok := tkn.GetPoolForModel(req.Model, f.cfg.ModelResolver)
+	if !ok {
+		outCh := make(chan StreamEvent, 1)
+		outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
+		close(outCh)
+		return outCh, nil
 	}
 	slog.Debug("flow: chat complete start",
 		"model", req.Model, "pools", pools,
@@ -138,7 +138,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			if pickErr != nil {
 				slog.Debug("flow: no token available", "pools", pools, "error", pickErr)
 				lastErr = pickErr
-				continue
+				break
 			}
 			maskedTok := tok.Token
 			if len(maskedTok) > 16 {
@@ -222,8 +222,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 			f.tokenSvc.ReportSuccess(currentToken.ID)
 			// Deduct quota only on success
-			cost := tkn.CostForModel(req.Model, f.cfg.ModelResolver)
-			if _, err := f.tokenSvc.Consume(currentToken.ID, tkn.CategoryChat, cost); err != nil {
+			if _, err := f.tokenSvc.Consume(currentToken.ID, tkn.CategoryChat, 1); err != nil {
 				slog.Warn("flow: chat quota consume failed", "token_id", currentToken.ID, "error", err)
 			}
 			var tokIn, tokOut int

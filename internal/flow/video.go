@@ -28,7 +28,6 @@ type VideoClient interface {
 type VideoFlowConfig struct {
 	TimeoutSeconds      int
 	PollIntervalSeconds int
-	TokenConfig         *config.TokenConfig
 	ModelResolver       tkn.ModelResolver
 }
 
@@ -36,6 +35,8 @@ type VideoFlowConfig struct {
 type VideoRequest struct {
 	Prompt         string
 	Model          string
+	UpstreamModel  string
+	UpstreamMode   string
 	Size           string
 	AspectRatio    string // e.g. "16:9", "3:2" — passed directly to xAI
 	Seconds        int
@@ -102,6 +103,9 @@ func (f *VideoFlow) appConfig() *config.AppConfig {
 
 // GenerateSync runs video generation synchronously and returns the final URL.
 func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string, error) {
+	if err := validateMediaUpstream(req.UpstreamModel, req.UpstreamMode); err != nil {
+		return "", err
+	}
 	apiKeyID := FlowAPIKeyIDFromContext(ctx)
 	tok, err := f.pickTokenForModel(req.Model)
 	if err != nil {
@@ -160,23 +164,25 @@ func (f *VideoFlow) recordUsage(apiKeyID, tokenID uint, model string, status int
 
 func (f *VideoFlow) pickTokenForModel(model string) (*store.Token, error) {
 	cfg := f.cfg
-	if cfg != nil && cfg.ModelResolver != nil {
-		pools, ok := tkn.GetPoolForModel(model, cfg.ModelResolver)
-		if ok {
-			var lastErr error
-			for _, pool := range pools {
-				tok, err := f.tokenSvc.Pick(pool, tkn.CategoryVideo)
-				if err == nil {
-					return tok, nil
-				}
-				lastErr = err
-			}
-			if lastErr != nil {
-				return nil, lastErr
-			}
-		}
+	if cfg == nil || cfg.ModelResolver == nil {
+		return nil, tkn.ErrModelNotFound
 	}
-	return f.tokenSvc.Pick(tkn.PoolBasic, tkn.CategoryVideo)
+	pools, ok := tkn.GetPoolForModel(model, cfg.ModelResolver)
+	if !ok {
+		return nil, tkn.ErrModelNotFound
+	}
+	var lastErr error
+	for _, pool := range pools {
+		tok, err := f.tokenSvc.Pick(pool, tkn.CategoryVideo)
+		if err == nil {
+			return tok, nil
+		}
+		lastErr = err
+	}
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, tkn.ErrNoTokenAvailable
 }
 
 func (f *VideoFlow) cacheVideo(ctx context.Context, client VideoClient, videoURL string) string {

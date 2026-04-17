@@ -50,10 +50,6 @@ func DefaultConfig() *Config {
 			BlockedParallelAttempts: 5,
 			BlockedParallelEnabled:  boolPtr(true),
 		},
-		ImagineFast: ImagineFastConfig{
-			N:    1,
-			Size: "1024x1024",
-		},
 		Proxy: ProxyConfig{
 			BaseProxyURL:       "",
 			AssetProxyURL:      "",
