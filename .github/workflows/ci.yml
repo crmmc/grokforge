@@ -43,3 +43,78 @@ jobs:
 
       - name: Run govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+
+  backend-windows-smoke:
+    name: Backend Windows Smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Create frontend stub for embed
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path web/out | Out-Null
+          New-Item -ItemType File -Force -Path web/out/.gitkeep | Out-Null
+
+      - name: Build windows binary
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          go build -o grokforge-windows-amd64.exe ./cmd/grokforge
+
+      - name: Smoke test binary
+        shell: pwsh
+        run: |
+          $port = 18081
+          @'
+          [app]
+          host = "127.0.0.1"
+          port = 18081
+          db_driver = "sqlite"
+          db_path = "data/smoke-ci.db"
+          log_level = "error"
+          '@ | Set-Content -Path smoke-config.toml
+
+          $stdout = "smoke-ci.stdout.log"
+          $stderr = "smoke-ci.stderr.log"
+          $proc = Start-Process -FilePath .\grokforge-windows-amd64.exe -ArgumentList "-config", "smoke-config.toml" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              if ($proc.HasExited) {
+                break
+              }
+              try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/healthz"
+                if ($resp.StatusCode -eq 200) {
+                  $healthy = $true
+                  break
+                }
+              } catch {
+              }
+            }
+
+            if (-not $healthy) {
+              if (Test-Path $stdout) {
+                Write-Host "=== smoke stdout ==="
+                Get-Content $stdout
+              }
+              if (Test-Path $stderr) {
+                Write-Host "=== smoke stderr ==="
+                Get-Content $stderr
+              }
+              throw "windows smoke test failed: /healthz did not become ready"
+            }
+          } finally {
+            if ($null -ne $proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
