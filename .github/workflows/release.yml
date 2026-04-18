@@ -32,7 +32,7 @@ jobs:
           name: frontend-dist
           path: web/out/
 
-  build-binaries:
+  build-unix-binaries:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
     runs-on: ubuntu-latest
     needs: build-frontend
@@ -47,8 +47,6 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
 
@@ -69,20 +67,100 @@ jobs:
         run: |
           VERSION=${GITHUB_REF_NAME}
           BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          EXT=""
-          if [ "${{ matrix.goos }}" = "windows" ]; then EXT=".exe"; fi
           go build -ldflags "-X main.version=${VERSION} -X main.buildTime=${BUILD_TIME}" \
-            -o grokforge-${{ matrix.goos }}-${{ matrix.goarch }}${EXT} ./cmd/grokforge
+            -o grokforge-${{ matrix.goos }}-${{ matrix.goarch }} ./cmd/grokforge
 
       - uses: actions/upload-artifact@v4
         with:
           name: grokforge-${{ matrix.goos }}-${{ matrix.goarch }}
           path: grokforge-*
 
+  build-windows-binary:
+    name: Build windows/amd64
+    runs-on: windows-latest
+    needs: build-frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: web/out/
+
+      - name: Build binary
+        shell: pwsh
+        env:
+          CGO_ENABLED: "0"
+          GOOS: windows
+          GOARCH: amd64
+        run: |
+          $version = "${{ github.ref_name }}"
+          $buildTime = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          go build -ldflags "-X main.version=$version -X main.buildTime=$buildTime" -o grokforge-windows-amd64.exe ./cmd/grokforge
+
+      - name: Smoke test binary
+        shell: pwsh
+        run: |
+          $port = 18080
+          @'
+          [app]
+          host = "127.0.0.1"
+          port = 18080
+          db_driver = "sqlite"
+          db_path = "data/smoke-release.db"
+          log_level = "error"
+          '@ | Set-Content -Path smoke-config.toml
+
+          $stdout = "smoke-release.stdout.log"
+          $stderr = "smoke-release.stderr.log"
+          $proc = Start-Process -FilePath .\grokforge-windows-amd64.exe -ArgumentList "-config", "smoke-config.toml" -RedirectStandardOutput $stdout -RedirectStandardError $stderr -PassThru
+          try {
+            $healthy = $false
+            for ($i = 0; $i -lt 30; $i++) {
+              Start-Sleep -Seconds 1
+              if ($proc.HasExited) {
+                break
+              }
+              try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/healthz"
+                if ($resp.StatusCode -eq 200) {
+                  $healthy = $true
+                  break
+                }
+              } catch {
+              }
+            }
+
+            if (-not $healthy) {
+              if (Test-Path $stdout) {
+                Write-Host "=== smoke stdout ==="
+                Get-Content $stdout
+              }
+              if (Test-Path $stderr) {
+                Write-Host "=== smoke stderr ==="
+                Get-Content $stderr
+              }
+              throw "windows smoke test failed: /healthz did not become ready"
+            }
+          } finally {
+            if ($null -ne $proc -and -not $proc.HasExited) {
+              Stop-Process -Id $proc.Id -Force
+            }
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: grokforge-windows-amd64
+          path: grokforge-windows-amd64.exe
+
   docker:
     name: Docker Image
     runs-on: ubuntu-latest
-    needs: build-binaries
+    needs: build-unix-binaries
     steps:
       - uses: actions/checkout@v4
 
@@ -132,7 +210,9 @@ jobs:
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
-    needs: build-binaries
+    needs:
+      - build-unix-binaries
+      - build-windows-binary
     steps:
       - uses: actions/download-artifact@v4
         with:
