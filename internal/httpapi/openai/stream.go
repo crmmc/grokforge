@@ -107,15 +107,6 @@ func (h *Handler) writeStreamingOrJSONError(w http.ResponseWriter, stream *bool,
 	writeStreamingErrorResponse(w, apiErr)
 }
 
-func (h *Handler) writeStreamingOrJSONErrorWithCode(w http.ResponseWriter, stream *bool, status int, errType, code, message string) {
-	if !isStreamEnabled(stream) {
-		httpapi.WriteError(w, status, errType, code, message)
-		return
-	}
-	apiErr := httpapi.NewAPIError(status, errType, code, message)
-	writeStreamingErrorResponse(w, apiErr)
-}
-
 func writeStreamingErrorResponse(w http.ResponseWriter, apiErr *httpapi.APIError) {
 	writer := httpapi.NewSSEWriter(w)
 	w.WriteHeader(http.StatusOK)

@@ -156,7 +156,7 @@ func validateMessages(messages []ChatMessage) *chatValidationError {
 	return nil
 }
 
-func validateMessage(msg ChatMessage, index int) *chatValidationError {
+func validateMessage(msg ChatMessage, _ int) *chatValidationError {
 	role := strings.TrimSpace(msg.Role)
 	if role == "" {
 		return invalidRequest("invalid_role", "role must be one of developer, system, user, assistant, tool")
@@ -207,7 +207,7 @@ func validateMessage(msg ChatMessage, index int) *chatValidationError {
 	}
 }
 
-func validateSingleContentObject(content map[string]any, role string) *chatValidationError {
+func validateSingleContentObject(content map[string]any, _ string) *chatValidationError {
 	if content == nil {
 		return invalidRequest("invalid_content_item", "message content items must be objects")
 	}

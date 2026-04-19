@@ -139,7 +139,7 @@ func (h *Handler) resolveChatVideoConfig(cfg *VideoConfig) (*resolvedChatVideoCo
 	}, nil
 }
 
-func normalizeChatImageResponseFormat(value string) (string, error) {
+func normalizeChatImageResponseFormat(_ string) (string, error) {
 	return "b64_json", nil // 统一 base64，忽略输入
 }
 
