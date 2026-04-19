@@ -1,6 +1,5 @@
 # Binaries
 bin/
-grokforge
 *.exe
 
 # Claude Code
