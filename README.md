@@ -12,7 +12,7 @@
   <a href="https://github.com/crmmc/grokforge/releases"><img src="https://img.shields.io/github/v/release/crmmc/grokforge?style=flat-square&color=blue" alt="Release"></a>
   <a href="https://github.com/crmmc/grokforge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/crmmc/grokforge?style=flat-square" alt="License"></a>
   <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/github/stars/crmmc/grokforge?style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go" alt="Go Version"></a>
+  <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version"></a>
 </p>
 
 <p align="center">
@@ -42,6 +42,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - **Single binary deployment** — Frontend embedded via `go:embed`, just copy and run
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
 - **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
+- **Registry-driven model management** — DB-backed model definitions with admin CRUD, seed data auto-import, zero hardcoding
 - **Three independent quotas** — Chat / Image / Video metered and recovered separately
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
 - **Structured logging** — slog + file rotation, JSON / Text formats
@@ -70,6 +71,14 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Auto refresh** — Periodic session refresh, auto rebuild on failure
 - [x] **Token state machine** — active / cooling / disabled / expired four-state transitions
 
+### Model Management
+
+- [x] **Registry-driven routing** — Model definitions stored in DB, O(1) request-name resolution via in-memory snapshot
+- [x] **Seed data auto-import** — `config/models.seed.toml` loaded on first startup
+- [x] **Admin CRUD** — Full model family + mode management via admin API and UI
+- [x] **Request name derivation** — Fixed naming rule (`model-mode`) with conflict detection
+- [x] **Per-mode pool_floor override** — Expert → super, Heavy → heavy, etc.
+
 ### Security & Reliability
 
 - [x] **API Key management** — CRUD + model whitelist + daily limit + rate limit
@@ -94,29 +103,30 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 <details>
 <summary><b>Chat Models</b></summary>
 
-| Model | Description |
-|-------|-------------|
-| `grok-4.20` | Default Grok 4.20 mode |
-| `grok-4.20-fast` | Faster Grok 4.20 variant |
-| `grok-4.20-expert` | Higher-floor Grok 4.20 expert mode |
-| `grok-4.20-heavy` | Heavy-pool Grok 4.20 mode |
-| `grok-4.20-mini` | Grok 4.20 Mini |
+| Model | Mode | Pool Floor | Description |
+|-------|------|------------|-------------|
+| `grok-4.20` | default | basic | Default Grok 4.20 mode |
+| `grok-4.20-fast` | fast | basic | Faster Grok 4.20 variant |
+| `grok-4.20-think` | think (force_thinking) | basic | Deep reasoning mode |
+| `grok-4.20-expert` | expert | super | Expert mode, requires Super pool |
+| `grok-4.20-heavy` | heavy | heavy | Heavy pool only |
 
 </details>
 
 <details>
 <summary><b>Media Models</b></summary>
 
-| Model | Description |
-|-------|-------------|
-| `grok-imagine-image` | Image generation |
-| `grok-imagine-image-lite` | Lower-floor image generation mode |
-| `grok-imagine-image-edit` | Image editing (supports reference images) |
-| `grok-imagine-video` | Video generation |
+| Model | Type | Pool Floor | Description |
+|-------|------|------------|-------------|
+| `grok-imagine-image` | image_ws (WebSocket) | super | Full image generation |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro image generation |
+| `grok-imagine-image-lite` | image (HTTP) | basic | Lightweight image generation, Basic pool |
+| `grok-imagine-image-edit` | image_edit | super | Image editing (supports reference images) |
+| `grok-imagine-video` | video | super | Video generation |
 
 </details>
 
-> Models can be dynamically added/removed via the admin panel without restarting.
+> All models are defined in `config/models.seed.toml` and can be dynamically managed via the admin panel. Custom models with any `model-mode` combination are supported.
 
 ---
 
@@ -144,7 +154,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### Build from Source
 
-**Prerequisites**: Go 1.24+, Node.js 18+
+**Prerequisites**: Go 1.25+, Node.js 18+
 
 ```bash
 git clone https://github.com/crmmc/grokforge.git
@@ -235,6 +245,7 @@ Admin panel changes take effect immediately without restart.
 | `max_tokens` | `5` | Maximum tokens to try |
 | `per_token_retries` | `2` | Maximum retries per token before switching |
 | `reset_session_status_codes` | `[403]` | Status codes that trigger session reset |
+| `cooling_status_codes` | `[429]` | Status codes that trigger token cooling |
 | `retry_backoff_base` | `0.5` | Backoff base delay (seconds) |
 | `retry_backoff_factor` | `2.0` | Backoff multiplier |
 | `retry_backoff_max` | `20.0` | Maximum single delay (seconds) |
@@ -250,6 +261,14 @@ Admin panel changes take effect immediately without restart.
 | `fail_threshold` | `5` | Consecutive failure threshold (marks expired) |
 | `usage_flush_interval_sec` | `30` | Interval for flushing usage stats to DB |
 | `cool_check_interval_sec` | `30` | Interval for checking cooldown recovery |
+| `basic_cool_duration_min` | `240` | Basic pool cooling duration (minutes) |
+| `super_cool_duration_min` | `120` | Super pool cooling duration (minutes) |
+| `heavy_cool_duration_min` | `60` | Heavy pool cooling duration (minutes) |
+| `default_chat_quota` | `50` | Default chat quota per token |
+| `default_image_quota` | `20` | Default image quota per token |
+| `default_video_quota` | `10` | Default video quota per token |
+| `quota_recovery_mode` | `"auto"` | Recovery mode: `auto` or `upstream` |
+| `selection_algorithm` | `"high_quota_first"` | Algorithm: high_quota_first / random / round_robin |
 
 </details>
 
@@ -275,7 +294,7 @@ Admin panel changes take effect immediately without restart.
 │        ▼              ▼                         │
 │  ┌─────────────────────────────────────────┐    │
 │  │           flow (orchestration)          │    │
-│  │   chat / image / video / model routing  │    │
+│  │   chat / image / video / model registry  │    │
 │  └──────┬──────────┬──────────┬────────────┘    │
 │         │          │          │                  │
 │         ▼          ▼          ▼                  │
@@ -336,6 +355,7 @@ The admin panel includes:
 - **Dashboard** — System status at a glance: Token count, API Key count, call volume, quota progress, trend charts
 - **Token Management** — Batch import / enable / disable / delete, status filtering, quota editing, priority settings, manual refresh
 - **API Key** — Create and manage API keys, model whitelist, daily limit, rate limit
+- **Model Management** — Registry-driven model family + mode CRUD, seed data auto-import, pool_floor configuration
 - **Settings** — Global config online editing, changes take effect immediately
 - **Usage Stats** — Aggregate overview + per-request logs (including TTFT, token consumption metrics)
 - **Cache** — Image / video cache browsing, preview, download, cleanup
@@ -528,7 +548,7 @@ If the schema changes in local development, delete `data/grokforge.db` and rebui
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Go 1.24 · chi · GORM · slog |
+| Backend | Go 1.25 · chi · GORM · slog |
 | Frontend | Next.js · shadcn/ui · Tailwind CSS · Recharts |
 | Storage | SQLite (default) · PostgreSQL (optional) |
 | Build | Make · go:embed (frontend embedded in binary) |
@@ -551,6 +571,7 @@ grokforge/
 │   ├── cfrefresh/       # Cloudflare defense (FlareSolverr integration)
 │   ├── cache/           # Cache management (image / video local cache)
 │   └── logging/         # Log management (slog + file rotation)
+├── config/              # Seed data (models.seed.toml auto-imported on first startup)
 ├── web/                 # Next.js frontend
 │   └── src/app/         # Page routes
 ├── config.defaults.toml # Config template
@@ -565,6 +586,12 @@ grokforge/
 - [chi](https://github.com/go-chi/chi) — Lightweight HTTP router
 - [GORM](https://gorm.io) — Go ORM
 - [shadcn/ui](https://ui.shadcn.com) — UI component library
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](./CHANGELOG.md) for release history and version details.
 
 ---
 
