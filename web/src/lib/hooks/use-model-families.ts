@@ -11,7 +11,7 @@ export interface ModelFamily {
   enabled: boolean
   pool_floor: string
   default_mode_id: number | null
-  quota_default: string | null
+  upstream_model: string
   description: string
   created_at: string
   updated_at: string
@@ -24,8 +24,8 @@ export interface ModelMode {
   enabled: boolean
   pool_floor_override: string | null
   upstream_mode: string
-  upstream_model: string
-  quota_override: string | null
+  force_thinking: boolean
+  enable_pro: boolean
   created_at: string
   updated_at: string
 }

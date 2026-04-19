@@ -20,6 +20,7 @@ scripts/
 web/.next/
 web/node_modules/
 web/out/
+web/.build-stamp
 web/tsconfig.tsbuildinfo
 
 # Database
@@ -57,4 +58,3 @@ logs/
 
 # AI Assistant configs
 .opencode/
-

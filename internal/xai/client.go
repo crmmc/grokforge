@@ -70,11 +70,15 @@ type ChatRequest struct {
 	ToolOverrides     map[string]any `json:"-"`
 	ModelConfig       map[string]any `json:"-"`
 
+	// IsImageEdit marks this request as an image edit call.
+	// When true, buildChatBody() adds "isReasoning": false to the payload.
+	IsImageEdit bool `json:"-"`
+
 	// UpstreamModel is the Grok API model name (for example "grok-420").
 	// Set by flow layer from ModelRegistry. Used by buildChatBody().
 	UpstreamModel string `json:"-"`
 
-	// UpstreamMode is the Grok API model mode (for example "MODEL_MODE_AUTO").
+	// UpstreamMode is the Grok API mode ID (for example "auto", "fast", "expert", "heavy").
 	// Set by flow layer from ModelRegistry. Used by buildChatBody().
 	UpstreamMode string `json:"-"`
 }

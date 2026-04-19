@@ -121,10 +121,14 @@ type ModelFamily struct {
 	PoolFloor     string     `gorm:"size:32;default:basic" json:"pool_floor"`
 	DefaultModeID *uint      `json:"default_mode_id"`
 	DefaultMode   *ModelMode `gorm:"foreignKey:DefaultModeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`
-	QuotaDefault  *string    `gorm:"type:text" json:"quota_default"`
+	UpstreamModel string     `gorm:"size:128" json:"upstream_model"`
 	Description   string     `gorm:"type:text" json:"description"`
 	CreatedAt     time.Time  `json:"created_at"`
 	UpdatedAt     time.Time  `json:"updated_at"`
+
+	// DefaultUpstreamMode is a transient field used only during CreateFamily
+	// to set the default mode's upstream_mode. Not persisted to DB.
+	DefaultUpstreamMode string `gorm:"-" json:"-"`
 }
 
 // ModelMode represents a mode variant within a model family.
@@ -135,9 +139,9 @@ type ModelMode struct {
 	Mode              string       `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
 	Enabled           bool         `json:"enabled"`
 	PoolFloorOverride *string      `gorm:"size:32" json:"pool_floor_override"`
-	UpstreamMode      string       `gorm:"size:128" json:"upstream_mode"`
-	UpstreamModel     string       `gorm:"size:128" json:"upstream_model"`
-	QuotaOverride     *string      `gorm:"type:text" json:"quota_override"`
+	UpstreamMode  string `gorm:"size:128" json:"upstream_mode"`
+	ForceThinking bool   `gorm:"default:false" json:"force_thinking"`
+	EnablePro     bool   `gorm:"default:false" json:"enable_pro"`
 	CreatedAt         time.Time    `json:"created_at"`
 	UpdatedAt         time.Time    `json:"updated_at"`
 }
@@ -162,5 +166,8 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return err
 	}
-	return ensureModelConstraints(db)
+	if err := ensureModelConstraints(db); err != nil {
+		return err
+	}
+	return nil
 }

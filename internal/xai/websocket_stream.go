@@ -14,8 +14,8 @@ import (
 func (c *ImagineClient) streamImages(
 	ctx context.Context,
 	conn *websocket.Conn,
-	requestID, prompt, aspectRatio, originalImageB64 string,
-	enableNSFW bool,
+	requestID, prompt, aspectRatio string,
+	enableNSFW, enablePro bool,
 	eventCh chan<- ImageEvent,
 ) {
 	defer close(eventCh)
@@ -30,8 +30,22 @@ func (c *ImagineClient) streamImages(
 		}
 	}
 
+	// Send reset message first (per grok2api protocol)
+	resetMsg := map[string]any{
+		"type":      "conversation.item.create",
+		"timestamp": time.Now().UnixMilli(),
+		"item": map[string]any{
+			"type": "message",
+			"content": []map[string]string{{"type": "reset"}},
+		},
+	}
+	if err := conn.WriteJSON(resetMsg); err != nil {
+		safeSend(ImageEvent{Type: ImageEventError, Error: fmt.Errorf("write reset: %w", err)})
+		return
+	}
+
 	// Send request message
-	req := buildImagineRequest(requestID, prompt, aspectRatio, originalImageB64, enableNSFW)
+	req := buildImagineRequest(requestID, prompt, aspectRatio, enableNSFW, enablePro)
 	if err := conn.WriteJSON(req); err != nil {
 		safeSend(ImageEvent{Type: ImageEventError, Error: fmt.Errorf("write request: %w", err)})
 		return
@@ -237,17 +251,16 @@ func classifyLegacyImageStage(imageData string) string {
 	return "image.preview"
 }
 
-func buildImagineRequest(requestID, prompt, aspectRatio, originalImageB64 string, enableNSFW bool) *ImagineRequest {
+func buildImagineRequest(requestID, prompt, aspectRatio string, enableNSFW, enablePro bool) *ImagineRequest {
 	props := ImagineRequestProperties{
-		SectionCount:  0,
-		IsKidsMode:    false,
-		EnableNSFW:    enableNSFW,
-		SkipUpsampler: false,
-		IsInitial:     false,
-		AspectRatio:   aspectRatio,
-	}
-	if originalImageB64 != "" {
-		props.OriginalImage = originalImageB64
+		SectionCount:     0,
+		IsKidsMode:       false,
+		EnableNSFW:       enableNSFW,
+		SkipUpsampler:    false,
+		IsInitial:        false,
+		AspectRatio:      aspectRatio,
+		EnableSideBySide: true,
+		EnablePro:        enablePro,
 	}
 
 	return &ImagineRequest{

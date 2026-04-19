@@ -19,23 +19,22 @@ type SeedFile struct {
 
 // SeedFamily represents a model family in the seed file.
 type SeedFamily struct {
-	Model        string     `toml:"model"`
-	DisplayName  string     `toml:"display_name"`
-	Type         string     `toml:"type"`
-	PoolFloor    string     `toml:"pool_floor"`
-	DefaultMode  string     `toml:"default_mode"`
-	QuotaDefault string     `toml:"quota_default"`
-	Description  string     `toml:"description"`
-	Modes        []SeedMode `toml:"mode"`
+	Model         string     `toml:"model"`
+	DisplayName   string     `toml:"display_name"`
+	Type          string     `toml:"type"`
+	PoolFloor     string     `toml:"pool_floor"`
+	UpstreamModel string     `toml:"upstream_model"`
+	Description   string     `toml:"description"`
+	Modes         []SeedMode `toml:"mode"`
 }
 
 // SeedMode represents a mode variant in the seed file.
 type SeedMode struct {
 	Mode              string `toml:"mode"`
-	UpstreamModel     string `toml:"upstream_model"`
 	UpstreamMode      string `toml:"upstream_mode"`
 	PoolFloorOverride string `toml:"pool_floor_override,omitempty"`
-	QuotaOverride     string `toml:"quota_override"`
+	ForceThinking     bool   `toml:"force_thinking,omitempty"`
+	EnablePro         bool   `toml:"enable_pro,omitempty"`
 }
 
 // SeedModels imports seed data into an empty model_family table.
@@ -91,53 +90,62 @@ func loadSeedData(configDir string, fallbackFS embed.FS) (*SeedFile, error) {
 }
 
 // importFamily creates a family and its modes using the same validation path as admin CRUD.
+// CreateFamily auto-creates the default mode; additional modes are created via CreateMode.
 func importFamily(ctx context.Context, modelStore *ModelStore, sf SeedFamily) error {
-	family := &ModelFamily{
-		Model:       sf.Model,
-		DisplayName: sf.DisplayName,
-		Type:        sf.Type,
-		PoolFloor:   sf.PoolFloor,
-		Enabled:     true,
-		Description: sf.Description,
+	// Determine default mode's upstream_mode from the first mode (must be "default")
+	var defaultUpstreamMode string
+	if len(sf.Modes) > 0 {
+		defaultUpstreamMode = sf.Modes[0].UpstreamMode
 	}
-	if sf.QuotaDefault != "" {
-		family.QuotaDefault = &sf.QuotaDefault
+
+	family := &ModelFamily{
+		Model:               sf.Model,
+		DisplayName:         sf.DisplayName,
+		Type:                sf.Type,
+		PoolFloor:           sf.PoolFloor,
+		UpstreamModel:       sf.UpstreamModel,
+		Enabled:             true,
+		Description:         sf.Description,
+		DefaultUpstreamMode: defaultUpstreamMode,
 	}
 	if err := modelStore.CreateFamily(ctx, family); err != nil {
 		return fmt.Errorf("create family: %w", err)
 	}
 
-	var defaultModeID *uint
-	for _, sm := range sf.Modes {
+	// Update default mode with seed-specific fields (EnablePro, ForceThinking)
+	if len(sf.Modes) > 0 && family.DefaultModeID != nil {
+		firstMode := sf.Modes[0]
+		if firstMode.EnablePro || firstMode.ForceThinking {
+			defaultMode, err := modelStore.GetMode(ctx, *family.DefaultModeID)
+			if err != nil {
+				return fmt.Errorf("get default mode: %w", err)
+			}
+			defaultMode.EnablePro = firstMode.EnablePro
+			defaultMode.ForceThinking = firstMode.ForceThinking
+			if err := modelStore.UpdateMode(ctx, defaultMode); err != nil {
+				return fmt.Errorf("update default mode: %w", err)
+			}
+		}
+	}
+
+	// Create additional modes (skip the first one — it's the auto-created default)
+	for _, sm := range sf.Modes[1:] {
 		mode := &ModelMode{
 			ModelID:       family.ID,
 			Mode:          sm.Mode,
 			Enabled:       true,
-			UpstreamModel: sm.UpstreamModel,
 			UpstreamMode:  sm.UpstreamMode,
+			ForceThinking: sm.ForceThinking,
+			EnablePro:     sm.EnablePro,
 		}
 		if sm.PoolFloorOverride != "" {
 			override := sm.PoolFloorOverride
 			mode.PoolFloorOverride = &override
 		}
-		if sm.QuotaOverride != "" {
-			override := sm.QuotaOverride
-			mode.QuotaOverride = &override
-		}
 		if err := modelStore.CreateMode(ctx, mode); err != nil {
 			return fmt.Errorf("create mode %s: %w", sm.Mode, err)
 		}
-		if sm.Mode == sf.DefaultMode {
-			defaultModeID = &mode.ID
-		}
 	}
 
-	if defaultModeID == nil && len(sf.Modes) > 0 {
-		return fmt.Errorf("default_mode %q not found in family modes", sf.DefaultMode)
-	}
-	family.DefaultModeID = defaultModeID
-	if err := modelStore.UpdateFamily(ctx, family); err != nil {
-		return fmt.Errorf("set default_mode_id: %w", err)
-	}
 	return nil
 }

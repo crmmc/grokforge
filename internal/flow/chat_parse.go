@@ -20,7 +20,6 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 			Response struct {
 				Token      string `json:"token"`
 				IsThinking bool   `json:"isThinking"`
-				ModelName  string `json:"modelName"`
 				RolloutID  string `json:"rolloutId"`
 				// modelResponse contains generated images and final message
 				ModelResponse *struct {
@@ -89,88 +88,6 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 		ReasoningContent: reasoning,
 		IsThinking:       resp.IsThinking,
 		RolloutID:        strings.TrimSpace(resp.RolloutID),
-		Usage:            extractUsage(event.Data),
-	}
-}
-
-func extractUsage(data json.RawMessage) *Usage {
-	var payload map[string]any
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return nil
-	}
-	return findUsage(payload)
-}
-
-func findUsage(payload map[string]any) *Usage {
-	if usage := parseUsageValue(payload["usage"]); usage != nil {
-		return usage
-	}
-	if usage := parseUsageValue(payload["tokenUsage"]); usage != nil {
-		return usage
-	}
-	if result, ok := payload["result"].(map[string]any); ok {
-		if usage := findUsage(result); usage != nil {
-			return usage
-		}
-	}
-	if response, ok := payload["response"].(map[string]any); ok {
-		if usage := findUsage(response); usage != nil {
-			return usage
-		}
-	}
-	return nil
-}
-
-func parseUsageValue(value any) *Usage {
-	usageMap, ok := value.(map[string]any)
-	if !ok {
-		return nil
-	}
-
-	usage := Usage{
-		PromptTokens:     pickUsageInt(usageMap, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens"),
-		CompletionTokens: pickUsageInt(usageMap, "completion_tokens", "completionTokens", "output_tokens", "outputTokens"),
-		TotalTokens:      pickUsageInt(usageMap, "total_tokens", "totalTokens"),
-	}
-
-	if usage.PromptTokens == 0 && usage.CompletionTokens == 0 && usage.TotalTokens == 0 {
-		return nil
-	}
-	if usage.TotalTokens == 0 {
-		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-	}
-	return &usage
-}
-
-func pickUsageInt(values map[string]any, keys ...string) int {
-	for _, key := range keys {
-		if raw, ok := values[key]; ok {
-			if val, ok := intFromAny(raw); ok {
-				return val
-			}
-		}
-	}
-	return 0
-}
-
-func intFromAny(value any) (int, bool) {
-	switch v := value.(type) {
-	case int:
-		return v, true
-	case int32:
-		return int(v), true
-	case int64:
-		return int(v), true
-	case float64:
-		return int(v), true
-	case json.Number:
-		i, err := v.Int64()
-		if err != nil {
-			return 0, false
-		}
-		return int(i), true
-	default:
-		return 0, false
 	}
 }
 

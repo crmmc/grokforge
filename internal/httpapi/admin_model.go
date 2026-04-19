@@ -41,22 +41,24 @@ type FamilyResponse struct {
 }
 
 type familyCreateRequest struct {
-	Model       string `json:"model"`
-	DisplayName string `json:"display_name"`
-	Type        string `json:"type"`
-	Enabled     *bool  `json:"enabled"`
-	PoolFloor   string `json:"pool_floor"`
-	Description string `json:"description"`
+	Model               string `json:"model"`
+	DisplayName         string `json:"display_name"`
+	Type                string `json:"type"`
+	Enabled             *bool  `json:"enabled"`
+	PoolFloor           string `json:"pool_floor"`
+	UpstreamModel       string `json:"upstream_model"`
+	DefaultUpstreamMode string `json:"default_upstream_mode"`
+	Description         string `json:"description"`
 }
 
 type familyUpdateRequest struct {
-	Model         string       `json:"model"`
-	DisplayName   string       `json:"display_name"`
-	Type          string       `json:"type"`
-	Enabled       *bool        `json:"enabled"`
-	PoolFloor     string       `json:"pool_floor"`
-	DefaultModeID optionalUint `json:"default_mode_id"`
-	Description   string       `json:"description"`
+	Model         string `json:"model"`
+	DisplayName   string `json:"display_name"`
+	Type          string `json:"type"`
+	Enabled       *bool  `json:"enabled"`
+	PoolFloor     string `json:"pool_floor"`
+	UpstreamModel string `json:"upstream_model"`
+	Description   string `json:"description"`
 }
 
 type modeCreateRequest struct {
@@ -65,7 +67,7 @@ type modeCreateRequest struct {
 	Enabled           *bool   `json:"enabled"`
 	PoolFloorOverride *string `json:"pool_floor_override"`
 	UpstreamMode      string  `json:"upstream_mode"`
-	UpstreamModel     string  `json:"upstream_model"`
+	ForceThinking     *bool   `json:"force_thinking"`
 }
 
 type modeUpdateRequest struct {
@@ -74,7 +76,7 @@ type modeUpdateRequest struct {
 	Enabled           *bool   `json:"enabled"`
 	PoolFloorOverride *string `json:"pool_floor_override"`
 	UpstreamMode      string  `json:"upstream_mode"`
-	UpstreamModel     string  `json:"upstream_model"`
+	ForceThinking     *bool   `json:"force_thinking"`
 }
 
 func refreshRegistry(ctx context.Context, reg RegistryRefresher) error {
@@ -220,12 +222,14 @@ func handleCreateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 			return
 		}
 		family := &store.ModelFamily{
-			Model:       normalizeRequestIdentifier(req.Model),
-			DisplayName: req.DisplayName,
-			Type:        normalizeRequestIdentifier(req.Type),
-			Enabled:     boolValue(req.Enabled, true),
-			PoolFloor:   normalizeRequestIdentifier(req.PoolFloor),
-			Description: req.Description,
+			Model:               normalizeRequestIdentifier(req.Model),
+			DisplayName:         req.DisplayName,
+			Type:                normalizeRequestIdentifier(req.Type),
+			Enabled:             boolValue(req.Enabled, true),
+			PoolFloor:           normalizeRequestIdentifier(req.PoolFloor),
+			UpstreamModel:       normalizeRequestIdentifier(req.UpstreamModel),
+			Description:         req.Description,
+			DefaultUpstreamMode: normalizeRequestIdentifier(req.DefaultUpstreamMode),
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
 			return txStore.CreateFamily(ctx, family)
@@ -296,19 +300,16 @@ func handleUpdateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 		}
 
 		family := &store.ModelFamily{
-			ID:          existing.ID,
-			Model:       normalizeRequestIdentifier(req.Model),
-			DisplayName: req.DisplayName,
-			Type:        normalizeRequestIdentifier(req.Type),
-			Enabled:     boolValue(req.Enabled, existing.Enabled),
-			PoolFloor:   normalizeRequestIdentifier(req.PoolFloor),
-			Description: req.Description,
-			CreatedAt:   existing.CreatedAt,
-		}
-		if req.DefaultModeID.Set {
-			family.DefaultModeID = req.DefaultModeID.Value
-		} else {
-			family.DefaultModeID = existing.DefaultModeID
+			ID:            existing.ID,
+			Model:         normalizeRequestIdentifier(req.Model),
+			DisplayName:   req.DisplayName,
+			Type:          normalizeRequestIdentifier(req.Type),
+			Enabled:       boolValue(req.Enabled, existing.Enabled),
+			PoolFloor:     normalizeRequestIdentifier(req.PoolFloor),
+			UpstreamModel: normalizeRequestIdentifier(req.UpstreamModel),
+			DefaultModeID: existing.DefaultModeID,
+			Description:   req.Description,
+			CreatedAt:     existing.CreatedAt,
 		}
 
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
@@ -370,7 +371,7 @@ func handleCreateMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 			Enabled:           boolValue(req.Enabled, true),
 			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
 			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
-			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
+			ForceThinking:     boolValue(req.ForceThinking, false),
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
 			return txStore.CreateMode(ctx, mode)
@@ -442,7 +443,7 @@ func handleUpdateMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 			Enabled:           boolValue(req.Enabled, existing.Enabled),
 			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
 			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
-			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
+			ForceThinking:     boolValue(req.ForceThinking, existing.ForceThinking),
 			CreatedAt:         existing.CreatedAt,
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
