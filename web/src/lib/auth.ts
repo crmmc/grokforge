@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
 
 /**
  * Login via POST /admin/login, server sets httpOnly cookie.
@@ -39,7 +38,6 @@ export async function verifySession(): Promise<boolean> {
 export function useAuthGuard(): { isAuthenticated: boolean; isLoading: boolean } {
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
-  const router = useRouter()
 
   useEffect(() => {
     verifySession()
@@ -47,11 +45,11 @@ export function useAuthGuard(): { isAuthenticated: boolean; isLoading: boolean }
         if (valid) {
           setIsAuthenticated(true)
         } else {
-          router.replace('/login/')
+          window.location.href = '/login/'
         }
       })
       .finally(() => setIsLoading(false))
-  }, [router])
+  }, [])
 
   return { isAuthenticated, isLoading }
 }

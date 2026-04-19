@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/context'
 import { clearApiKey } from '@/lib/function-api'
@@ -25,7 +25,6 @@ interface SidebarProps {
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const pathname = usePathname()
-  const router = useRouter()
   const { t } = useTranslation()
   const [showMenu, setShowMenu] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -46,7 +45,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const handleLogout = async () => {
     await fetch('/admin/logout', { method: 'POST' })
     clearApiKey()
-    router.push('/login/')
+    window.location.href = '/login/'
   }
 
   const navItems = useMemo(() => {
