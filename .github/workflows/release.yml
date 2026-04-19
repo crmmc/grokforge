@@ -214,13 +214,39 @@ jobs:
       - build-unix-binaries
       - build-windows-binary
     steps:
+      - uses: actions/checkout@v4
+
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
           merge-multiple: true
 
+      - name: Extract release notes from CHANGELOG.md
+        id: changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          # Extract the section for this version from CHANGELOG.md
+          # Format: ## vX.Y.Z\n\n...content...\n\n---
+          python3 -c "
+          import re, sys
+          with open('CHANGELOG.md') as f:
+              content = f.read()
+          # Match the version section (## vX.Y.Z ... until next ## or ---)
+          pattern = r'^## ' + re.escape('$VERSION') + r'\s*\n\n(.*?)(?=\n---|\n## |\Z)'
+          m = re.search(pattern, content, re.MULTILINE | re.DOTALL)
+          if m:
+              body = m.group(1).strip()
+          else:
+              body = 'Release $VERSION'
+          # Write to GITHUB_OUTPUT (multiline)
+          with open(sys.argv[1], 'a') as f:
+              f.write('body<<EOF\n')
+              f.write(body + '\n')
+              f.write('EOF\n')
+          " "$GITHUB_OUTPUT"
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
-          generate_release_notes: true
+          body: ${{ steps.changelog.outputs.body }}
           files: artifacts/grokforge-*

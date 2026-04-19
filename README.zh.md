@@ -12,7 +12,7 @@
   <a href="https://github.com/crmmc/grokforge/releases"><img src="https://img.shields.io/github/v/release/crmmc/grokforge?style=flat-square&color=blue" alt="Release"></a>
   <a href="https://github.com/crmmc/grokforge/blob/main/LICENSE"><img src="https://img.shields.io/github/license/crmmc/grokforge?style=flat-square" alt="License"></a>
   <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/github/stars/crmmc/grokforge?style=flat-square" alt="Stars"></a>
-  <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/badge/Go-1.24+-00ADD8?style=flat-square&logo=go" alt="Go Version"></a>
+  <a href="https://github.com/crmmc/grokforge"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?style=flat-square&logo=go" alt="Go Version"></a>
 </p>
 
 <p align="center">
@@ -42,6 +42,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - **单二进制部署** — 前端通过 `go:embed` 嵌入，拷贝即跑，无需额外运行时
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
 - **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
+- **注册表驱动的模型管理** — DB 存储模型定义，管理面板 CRUD，种子数据自动导入，零硬编码
 - **三类独立配额** — Chat / Image / Video 分别计量与恢复，互不影响
 - **配置热重载** — 管理面板修改即时生效，无需重启
 - **结构化日志** — slog + 文件轮转，支持 JSON / Text 格式
@@ -70,6 +71,14 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **自动刷新** — Session 定时刷新，异常自动重建
 - [x] **Token 状态机** — active / cooling / disabled / expired 四态流转
 
+### 模型管理
+
+- [x] **注册表驱动路由** — 模型定义存储于 DB，内存快照提供 O(1) 请求名解析
+- [x] **种子数据自动导入** — 首次启动自动加载 `config/models.seed.toml`
+- [x] **管理面板 CRUD** — 通过 Admin API 和 UI 完整管理 model family + mode
+- [x] **请求名派生规则** — 固定 `model-mode` 命名 + 写入时冲突校验
+- [x] **按 mode 覆盖 pool_floor** — 如 expert → super、heavy → heavy
+
 ### 安全与可靠
 
 - [x] **API Key 管理** — CRUD + 模型白名单 + 日限额 + 速率限制
@@ -94,29 +103,30 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 <details>
 <summary><b>Chat 模型</b></summary>
 
-| 模型 | 描述 |
-|------|------|
-| `grok-4.20` | Grok 4.20 默认模式 |
-| `grok-4.20-fast` | Grok 4.20 快速模式 |
-| `grok-4.20-expert` | 更高门槛的 Grok 4.20 专家模式 |
-| `grok-4.20-heavy` | Heavy 池专用的 Grok 4.20 模式 |
-| `grok-4.20-mini` | Grok 4.20 Mini |
+| 模型 | Mode | 池门槛 | 描述 |
+|------|------|--------|------|
+| `grok-4.20` | default | basic | Grok 4.20 默认模式 |
+| `grok-4.20-fast` | fast | basic | Grok 4.20 快速模式 |
+| `grok-4.20-think` | think (force_thinking) | basic | 深度推理模式 |
+| `grok-4.20-expert` | expert | super | 专家模式，需要 Super 池 |
+| `grok-4.20-heavy` | heavy | heavy | 仅 Heavy 池可用 |
 
 </details>
 
 <details>
 <summary><b>Media 模型</b></summary>
 
-| 模型 | 描述 |
-|------|------|
-| `grok-imagine-image` | 图片生成 |
-| `grok-imagine-image-lite` | 更低门槛的图片生成模式 |
-| `grok-imagine-image-edit` | 图片编辑（支持参考图） |
-| `grok-imagine-video` | 视频生成 |
+| 模型 | 类型 | 池门槛 | 描述 |
+|------|------|--------|------|
+| `grok-imagine-image` | image_ws (WebSocket) | super | 完整图片生成 |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro 图片生成 |
+| `grok-imagine-image-lite` | image (HTTP) | basic | 轻量图片生成，Basic 池可用 |
+| `grok-imagine-image-edit` | image_edit | super | 图片编辑（支持参考图） |
+| `grok-imagine-video` | video | super | 视频生成 |
 
 </details>
 
-> 模型列表可通过管理面板动态增删，无需重启服务。
+> 所有模型定义在 `config/models.seed.toml`，可通过管理面板动态管理，支持自定义任意 `model-mode` 组合。
 
 ---
 
@@ -144,7 +154,7 @@ curl http://localhost:8080/v1/chat/completions \
 
 ### 源码构建
 
-**前置要求**：Go 1.24+、Node.js 18+
+**前置要求**：Go 1.25+、Node.js 18+
 
 ```bash
 git clone https://github.com/crmmc/grokforge.git
@@ -235,6 +245,7 @@ base_proxy_url = ""                # 可选：代理地址
 | `max_tokens` | `5` | 最大重试 Token 数 |
 | `per_token_retries` | `2` | 单 Token 重试上限 |
 | `reset_session_status_codes` | `[403]` | 触发 Session 重置的状态码 |
+| `cooling_status_codes` | `[429]` | 触发 Token 冷却的状态码 |
 | `retry_backoff_base` | `0.5` | 退避基础延迟（秒） |
 | `retry_backoff_factor` | `2.0` | 退避倍率 |
 | `retry_backoff_max` | `20.0` | 单次最大延迟（秒） |
@@ -250,6 +261,14 @@ base_proxy_url = ""                # 可选：代理地址
 | `fail_threshold` | `5` | 连续失败阈值（达到后标记 expired） |
 | `usage_flush_interval_sec` | `30` | 使用量写入数据库的间隔 |
 | `cool_check_interval_sec` | `30` | 检查冷却恢复的间隔 |
+| `basic_cool_duration_min` | `240` | Basic 池冷却时长（分钟） |
+| `super_cool_duration_min` | `120` | Super 池冷却时长（分钟） |
+| `heavy_cool_duration_min` | `60` | Heavy 池冷却时长（分钟） |
+| `default_chat_quota` | `50` | 每个 Token 的默认 Chat 配额 |
+| `default_image_quota` | `20` | 每个 Token 的默认 Image 配额 |
+| `default_video_quota` | `10` | 每个 Token 的默认 Video 配额 |
+| `quota_recovery_mode` | `"auto"` | 配额恢复模式：`auto` 或 `upstream` |
+| `selection_algorithm` | `"high_quota_first"` | 选择算法：high_quota_first / random / round_robin |
 
 </details>
 
@@ -275,7 +294,7 @@ base_proxy_url = ""                # 可选：代理地址
 │        ▼              ▼                         │
 │  ┌─────────────────────────────────────────┐    │
 │  │              flow (编排层)               │    │
-│  │   chat / image / video / model routing  │    │
+│  │  chat / image / video / model registry  │    │
 │  └──────┬──────────┬──────────┬────────────┘    │
 │         │          │          │                  │
 │         ▼          ▼          ▼                  │
@@ -448,6 +467,7 @@ sequenceDiagram
 - **Dashboard** — 一目了然的系统状态：Token 数量、API Key 数、调用量、配额进度、趋势图表
 - **Token 管理** — 批量导入 / 启停 / 删除、状态筛选、配额修改、优先级设置、手动刷新
 - **API Key** — 创建与管理 API 密钥、模型白名单、日限额、速率限制
+- **模型管理** — 注册表驱动的 model family + mode CRUD、种子数据自动导入、pool_floor 配置
 - **设置** — 全局配置在线编辑，修改即时生效
 - **使用统计** — 聚合概览 + 逐条请求日志（包含 TTFT、Token 消耗等指标）
 - **缓存** — 图片/视频缓存浏览、预览、下载、清理
@@ -528,7 +548,7 @@ Token 配额耗尽后会进入 `cooling` 状态，恢复后自动切回 `active`
 
 | 层 | 技术 |
 |----|------|
-| 后端 | Go 1.24 · chi · GORM · slog |
+| 后端 | Go 1.25 · chi · GORM · slog |
 | 前端 | Next.js · shadcn/ui · Tailwind CSS · Recharts |
 | 存储 | SQLite (default) · PostgreSQL (optional) |
 | 构建 | Make · go:embed (前端嵌入二进制) |
@@ -551,6 +571,7 @@ grokforge/
 │   ├── cfrefresh/       # Cloudflare 防护（FlareSolverr 集成）
 │   ├── cache/           # 缓存管理（图片 / 视频本地缓存）
 │   └── logging/         # 日志管理（slog + 文件轮转）
+├── config/              # 种子数据（models.seed.toml 首次启动自动导入）
 ├── web/                 # Next.js 前端
 │   └── src/app/         # 页面路由
 ├── config.defaults.toml # 配置模板
@@ -565,6 +586,12 @@ grokforge/
 - [chi](https://github.com/go-chi/chi) — 轻量 HTTP 路由
 - [GORM](https://gorm.io) — Go ORM
 - [shadcn/ui](https://ui.shadcn.com) — UI 组件库
+
+---
+
+## 更新日志
+
+查看 [CHANGELOG.md](./CHANGELOG.md) 了解版本历史和更新详情。
 
 ---
 
