@@ -174,12 +174,13 @@ func (s *Server) setupRoutes() {
 			r.Use(AdminRateLimit(s.cfg))
 		}
 
-		// Public (no AppKeyAuth) — login endpoint
+		// Public (no AppKeyAuth) — login + logout endpoints
 		if s.runtime != nil {
 			r.Post("/login", handleAdminLoginRuntime(s.runtime))
 		} else {
 			r.Post("/login", handleAdminLogin(s.appKey))
 		}
+		r.Post("/logout", handleAdminLogout())
 
 		// Protected — all other admin routes
 		r.Group(func(r chi.Router) {
@@ -193,9 +194,6 @@ func (s *Server) setupRoutes() {
 			r.Get("/verify", func(w http.ResponseWriter, r *http.Request) {
 				WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 			})
-
-			// Logout endpoint
-			r.Post("/logout", handleAdminLogout())
 
 			// System status endpoint
 			r.Get("/system/status", handleSystemStatus(s.tokenStore, s.apiKeyStore, s.startTime, s.version))
