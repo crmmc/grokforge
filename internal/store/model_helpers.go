@@ -15,7 +15,7 @@ func createFamilyRecord(tx *gorm.DB, family *ModelFamily) error {
 		"Enabled",
 		"PoolFloor",
 		"DefaultModeID",
-		"QuotaDefault",
+		"UpstreamModel",
 		"Description",
 	).Create(family).Error
 }
@@ -28,7 +28,7 @@ func saveFamilyRecord(tx *gorm.DB, family *ModelFamily) error {
 		"Enabled",
 		"PoolFloor",
 		"DefaultModeID",
-		"QuotaDefault",
+		"UpstreamModel",
 		"Description",
 	).Save(family).Error
 }
@@ -40,8 +40,8 @@ func createModeRecord(tx *gorm.DB, mode *ModelMode) error {
 		"Enabled",
 		"PoolFloorOverride",
 		"UpstreamMode",
-		"UpstreamModel",
-		"QuotaOverride",
+		"ForceThinking",
+		"EnablePro",
 	).Create(mode).Error
 }
 
@@ -52,8 +52,8 @@ func saveModeRecord(tx *gorm.DB, mode *ModelMode) error {
 		"Enabled",
 		"PoolFloorOverride",
 		"UpstreamMode",
-		"UpstreamModel",
-		"QuotaOverride",
+		"ForceThinking",
+		"EnablePro",
 	).Save(mode).Error
 }
 
@@ -82,26 +82,36 @@ func normalizeFamilyInput(family *ModelFamily) {
 	family.Model = normalizeIdentifier(family.Model)
 	family.Type = normalizeIdentifier(family.Type)
 	family.PoolFloor = normalizeIdentifier(family.PoolFloor)
-	family.QuotaDefault = normalizeOptionalText(family.QuotaDefault)
+	family.UpstreamModel = normalizeIdentifier(family.UpstreamModel)
 }
 
 func normalizeModeInput(mode *ModelMode) {
 	mode.Mode = normalizeIdentifier(mode.Mode)
 	mode.PoolFloorOverride = normalizeOptionalText(mode.PoolFloorOverride)
 	mode.UpstreamMode = normalizeIdentifier(mode.UpstreamMode)
-	mode.UpstreamModel = normalizeIdentifier(mode.UpstreamModel)
-	mode.QuotaOverride = normalizeOptionalText(mode.QuotaOverride)
 }
 
-func validateModeUpstream(familyType string, mode *ModelMode) error {
-	if !familyRequiresUpstream(familyType) {
-		if strings.TrimSpace(mode.UpstreamModel) != "" || strings.TrimSpace(mode.UpstreamMode) != "" {
-			return fmt.Errorf("%w: upstream mapping is not supported for type %s", ErrInvalidInput, familyType)
+// validateFamilyUpstream validates the upstream_model field on a family.
+func validateFamilyUpstream(family *ModelFamily) error {
+	if !familyRequiresUpstreamModel(family.Type) {
+		if strings.TrimSpace(family.UpstreamModel) != "" {
+			return fmt.Errorf("%w: upstream_model is not supported for type %s", ErrInvalidInput, family.Type)
 		}
 		return nil
 	}
-	if strings.TrimSpace(mode.UpstreamModel) == "" {
+	if strings.TrimSpace(family.UpstreamModel) == "" {
 		return fmt.Errorf("%w: upstream_model is required", ErrInvalidInput)
+	}
+	return nil
+}
+
+// validateModeUpstream validates the upstream_mode field on a mode.
+func validateModeUpstream(familyType string, mode *ModelMode) error {
+	if !familyRequiresUpstreamMode(familyType) {
+		if strings.TrimSpace(mode.UpstreamMode) != "" {
+			return fmt.Errorf("%w: upstream_mode is not supported for type %s", ErrInvalidInput, familyType)
+		}
+		return nil
 	}
 	if strings.TrimSpace(mode.UpstreamMode) == "" {
 		return fmt.Errorf("%w: upstream_mode is required", ErrInvalidInput)
@@ -109,8 +119,16 @@ func validateModeUpstream(familyType string, mode *ModelMode) error {
 	return nil
 }
 
-func familyRequiresUpstream(familyType string) bool {
-	return familyType != "image"
+// familyRequiresUpstreamModel returns true if the family type requires upstream_model.
+// image_ws and image don't need upstream_model.
+func familyRequiresUpstreamModel(familyType string) bool {
+	return familyType != "image_ws" && familyType != "image"
+}
+
+// familyRequiresUpstreamMode returns true if the family type requires upstream_mode on modes.
+// Only image_ws doesn't need upstream_mode (image needs it for modeId="fast").
+func familyRequiresUpstreamMode(familyType string) bool {
+	return familyType != "image_ws"
 }
 
 func validateModesForFamilyType(familyType string, modes []ModelMode) error {

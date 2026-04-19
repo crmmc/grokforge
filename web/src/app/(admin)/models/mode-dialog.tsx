@@ -24,12 +24,12 @@ import { useTranslation } from "@/lib/i18n/context";
 import { getAPIErrorMessage } from "@/lib/api-client";
 
 const modeSchema = z.object({
-  mode: z.string().min(1, "Mode name is required"),
-  upstream_model: z.string(),
+  mode: z.string().min(1, "Sub-suffix is required"),
   upstream_mode: z.string(),
   enabled: z.boolean(),
   pool_floor_override: z.string().optional(),
-  quota_override: z.string().optional(),
+  force_thinking: z.boolean(),
+  enable_pro: z.boolean(),
 });
 
 type ModeInput = z.infer<typeof modeSchema>;
@@ -44,11 +44,11 @@ interface ModeDialogProps {
 
 const defaults: ModeInput = {
   mode: "",
-  upstream_model: "",
   upstream_mode: "",
   enabled: true,
   pool_floor_override: "",
-  quota_override: "",
+  force_thinking: false,
+  enable_pro: false,
 };
 
 export function ModeDialog({
@@ -63,7 +63,9 @@ export function ModeDialog({
   const createMode = useCreateMode();
   const updateMode = useUpdateMode();
   const isEdit = !!mode;
-  const requiresUpstream = familyType !== "image";
+  const isDefaultMode = isEdit && mode?.mode === "default";
+  const requiresUpstream = familyType !== "image_ws" && familyType !== "image";
+  const showEnablePro = familyType === "image_ws" || familyType === "image";
 
   const form = useForm<ModeInput>({
     resolver: zodResolver(modeSchema),
@@ -78,11 +80,11 @@ export function ModeDialog({
     if (mode) {
       form.reset({
         mode: mode.mode,
-        upstream_model: mode.upstream_model,
         upstream_mode: mode.upstream_mode,
         enabled: mode.enabled,
         pool_floor_override: mode.pool_floor_override || "",
-        quota_override: mode.quota_override || "",
+        force_thinking: mode.force_thinking ?? false,
+        enable_pro: mode.enable_pro ?? false,
       });
     } else {
       form.reset(defaults);
@@ -90,15 +92,7 @@ export function ModeDialog({
   }, [open, mode, form]);
 
   const onSubmit = async (data: ModeInput) => {
-    const upstreamModel = data.upstream_model.trim();
     const upstreamMode = data.upstream_mode.trim();
-    if (requiresUpstream && !upstreamModel) {
-      form.setError("upstream_model", {
-        type: "manual",
-        message: "Upstream model is required",
-      });
-      return;
-    }
     if (requiresUpstream && !upstreamMode) {
       form.setError("upstream_mode", {
         type: "manual",
@@ -111,9 +105,7 @@ export function ModeDialog({
         ...data,
         model_id: familyId,
         pool_floor_override: data.pool_floor_override || null,
-        upstream_model: requiresUpstream ? upstreamModel : "",
         upstream_mode: requiresUpstream ? upstreamMode : "",
-        quota_override: data.quota_override || null,
       };
       if (isEdit && mode) {
         await updateMode.mutateAsync({ id: mode.id, data: payload });
@@ -144,8 +136,19 @@ export function ModeDialog({
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="mode">Mode *</Label>
-            <Input id="mode" {...form.register("mode")} placeholder="default" />
+            <Label htmlFor="mode">{t.models.subSuffix} *</Label>
+            <Input
+              id="mode"
+              {...form.register("mode")}
+              placeholder="fast"
+              readOnly={isDefaultMode}
+              className={isDefaultMode ? "bg-muted" : ""}
+            />
+            {isDefaultMode && (
+              <p className="text-sm text-muted-foreground">
+                {t.models.defaultModeReadonly}
+              </p>
+            )}
             {form.formState.errors.mode && (
               <p className="text-sm text-destructive">
                 {form.formState.errors.mode.message}
@@ -153,41 +156,30 @@ export function ModeDialog({
             )}
           </div>
           {requiresUpstream ? (
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="upstream_model">Upstream Model *</Label>
-                <Input
-                  id="upstream_model"
-                  {...form.register("upstream_model")}
-                  placeholder="grok-420"
-                />
-                {form.formState.errors.upstream_model && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.upstream_model.message}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="upstream_mode">Upstream Mode *</Label>
-                <Input
-                  id="upstream_mode"
-                  {...form.register("upstream_mode")}
-                  placeholder="MODEL_MODE_AUTO"
-                />
-                {form.formState.errors.upstream_mode && (
-                  <p className="text-sm text-destructive">
-                    {form.formState.errors.upstream_mode.message}
-                  </p>
-                )}
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="upstream_mode">{t.models.upstreamMode} *</Label>
+              <Select id="upstream_mode" {...form.register("upstream_mode")}>
+                <SelectOption value="">—</SelectOption>
+                <SelectOption value="auto">auto</SelectOption>
+                <SelectOption value="fast">fast</SelectOption>
+                <SelectOption value="expert">expert</SelectOption>
+                <SelectOption value="heavy">heavy</SelectOption>
+              </Select>
+              {form.formState.errors.upstream_mode && (
+                <p className="text-sm text-destructive">
+                  {form.formState.errors.upstream_mode.message}
+                </p>
+              )}
             </div>
           ) : (
             <p className="text-sm text-muted">
-              Image modes do not use upstream model mappings.
+              {t.models.imageNoUpstream}
             </p>
           )}
           <div className="space-y-2">
-            <Label htmlFor="pool_floor_override">Pool Floor Override</Label>
+            <Label htmlFor="pool_floor_override">
+              {t.models.poolFloorOverride}
+            </Label>
             <Select
               id="pool_floor_override"
               {...form.register("pool_floor_override")}
@@ -198,14 +190,38 @@ export function ModeDialog({
               <SelectOption value="heavy">Heavy</SelectOption>
             </Select>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="quota_override">Quota Override</Label>
-            <Input
-              id="quota_override"
-              {...form.register("quota_override")}
-              placeholder="Optional"
-            />
-          </div>
+          {requiresUpstream && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>{t.models.forceThinking}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {t.models.forceThinkingDesc}
+                </p>
+              </div>
+              <Switch
+                checked={form.watch("force_thinking")}
+                onCheckedChange={(v) =>
+                  form.setValue("force_thinking", v, { shouldDirty: true })
+                }
+              />
+            </div>
+          )}
+          {showEnablePro && (
+            <div className="flex items-center justify-between">
+              <div>
+                <Label>{t.models.enablePro}</Label>
+                <p className="text-sm text-muted-foreground">
+                  {t.models.enableProDesc}
+                </p>
+              </div>
+              <Switch
+                checked={form.watch("enable_pro")}
+                onCheckedChange={(v) =>
+                  form.setValue("enable_pro", v, { shouldDirty: true })
+                }
+              />
+            </div>
+          )}
           <div className="flex items-center justify-between pt-1">
             <Label htmlFor="enabled">{t.common.enabled}</Label>
             <Switch

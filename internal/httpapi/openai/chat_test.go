@@ -198,7 +198,7 @@ type mockImagineClient struct {
 	events []xai.ImageEvent
 }
 
-func (m *mockImagineClient) Generate(_ context.Context, _, _ string, _ bool) (<-chan xai.ImageEvent, error) {
+func (m *mockImagineClient) Generate(_ context.Context, _, _ string, _, _ bool) (<-chan xai.ImageEvent, error) {
 	ch := make(chan xai.ImageEvent, len(m.events))
 	for _, e := range m.events {
 		ch <- e
@@ -332,19 +332,19 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 func testMediaRegistry() *registry.ModelRegistry {
 	return registry.NewTestRegistry([]registry.TestFamilyWithModes{
 		{
-			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-image", Type: "image", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(1)},
+			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-image", Type: "image_ws", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(1)},
 			Modes: []store.ModelMode{
 				{ID: 1, ModelID: 1, Mode: "default", Enabled: true},
 				{ID: 2, ModelID: 1, Mode: "lite", Enabled: true, PoolFloorOverride: ptrString("basic")},
 			},
 		},
 		{
-			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-image-edit", Type: "image_edit", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(3)},
-			Modes:  []store.ModelMode{{ID: 3, ModelID: 3, Mode: "default", Enabled: true, UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST"}},
+			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-image-edit", Type: "image_edit", Enabled: true, PoolFloor: "super", UpstreamModel: "imagine-image-edit", DefaultModeID: ptrUint(3)},
+			Modes:  []store.ModelMode{{ID: 3, ModelID: 3, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_FAST"}},
 		},
 		{
-			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-video", Type: "video", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(4)},
-			Modes:  []store.ModelMode{{ID: 4, ModelID: 4, Mode: "default", Enabled: true, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST"}},
+			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-video", Type: "video", Enabled: true, PoolFloor: "super", UpstreamModel: "grok-3", DefaultModeID: ptrUint(4)},
+			Modes:  []store.ModelMode{{ID: 4, ModelID: 4, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_FAST"}},
 		},
 	})
 }

@@ -2,16 +2,14 @@ package store
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
 
 	"gorm.io/gorm"
 )
 
 var validTypes = map[string]struct{}{
-	"chat": {}, "image": {}, "image_edit": {}, "video": {},
+	"chat": {}, "image": {}, "image_edit": {}, "image_ws": {}, "video": {},
 }
 
 var validPoolFloors = map[string]struct{}{
@@ -66,6 +64,8 @@ func (s *ModelStore) ListEnabledFamilies(ctx context.Context) ([]*ModelFamily, e
 }
 
 // CreateFamily creates a new model family with conflict checking.
+// It automatically creates a "default" mode and sets DefaultModeID.
+// For non-image types, f.UpstreamModel and f.DefaultUpstreamMode must be set.
 func (s *ModelStore) CreateFamily(ctx context.Context, f *ModelFamily) error {
 	normalizeFamilyInput(f)
 	if f.Model == "" {
@@ -86,8 +86,15 @@ func (s *ModelStore) CreateFamily(ctx context.Context, f *ModelFamily) error {
 	if f.DefaultModeID != nil {
 		return fmt.Errorf("%w: default_mode_id cannot be set when creating a family", ErrInvalidInput)
 	}
-	if err := validateNullableJSON("quota_default", f.QuotaDefault); err != nil {
+	if err := validateFamilyUpstream(f); err != nil {
 		return err
+	}
+	// Validate default_upstream_mode for non-image types
+	defaultUpstreamMode := normalizeIdentifier(f.DefaultUpstreamMode)
+	if familyRequiresUpstreamMode(f.Type) {
+		if defaultUpstreamMode == "" {
+			return fmt.Errorf("%w: default_upstream_mode is required", ErrInvalidInput)
+		}
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockModelTables(tx); err != nil {
@@ -97,11 +104,26 @@ func (s *ModelStore) CreateFamily(ctx context.Context, f *ModelFamily) error {
 		if err := s.checkConflict(tx, ctx, newNames, 0, 0); err != nil {
 			return err
 		}
-		return createFamilyRecord(tx, f)
+		if err := createFamilyRecord(tx, f); err != nil {
+			return err
+		}
+		// Auto-create default mode
+		defaultMode := &ModelMode{
+			ModelID:      f.ID,
+			Mode:         "default",
+			Enabled:      true,
+			UpstreamMode: defaultUpstreamMode,
+		}
+		if err := createModeRecord(tx, defaultMode); err != nil {
+			return err
+		}
+		f.DefaultModeID = &defaultMode.ID
+		return saveFamilyRecord(tx, f)
 	})
 }
 
 // UpdateFamily updates an existing model family with conflict checking.
+// DefaultModeID is managed automatically and cannot be changed via this method.
 func (s *ModelStore) UpdateFamily(ctx context.Context, f *ModelFamily) error {
 	normalizeFamilyInput(f)
 	if f.Model == "" {
@@ -119,38 +141,28 @@ func (s *ModelStore) UpdateFamily(ctx context.Context, f *ModelFamily) error {
 	if _, ok := validPoolFloors[f.PoolFloor]; !ok {
 		return fmt.Errorf("%w: invalid pool_floor %q", ErrInvalidInput, f.PoolFloor)
 	}
-	if err := validateNullableJSON("quota_default", f.QuotaDefault); err != nil {
+	if err := validateFamilyUpstream(f); err != nil {
 		return err
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockModelTables(tx); err != nil {
 			return err
 		}
-		// Validate DefaultModeID belongs to this family (D-04)
-		if f.DefaultModeID != nil {
-			var mode ModelMode
-			if err := tx.First(&mode, *f.DefaultModeID).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					return fmt.Errorf("%w: default_mode_id %d not found", ErrInvalidInput, *f.DefaultModeID)
-				}
-				return err
+		// Preserve existing DefaultModeID — not user-editable
+		var existing ModelFamily
+		if err := tx.First(&existing, f.ID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
 			}
-			if mode.ModelID != f.ID {
-				return fmt.Errorf("%w: default_mode_id %d does not belong to family %d", ErrInvalidInput, *f.DefaultModeID, f.ID)
-			}
-			if !mode.Enabled {
-				return fmt.Errorf("%w: default_mode_id %d must reference an enabled mode", ErrInvalidInput, *f.DefaultModeID)
-			}
+			return err
 		}
+		f.DefaultModeID = existing.DefaultModeID
 
 		// Compute all derived names for this family
 		newNames := map[string]struct{}{f.Model: {}}
 		modes, err := listModesOrdered(tx, f.ID)
 		if err != nil {
 			return err
-		}
-		if len(modes) > 0 && f.DefaultModeID == nil {
-			return fmt.Errorf("%w: default_mode_id is required when a family has modes", ErrInvalidInput)
 		}
 		if err := validateModesForFamilyType(f.Type, modes); err != nil {
 			return fmt.Errorf("%w: %s", ErrInvalidInput, err)
@@ -216,18 +228,19 @@ func (s *ModelStore) ListModesByFamily(ctx context.Context, familyID uint) ([]*M
 }
 
 // CreateMode creates a new model mode with conflict checking.
+// The "default" mode is auto-created by CreateFamily and cannot be created manually.
 func (s *ModelStore) CreateMode(ctx context.Context, m *ModelMode) error {
 	normalizeModeInput(m)
 	if m.Mode == "" {
 		return fmt.Errorf("%w: mode is required", ErrInvalidInput)
 	}
+	if m.Mode == "default" {
+		return fmt.Errorf("%w: the default mode is auto-created with the family and cannot be created manually", ErrInvalidInput)
+	}
 	if m.PoolFloorOverride != nil {
 		if _, ok := validPoolFloors[*m.PoolFloorOverride]; !ok {
 			return fmt.Errorf("%w: invalid pool_floor_override %q", ErrInvalidInput, *m.PoolFloorOverride)
 		}
-	}
-	if err := validateNullableJSON("quota_override", m.QuotaOverride); err != nil {
-		return err
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockModelTables(tx); err != nil {
@@ -244,41 +257,18 @@ func (s *ModelStore) CreateMode(ctx context.Context, m *ModelMode) error {
 		if err := validateModeUpstream(family.Type, m); err != nil {
 			return err
 		}
-		existingModes, err := listModesOrdered(tx, family.ID)
-		if err != nil {
-			return err
-		}
-		becomesDefault := len(existingModes) == 0
-		if becomesDefault && family.DefaultModeID != nil {
-			return fmt.Errorf("%w: family %d has default_mode_id but no modes", ErrInvalidInput, family.ID)
-		}
-		if len(existingModes) > 0 && family.DefaultModeID == nil {
-			return fmt.Errorf("%w: family %d is missing default_mode_id", ErrInvalidInput, family.ID)
-		}
-		if becomesDefault && m.Mode != "default" {
-			return fmt.Errorf("%w: the first mode must be named default", ErrInvalidInput)
-		}
-		if becomesDefault && !m.Enabled {
-			return fmt.Errorf("%w: the first mode must be enabled", ErrInvalidInput)
-		}
 		newNames := map[string]struct{}{
-			DeriveRequestName(family.Model, m.Mode, becomesDefault): {},
+			DeriveRequestName(family.Model, m.Mode, false): {},
 		}
 		if err := s.checkConflict(tx, ctx, newNames, family.ID, 0); err != nil {
 			return err
 		}
-		if err := createModeRecord(tx, m); err != nil {
-			return err
-		}
-		if !becomesDefault {
-			return nil
-		}
-		family.DefaultModeID = &m.ID
-		return saveFamilyRecord(tx, &family)
+		return createModeRecord(tx, m)
 	})
 }
 
 // UpdateMode updates an existing model mode with conflict checking.
+// The default mode's name cannot be changed.
 func (s *ModelStore) UpdateMode(ctx context.Context, m *ModelMode) error {
 	normalizeModeInput(m)
 	if m.Mode == "" {
@@ -288,9 +278,6 @@ func (s *ModelStore) UpdateMode(ctx context.Context, m *ModelMode) error {
 		if _, ok := validPoolFloors[*m.PoolFloorOverride]; !ok {
 			return fmt.Errorf("%w: invalid pool_floor_override %q", ErrInvalidInput, *m.PoolFloorOverride)
 		}
-	}
-	if err := validateNullableJSON("quota_override", m.QuotaOverride); err != nil {
-		return err
 	}
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockModelTables(tx); err != nil {
@@ -305,6 +292,10 @@ func (s *ModelStore) UpdateMode(ctx context.Context, m *ModelMode) error {
 		}
 		if existing.ModelID != m.ModelID {
 			return fmt.Errorf("%w: moving a mode to another family is not supported", ErrInvalidInput)
+		}
+		// Prevent renaming the default mode
+		if existing.Mode == "default" && m.Mode != "default" {
+			return fmt.Errorf("%w: the default mode cannot be renamed", ErrInvalidInput)
 		}
 
 		var family ModelFamily
@@ -331,7 +322,8 @@ func (s *ModelStore) UpdateMode(ctx context.Context, m *ModelMode) error {
 	})
 }
 
-// DeleteMode deletes a model mode and clears default_mode_id if referenced.
+// DeleteMode deletes a model mode.
+// The default mode cannot be deleted — delete the family instead.
 func (s *ModelStore) DeleteMode(ctx context.Context, id uint) error {
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := lockModelTables(tx); err != nil {
@@ -344,26 +336,9 @@ func (s *ModelStore) DeleteMode(ctx context.Context, id uint) error {
 			}
 			return err
 		}
-		var family ModelFamily
-		if err := tx.First(&family, mode.ModelID).Error; err != nil {
-			return err
-		}
-		if family.DefaultModeID != nil && *family.DefaultModeID == id {
-			var remaining int64
-			if err := tx.Model(&ModelMode{}).
-				Where("model_id = ? AND id <> ?", mode.ModelID, id).
-				Count(&remaining).Error; err != nil {
-				return err
-			}
-			if remaining > 0 {
-				return fmt.Errorf("%w: cannot delete the default mode while other modes exist", ErrInvalidInput)
-			}
-		}
-		// Clear default_mode_id on any family referencing this mode
-		if err := tx.Model(&ModelFamily{}).
-			Where("default_mode_id = ?", id).
-			Update("default_mode_id", nil).Error; err != nil {
-			return err
+		// Prevent deleting the default mode
+		if mode.Mode == "default" {
+			return fmt.Errorf("%w: the default mode cannot be deleted; delete the family instead", ErrInvalidInput)
 		}
 		result := tx.Delete(&ModelMode{}, id)
 		if result.Error != nil {
@@ -374,21 +349,6 @@ func (s *ModelStore) DeleteMode(ctx context.Context, id uint) error {
 		}
 		return nil
 	})
-}
-
-func validateNullableJSON(name string, value *string) error {
-	if value == nil {
-		return nil
-	}
-	trimmed := strings.TrimSpace(*value)
-	if trimmed == "" {
-		return nil
-	}
-	var raw json.RawMessage
-	if err := json.Unmarshal([]byte(trimmed), &raw); err != nil {
-		return fmt.Errorf("%w: %s must be valid JSON", ErrInvalidInput, name)
-	}
-	return nil
 }
 
 // --- Conflict checking ---

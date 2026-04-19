@@ -143,7 +143,7 @@ func TestAdminFamilyList(t *testing.T) {
 		Model: "grok-3", DisplayName: "Grok 3", Type: "chat", PoolFloor: "basic",
 	})
 	ms.CreateMode(context.Background(), &store.ModelMode{
-		ModelID: 1, Mode: "default", UpstreamModel: "grok-3", UpstreamMode: "MODE_GROK_3",
+		ModelID: 1, Mode: "default", UpstreamMode: "MODE_GROK_3",
 	})
 
 	srv := newTestModelServer(ms, nil)
@@ -185,7 +185,7 @@ func TestAdminFamilyCreate_NormalizesTrimmedFields(t *testing.T) {
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model":"  grok-4  ","display_name":"Grok 4","type":"  chat  ","pool_floor":"  super  ","quota_default":"   "}`
+	body := `{"model":"  grok-4  ","display_name":"Grok 4","type":"  chat  ","pool_floor":"  super  "}`
 	req := httptest.NewRequest(http.MethodPost, "/models/families", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -196,7 +196,6 @@ func TestAdminFamilyCreate_NormalizesTrimmedFields(t *testing.T) {
 	assert.Equal(t, "grok-4", ms.families[0].Model)
 	assert.Equal(t, "chat", ms.families[0].Type)
 	assert.Equal(t, "super", ms.families[0].PoolFloor)
-	assert.Nil(t, ms.families[0].QuotaDefault)
 }
 
 func TestAdminFamilyCreate_RejectsUnknownField(t *testing.T) {
@@ -270,15 +269,15 @@ func TestAdminFamilyUpdate(t *testing.T) {
 func TestAdminFamilyUpdate_ClearsNullableFields(t *testing.T) {
 	ms := newMockModelStore()
 	defaultModeID := uint(7)
-	quotaDefault := `{"chat":100}`
 	ms.CreateFamily(context.Background(), &store.ModelFamily{
 		Model: "grok-3", DisplayName: "Grok 3", Type: "chat", PoolFloor: "basic",
-		DefaultModeID: &defaultModeID, QuotaDefault: &quotaDefault,
+		DefaultModeID: &defaultModeID,
 	})
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model":"grok-3","display_name":"Grok 3","type":"chat","pool_floor":"basic","default_mode_id":null,"quota_default":null}`
+	// default_mode_id is no longer user-editable, so sending it should be ignored
+	body := `{"model":"grok-3","display_name":"","type":"chat","pool_floor":"basic"}`
 	req := httptest.NewRequest(http.MethodPut, "/models/families/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -288,8 +287,9 @@ func TestAdminFamilyUpdate_ClearsNullableFields(t *testing.T) {
 
 	var resp FamilyResponse
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
-	assert.Nil(t, resp.DefaultModeID)
-	assert.Nil(t, resp.QuotaDefault)
+	// DefaultModeID should be preserved (not cleared)
+	assert.NotNil(t, resp.DefaultModeID)
+	assert.Equal(t, uint(7), *resp.DefaultModeID)
 }
 
 func TestAdminFamilyUpdate_RejectsUnknownField(t *testing.T) {
@@ -337,7 +337,7 @@ func TestAdminModeCreate(t *testing.T) {
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"thinking","upstream_model":"grok-3","upstream_mode":"MODE_GROK_3_THINK"}`
+	body := `{"model_id":1,"mode":"thinking","upstream_mode":"MODE_GROK_3_THINK","force_thinking":true}`
 	req := httptest.NewRequest(http.MethodPost, "/models/modes", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -350,6 +350,7 @@ func TestAdminModeCreate(t *testing.T) {
 	require.NoError(t, json.NewDecoder(rec.Body).Decode(&resp))
 	assert.Equal(t, "thinking", resp.Mode)
 	assert.Equal(t, uint(1), resp.ModelID)
+	assert.True(t, resp.ForceThinking)
 }
 
 func TestAdminModeCreate_ImageFamilyRejectsUpstreamMapping(t *testing.T) {
@@ -361,14 +362,15 @@ func TestAdminModeCreate_ImageFamilyRejectsUpstreamMapping(t *testing.T) {
 	ctx := context.Background()
 	family := &store.ModelFamily{
 		Model:     "grok-imagine-image",
-		Type:      "image",
+		Type:      "image_ws",
 		PoolFloor: "super",
 		Enabled:   true,
 	}
 	require.NoError(t, ms.CreateFamily(ctx, family))
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"default","upstream_model":"grok-3","upstream_mode":"MODEL_MODE_FAST"}`
+	// Try to create a non-default mode with upstream mapping on an image_ws family
+	body := fmt.Sprintf(`{"model_id":%d,"mode":"pro","upstream_mode":"MODEL_MODE_FAST"}`, family.ID)
 	req := httptest.NewRequest(http.MethodPost, "/models/modes", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -385,7 +387,7 @@ func TestAdminModeCreate_NormalizesTrimmedFields(t *testing.T) {
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"  default  ","pool_floor_override":"  basic  ","upstream_model":"  grok-3  ","upstream_mode":"  MODE_GROK_3  ","quota_override":"   "}`
+	body := `{"model_id":1,"mode":"  fast  ","pool_floor_override":"  basic  ","upstream_mode":"  MODE_GROK_3  "}`
 	req := httptest.NewRequest(http.MethodPost, "/models/modes", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -393,12 +395,10 @@ func TestAdminModeCreate_NormalizesTrimmedFields(t *testing.T) {
 
 	assert.Equal(t, http.StatusCreated, rec.Code)
 	require.Len(t, ms.modes, 1)
-	assert.Equal(t, "default", ms.modes[0].Mode)
+	assert.Equal(t, "fast", ms.modes[0].Mode)
 	require.NotNil(t, ms.modes[0].PoolFloorOverride)
 	assert.Equal(t, "basic", *ms.modes[0].PoolFloorOverride)
-	assert.Equal(t, "grok-3", ms.modes[0].UpstreamModel)
 	assert.Equal(t, "MODE_GROK_3", ms.modes[0].UpstreamMode)
-	assert.Nil(t, ms.modes[0].QuotaOverride)
 }
 
 func TestAdminModeCreate_RejectsUnknownField(t *testing.T) {
@@ -409,7 +409,7 @@ func TestAdminModeCreate_RejectsUnknownField(t *testing.T) {
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"default","upstream_model":"grok-3","upstream_mode":"MODEL_MODE_AUTO","unknown":"x"}`
+	body := `{"model_id":1,"mode":"default","upstream_mode":"MODEL_MODE_AUTO","unknown":"x"}`
 	req := httptest.NewRequest(http.MethodPost, "/models/modes", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -423,7 +423,7 @@ func TestAdminModeCreate_RejectsUnknownField(t *testing.T) {
 func TestAdminModeGet(t *testing.T) {
 	ms := newMockModelStore()
 	ms.CreateMode(context.Background(), &store.ModelMode{
-		ModelID: 1, Mode: "default", UpstreamModel: "grok-3", UpstreamMode: "MODE_GROK_3",
+		ModelID: 1, Mode: "default", UpstreamMode: "MODE_GROK_3",
 	})
 
 	srv := newTestModelServer(ms, nil)
@@ -441,12 +441,12 @@ func TestAdminModeGet(t *testing.T) {
 func TestAdminModeUpdate(t *testing.T) {
 	ms := newMockModelStore()
 	ms.CreateMode(context.Background(), &store.ModelMode{
-		ModelID: 1, Mode: "default", UpstreamModel: "grok-3", UpstreamMode: "MODE_GROK_3",
+		ModelID: 1, Mode: "default", UpstreamMode: "MODE_GROK_3",
 	})
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"default","upstream_model":"grok-3","upstream_mode":"MODE_GROK_3_V2","enabled":true}`
+	body := `{"model_id":1,"mode":"default","upstream_mode":"MODE_GROK_3_V2","enabled":true}`
 	req := httptest.NewRequest(http.MethodPut, "/models/modes/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -463,12 +463,12 @@ func TestAdminModeUpdate(t *testing.T) {
 func TestAdminModeUpdate_RejectsUnknownField(t *testing.T) {
 	ms := newMockModelStore()
 	ms.CreateMode(context.Background(), &store.ModelMode{
-		ModelID: 1, Mode: "default", UpstreamModel: "grok-3", UpstreamMode: "MODE_GROK_3",
+		ModelID: 1, Mode: "default", UpstreamMode: "MODE_GROK_3",
 	})
 	reg := &mockRegistryRefresher{}
 
 	srv := newTestModelServer(ms, reg)
-	body := `{"model_id":1,"mode":"default","upstream_model":"grok-3","upstream_mode":"MODE_GROK_3","unknown":"x"}`
+	body := `{"model_id":1,"mode":"default","upstream_mode":"MODE_GROK_3","unknown":"x"}`
 	req := httptest.NewRequest(http.MethodPut, "/models/modes/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -482,7 +482,7 @@ func TestAdminModeUpdate_RejectsUnknownField(t *testing.T) {
 func TestAdminModeDelete(t *testing.T) {
 	ms := newMockModelStore()
 	ms.CreateMode(context.Background(), &store.ModelMode{
-		ModelID: 1, Mode: "default", UpstreamModel: "grok-3", UpstreamMode: "MODE_GROK_3",
+		ModelID: 1, Mode: "fast", UpstreamMode: "MODE_GROK_3",
 	})
 	reg := &mockRegistryRefresher{}
 
@@ -512,7 +512,7 @@ func TestAdminCRUDRefresh(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code)
 
 	// Create mode
-	body = `{"model_id":1,"mode":"fast","upstream_model":"grok-5","upstream_mode":"MODE_GROK_5_FAST"}`
+	body = `{"model_id":1,"mode":"fast","upstream_mode":"MODE_GROK_5_FAST"}`
 	req = httptest.NewRequest(http.MethodPost, "/models/modes", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec = httptest.NewRecorder()
@@ -545,22 +545,15 @@ func TestAdminFamilyUpdate_RollsBackOnInvalidTypeChange(t *testing.T) {
 	ctx := context.Background()
 	family := &store.ModelFamily{
 		Model:     "grok-imagine-image",
-		Type:      "image",
+		Type:      "image_ws",
 		PoolFloor: "super",
 		Enabled:   true,
 	}
 	require.NoError(t, ms.CreateFamily(ctx, family))
-
-	mode := &store.ModelMode{
-		ModelID: family.ID,
-		Mode:    "default",
-		Enabled: true,
-	}
-	require.NoError(t, ms.CreateMode(ctx, mode))
 	require.NoError(t, reg.Refresh(ctx))
 
 	srv := newTestModelServer(ms, reg)
-	body := fmt.Sprintf(`{"model":"grok-imagine-image","display_name":"","type":"chat","pool_floor":"super","default_mode_id":%d}`, mode.ID)
+	body := `{"model":"grok-imagine-image","display_name":"","type":"chat","pool_floor":"super"}`
 	req := httptest.NewRequest(http.MethodPut, "/models/families/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -570,11 +563,11 @@ func TestAdminFamilyUpdate_RollsBackOnInvalidTypeChange(t *testing.T) {
 
 	stored, err := ms.GetFamily(ctx, family.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "image", stored.Type)
+	assert.Equal(t, "image_ws", stored.Type)
 
 	resolved, ok := reg.Resolve("grok-imagine-image")
 	require.True(t, ok)
-	assert.Equal(t, "image", resolved.Family.Type)
+	assert.Equal(t, "image_ws", resolved.Family.Type)
 }
 
 // newTestModelServer creates a chi router with model CRUD routes for testing.

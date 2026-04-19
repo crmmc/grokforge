@@ -16,7 +16,7 @@ function useAllModels() {
 export function useImageModels() {
   const { data, isLoading, error } = useAllModels()
   const models = useMemo(
-    () => data?.data.filter((m) => m.type === 'image').map((m) => m.id) ?? [],
+    () => data?.data.filter((m) => m.type === 'image_ws').map((m) => m.id) ?? [],
     [data]
   )
   return { models, isLoading, error }

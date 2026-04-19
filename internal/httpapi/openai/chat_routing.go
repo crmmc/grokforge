@@ -35,6 +35,10 @@ func (h *Handler) resolveModelType(model string) string {
 	return rm.Family.Type
 }
 
+func (h *Handler) isImageWSModel(model string) bool {
+	return h.resolveModelType(model) == "image_ws"
+}
+
 func (h *Handler) isImageModel(model string) bool {
 	return h.resolveModelType(model) == "image"
 }
@@ -49,7 +53,7 @@ func (h *Handler) isVideoModel(model string) bool {
 
 func (h *Handler) isMediaModel(model string) bool {
 	t := h.resolveModelType(model)
-	return t == "image" || t == "image_edit" || t == "video"
+	return t == "image_ws" || t == "image" || t == "image_edit" || t == "video"
 }
 
 func (h *Handler) resolveUpstream(model string) (string, string) {
@@ -63,7 +67,56 @@ func (h *Handler) resolveUpstream(model string) (string, string) {
 	return rm.UpstreamModel, rm.UpstreamMode
 }
 
-func (h *Handler) handleChatImageGeneration(w http.ResponseWriter, r *http.Request, req *ChatRequest) {
+func (h *Handler) handleChatImage(w http.ResponseWriter, r *http.Request, req *ChatRequest) {
+	if h.ImageFlow == nil {
+		httpapi.WriteError(w, http.StatusNotImplemented, "server_error", "not_implemented", "image flow not configured")
+		return
+	}
+
+	prompt, _, err := extractChatPromptAndImages(r.Context(), req.Messages)
+	if err != nil {
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_messages", err.Error())
+		return
+	}
+	if strings.TrimSpace(prompt) == "" {
+		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "missing_prompt", "prompt is required")
+		return
+	}
+
+	n := 1
+	responseFormat := "b64_json"
+	if req.ImageConfig != nil {
+		if req.ImageConfig.N > 0 {
+			n = req.ImageConfig.N
+		}
+		if req.ImageConfig.ResponseFormat != "" {
+			responseFormat = req.ImageConfig.ResponseFormat
+		}
+	}
+	_, upstreamMode := h.resolveUpstream(req.Model)
+
+	result, err := h.ImageFlow.GenerateLite(httpapi.BridgeFlowContext(r.Context()), &flow.ImageLiteRequest{
+		Model:          req.Model,
+		Prompt:         prompt,
+		N:              n,
+		UpstreamMode:   upstreamMode,
+		ResponseFormat: responseFormat,
+	})
+	if err != nil {
+		h.writeStreamingOrJSONError(w, req.Stream, err)
+		return
+	}
+
+	content := h.renderImagesForChat(result)
+	eventCh := singleMessageEventCh(content)
+	if isStreamEnabled(req.Stream) {
+		h.streamResponse(w, r, eventCh, req)
+		return
+	}
+	h.blockingResponse(w, r, eventCh, req)
+}
+
+func (h *Handler) handleChatImageWSGeneration(w http.ResponseWriter, r *http.Request, req *ChatRequest) {
 	if h.ImageFlow == nil {
 		httpapi.WriteError(w, http.StatusNotImplemented, "server_error", "not_implemented", "image flow not configured")
 		return
