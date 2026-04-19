@@ -26,10 +26,10 @@ import { getAPIErrorMessage } from "@/lib/api-client";
 const familySchema = z.object({
   model: z.string().min(1, "Model name is required"),
   display_name: z.string().optional(),
-  type: z.enum(["chat", "image", "image_edit", "video"]),
+  type: z.enum(["chat", "image", "image_edit", "image_ws", "video"]),
   pool_floor: z.enum(["basic", "super", "heavy"]),
-  default_mode_id: z.number().int().positive().nullable(),
-  quota_default: z.string().optional(),
+  upstream_model: z.string().optional(),
+  default_upstream_mode: z.string().optional(),
   enabled: z.boolean(),
   description: z.string().optional(),
 });
@@ -47,8 +47,8 @@ const defaults: FamilyInput = {
   display_name: "",
   type: "chat",
   pool_floor: "basic",
-  default_mode_id: null,
-  quota_default: "",
+  upstream_model: "",
+  default_upstream_mode: "auto",
   enabled: true,
   description: "",
 };
@@ -80,8 +80,8 @@ export function FamilyDialog({
         display_name: family.display_name || "",
         type: family.type as FamilyInput["type"],
         pool_floor: family.pool_floor as FamilyInput["pool_floor"],
-        default_mode_id: family.default_mode_id,
-        quota_default: family.quota_default || "",
+        upstream_model: family.upstream_model || "",
+        default_upstream_mode: "auto",
         enabled: family.enabled,
         description: family.description || "",
       });
@@ -90,23 +90,20 @@ export function FamilyDialog({
     }
   }, [open, family, form]);
 
+  const watchType = form.watch("type");
+  const requiresUpstream = watchType !== "image_ws" && watchType !== "image";
+
   const onSubmit = async (data: FamilyInput) => {
     try {
-      const { default_mode_id, ...rest } = data;
-      const base = {
-        ...rest,
-        quota_default: data.quota_default?.trim()
-          ? data.quota_default.trim()
-          : null,
-      };
       if (isEdit && family) {
+        const { default_upstream_mode: _, ...rest } = data;
         await updateFamily.mutateAsync({
           id: family.id,
-          data: { ...base, default_mode_id },
+          data: rest,
         });
         toast({ title: t.common.success, description: t.models.updateSuccess });
       } else {
-        await createFamily.mutateAsync(base);
+        await createFamily.mutateAsync(data);
         toast({ title: t.common.success, description: t.models.createSuccess });
       }
       onOpenChange(false);
@@ -131,7 +128,7 @@ export function FamilyDialog({
         </DialogHeader>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="model">Model *</Label>
+            <Label htmlFor="model">{t.models.modelName} *</Label>
             <Input
               id="model"
               {...form.register("model")}
@@ -144,7 +141,7 @@ export function FamilyDialog({
             )}
           </div>
           <div className="space-y-2">
-            <Label htmlFor="display_name">Display Name</Label>
+            <Label htmlFor="display_name">{t.models.displayName}</Label>
             <Input
               id="display_name"
               {...form.register("display_name")}
@@ -153,16 +150,17 @@ export function FamilyDialog({
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="type">Type</Label>
+              <Label htmlFor="type">{t.models.type}</Label>
               <Select id="type" {...form.register("type")}>
                 <SelectOption value="chat">Chat</SelectOption>
                 <SelectOption value="image">Image</SelectOption>
                 <SelectOption value="image_edit">Image Edit</SelectOption>
+                <SelectOption value="image_ws">Image WS</SelectOption>
                 <SelectOption value="video">Video</SelectOption>
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="pool_floor">Pool Floor</Label>
+              <Label htmlFor="pool_floor">{t.models.poolFloor}</Label>
               <Select id="pool_floor" {...form.register("pool_floor")}>
                 <SelectOption value="basic">Basic</SelectOption>
                 <SelectOption value="super">Super</SelectOption>
@@ -170,44 +168,40 @@ export function FamilyDialog({
               </Select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          {requiresUpstream && (
             <div className="space-y-2">
-              <Label htmlFor="default_mode_id">Default Mode</Label>
-              <Select
-                id="default_mode_id"
-                value={
-                  form.watch("default_mode_id") != null
-                    ? String(form.watch("default_mode_id"))
-                    : ""
-                }
-                onChange={(e) =>
-                  form.setValue(
-                    "default_mode_id",
-                    e.target.value ? Number(e.target.value) : null,
-                    { shouldDirty: true },
-                  )
-                }
-                disabled={!family || family.modes.length === 0}
-              >
-                <SelectOption value="">—</SelectOption>
-                {family?.modes.map((mode) => (
-                  <SelectOption key={mode.id} value={String(mode.id)}>
-                    {mode.mode}
-                  </SelectOption>
-                ))}
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="quota_default">Quota Default</Label>
+              <Label htmlFor="upstream_model">{t.models.upstreamModel} *</Label>
               <Input
-                id="quota_default"
-                {...form.register("quota_default")}
-                placeholder='{"chat": 100}'
+                id="upstream_model"
+                {...form.register("upstream_model")}
+                placeholder="grok-420"
               />
+              <p className="text-sm text-muted-foreground">
+                {t.models.upstreamModelDesc}
+              </p>
             </div>
-          </div>
+          )}
+          {requiresUpstream && !isEdit && (
+            <div className="space-y-2">
+              <Label htmlFor="default_upstream_mode">
+                {t.models.defaultUpstreamMode} *
+              </Label>
+              <Select
+                id="default_upstream_mode"
+                {...form.register("default_upstream_mode")}
+              >
+                <SelectOption value="auto">auto</SelectOption>
+                <SelectOption value="fast">fast</SelectOption>
+                <SelectOption value="expert">expert</SelectOption>
+                <SelectOption value="heavy">heavy</SelectOption>
+              </Select>
+              <p className="text-sm text-muted-foreground">
+                {t.models.defaultUpstreamModeDesc}
+              </p>
+            </div>
+          )}
           <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
+            <Label htmlFor="description">{t.models.descriptionLabel}</Label>
             <Input id="description" {...form.register("description")} />
           </div>
           <div className="flex items-center justify-between pt-1">

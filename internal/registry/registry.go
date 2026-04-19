@@ -19,6 +19,8 @@ type ResolvedModel struct {
 	EffectiveFloor string // mode PoolFloorOverride > family PoolFloor
 	UpstreamModel  string
 	UpstreamMode   string
+	ForceThinking  bool
+	EnablePro      bool
 }
 
 // ModelRegistry maintains an in-memory snapshot of enabled models.
@@ -29,8 +31,14 @@ type ModelRegistry struct {
 	enabledByType map[string][]*ResolvedModel
 }
 
-func requiresUpstreamMapping(modelType string) bool {
-	return modelType != "image"
+// requiresUpstreamModel returns true if the type needs upstream_model on the family.
+func requiresUpstreamModel(modelType string) bool {
+	return modelType != "image_ws" && modelType != "image"
+}
+
+// requiresUpstreamMode returns true if the type needs upstream_mode on modes.
+func requiresUpstreamMode(modelType string) bool {
+	return modelType != "image_ws"
 }
 
 type modelReader interface {
@@ -88,8 +96,10 @@ func NewTestRegistry(data []TestFamilyWithModes) *ModelRegistry {
 				Family:         family,
 				Mode:           mode,
 				EffectiveFloor: effectiveFloor,
-				UpstreamModel:  mode.UpstreamModel,
+				UpstreamModel:  family.UpstreamModel,
 				UpstreamMode:   mode.UpstreamMode,
+				ForceThinking:  mode.ForceThinking,
+				EnablePro:      mode.EnablePro,
 			}
 			r.byRequestName[requestName] = rm
 			r.enabledByType[family.Type] = append(r.enabledByType[family.Type], rm)
@@ -224,12 +234,19 @@ func buildSnapshot(ctx context.Context, reader modelReader) (*ModelSnapshot, err
 			if _, exists := newByName[requestName]; exists {
 				return nil, fmt.Errorf("duplicate request name in registry: %s", requestName)
 			}
-			if requiresUpstreamMapping(family.Type) {
-				if mode.UpstreamModel == "" || mode.UpstreamMode == "" {
-					return nil, fmt.Errorf("mode %s for family %s has empty upstream mapping", mode.Mode, family.Model)
+			if requiresUpstreamModel(family.Type) {
+				if family.UpstreamModel == "" {
+					return nil, fmt.Errorf("family %s has empty upstream_model", family.Model)
 				}
-			} else if mode.UpstreamModel != "" || mode.UpstreamMode != "" {
-				return nil, fmt.Errorf("mode %s for family %s must not define upstream mapping", mode.Mode, family.Model)
+			} else if family.UpstreamModel != "" {
+				return nil, fmt.Errorf("family %s must not define upstream_model for type %s", family.Model, family.Type)
+			}
+			if requiresUpstreamMode(family.Type) {
+				if mode.UpstreamMode == "" {
+					return nil, fmt.Errorf("mode %s for family %s has empty upstream_mode", mode.Mode, family.Model)
+				}
+			} else if mode.UpstreamMode != "" {
+				return nil, fmt.Errorf("mode %s for family %s must not define upstream_mode", mode.Mode, family.Model)
 			}
 
 			effectiveFloor := family.PoolFloor
@@ -237,11 +254,12 @@ func buildSnapshot(ctx context.Context, reader modelReader) (*ModelSnapshot, err
 				effectiveFloor = *mode.PoolFloorOverride
 			}
 
-			upstreamModel := mode.UpstreamModel
-			upstreamMode := mode.UpstreamMode
-			if !requiresUpstreamMapping(family.Type) {
-				upstreamModel = ""
-				upstreamMode = ""
+			var upstreamModel, upstreamMode string
+			if requiresUpstreamModel(family.Type) {
+				upstreamModel = family.UpstreamModel
+			}
+			if requiresUpstreamMode(family.Type) {
+				upstreamMode = mode.UpstreamMode
 			}
 
 			rm := &ResolvedModel{
@@ -251,6 +269,8 @@ func buildSnapshot(ctx context.Context, reader modelReader) (*ModelSnapshot, err
 				EffectiveFloor: effectiveFloor,
 				UpstreamModel:  upstreamModel,
 				UpstreamMode:   upstreamMode,
+				ForceThinking:  mode.ForceThinking,
+				EnablePro:      mode.EnablePro,
 			}
 
 			newByName[requestName] = rm

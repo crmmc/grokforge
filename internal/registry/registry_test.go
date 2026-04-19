@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -35,18 +36,19 @@ func setupTestDB(t *testing.T) *gorm.DB {
 
 // seedTestData creates two families with modes for testing.
 // grok-4 (chat, basic): default mode "default" + "heavy" mode (pool_floor_override=heavy)
-// flux-1 (image, basic): mode "standard" (default)
+// flux-1 (image_ws, basic): mode "standard" (default)
 // Returns (grok4Family, flux1Family).
 func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFamily) {
 	t.Helper()
 
 	// Family: grok-4 (chat)
 	grok4 := &store.ModelFamily{
-		Model:       "grok-4",
-		DisplayName: "Grok 4",
-		Type:        "chat",
-		Enabled:     true,
-		PoolFloor:   "basic",
+		Model:         "grok-4",
+		DisplayName:   "Grok 4",
+		Type:          "chat",
+		Enabled:       true,
+		PoolFloor:     "basic",
+		UpstreamModel: "grok-3",
 	}
 	if err := db.Create(grok4).Error; err != nil {
 		t.Fatalf("create grok-4 family: %v", err)
@@ -54,11 +56,10 @@ func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFa
 
 	// Modes for grok-4
 	defaultMode := &store.ModelMode{
-		ModelID:       grok4.ID,
-		Mode:          "default",
-		Enabled:       true,
-		UpstreamModel: "grok-3",
-		UpstreamMode:  "MODEL_MODE_DEFAULT",
+		ModelID:      grok4.ID,
+		Mode:         "default",
+		Enabled:      true,
+		UpstreamMode: "MODEL_MODE_DEFAULT",
 	}
 	if err := db.Create(defaultMode).Error; err != nil {
 		t.Fatalf("create default mode: %v", err)
@@ -70,7 +71,6 @@ func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFa
 		Mode:              "heavy",
 		Enabled:           true,
 		PoolFloorOverride: &heavyFloor,
-		UpstreamModel:     "grok-3",
 		UpstreamMode:      "heavy",
 	}
 	if err := db.Create(heavyMode).Error; err != nil {
@@ -83,11 +83,11 @@ func seedTestData(t *testing.T, db *gorm.DB) (*store.ModelFamily, *store.ModelFa
 		t.Fatalf("set default mode: %v", err)
 	}
 
-	// Family: flux-1 (image)
+	// Family: flux-1 (image_ws)
 	flux1 := &store.ModelFamily{
 		Model:       "flux-1",
 		DisplayName: "Flux 1",
-		Type:        "image",
+		Type:        "image_ws",
 		Enabled:     true,
 		PoolFloor:   "basic",
 	}
@@ -203,16 +203,22 @@ func TestRegistry_RefreshFailsWhenImageModeDefinesUpstream(t *testing.T) {
 	db := setupTestDB(t)
 	_, flux1 := seedTestData(t, db)
 
+	// Set upstream on the image family (should fail validation)
+	if err := db.Model(&store.ModelFamily{}).
+		Where("id = ?", flux1.ID).
+		Update("upstream_model", "grok-3").Error; err != nil {
+		t.Fatalf("update image family upstream: %v", err)
+	}
 	if err := db.Model(&store.ModelMode{}).
 		Where("model_id = ?", flux1.ID).
-		Updates(map[string]any{"upstream_model": "grok-3", "upstream_mode": "MODEL_MODE_FAST"}).Error; err != nil {
+		Update("upstream_mode", "MODEL_MODE_FAST").Error; err != nil {
 		t.Fatalf("update image mode upstream: %v", err)
 	}
 
 	ms := store.NewModelStore(db)
 	reg := NewModelRegistry(ms)
 	err := reg.Refresh(context.Background())
-	if err == nil || err.Error() != "mode standard for family flux-1 must not define upstream mapping" {
+	if err == nil || !strings.Contains(err.Error(), "must not define upstream") {
 		t.Fatalf("expected image upstream rejection, got %v", err)
 	}
 }
@@ -221,20 +227,20 @@ func TestRegistry_RefreshFailsWhenFamilyHasModesWithoutDefault(t *testing.T) {
 	db := setupTestDB(t)
 
 	family := &store.ModelFamily{
-		Model:     "broken-family",
-		Type:      "chat",
-		Enabled:   true,
-		PoolFloor: "basic",
+		Model:         "broken-family",
+		Type:          "chat",
+		Enabled:       true,
+		PoolFloor:     "basic",
+		UpstreamModel: "grok-3",
 	}
 	if err := db.Create(family).Error; err != nil {
 		t.Fatalf("create family: %v", err)
 	}
 	mode := &store.ModelMode{
-		ModelID:       family.ID,
-		Mode:          "default",
-		Enabled:       true,
-		UpstreamModel: "grok-3",
-		UpstreamMode:  "MODEL_MODE_DEFAULT",
+		ModelID:      family.ID,
+		Mode:         "default",
+		Enabled:      true,
+		UpstreamMode: "MODEL_MODE_DEFAULT",
 	}
 	if err := db.Create(mode).Error; err != nil {
 		t.Fatalf("create mode: %v", err)
@@ -263,9 +269,9 @@ func TestRegistry_EnabledByType(t *testing.T) {
 		t.Errorf("EnabledByType('chat') returned %d models, want 2", len(chatModels))
 	}
 
-	imageModels := reg.EnabledByType("image")
+	imageModels := reg.EnabledByType("image_ws")
 	if len(imageModels) != 1 {
-		t.Errorf("EnabledByType('image') returned %d models, want 1", len(imageModels))
+		t.Errorf("EnabledByType('image_ws') returned %d models, want 1", len(imageModels))
 	}
 }
 
@@ -293,20 +299,20 @@ func TestRegistry_DisabledExcluded(t *testing.T) {
 
 	// Create family first, then disable it to confirm disabled families are excluded.
 	disabledFamily := &store.ModelFamily{
-		Model:     "disabled-model",
-		Type:      "chat",
-		Enabled:   true,
-		PoolFloor: "basic",
+		Model:         "disabled-model",
+		Type:          "chat",
+		Enabled:       true,
+		PoolFloor:     "basic",
+		UpstreamModel: "disabled-model",
 	}
 	if err := db.Create(disabledFamily).Error; err != nil {
 		t.Fatalf("create family: %v", err)
 	}
 	disabledMode := &store.ModelMode{
-		ModelID:       disabledFamily.ID,
-		Mode:          "default",
-		Enabled:       true,
-		UpstreamModel: "disabled-model",
-		UpstreamMode:  "MODEL_MODE_DEFAULT",
+		ModelID:      disabledFamily.ID,
+		Mode:         "default",
+		Enabled:      true,
+		UpstreamMode: "MODEL_MODE_DEFAULT",
 	}
 	if err := db.Create(disabledMode).Error; err != nil {
 		t.Fatalf("create mode: %v", err)
@@ -336,21 +342,21 @@ func TestRegistry_DisabledModeExcluded(t *testing.T) {
 	db := setupTestDB(t)
 
 	family := &store.ModelFamily{
-		Model:     "grok-5",
-		Type:      "chat",
-		Enabled:   true,
-		PoolFloor: "basic",
+		Model:         "grok-5",
+		Type:          "chat",
+		Enabled:       true,
+		PoolFloor:     "basic",
+		UpstreamModel: "grok-5",
 	}
 	if err := db.Create(family).Error; err != nil {
 		t.Fatalf("create family: %v", err)
 	}
 
 	enabledMode := &store.ModelMode{
-		ModelID:       family.ID,
-		Mode:          "fast",
-		Enabled:       true,
-		UpstreamModel: "grok-5",
-		UpstreamMode:  "fast",
+		ModelID:      family.ID,
+		Mode:         "fast",
+		Enabled:      true,
+		UpstreamMode: "fast",
 	}
 	if err := db.Create(enabledMode).Error; err != nil {
 		t.Fatalf("create enabled mode: %v", err)
@@ -361,11 +367,10 @@ func TestRegistry_DisabledModeExcluded(t *testing.T) {
 	}
 
 	disabledMode := &store.ModelMode{
-		ModelID:       family.ID,
-		Mode:          "slow",
-		Enabled:       true,
-		UpstreamModel: "grok-5",
-		UpstreamMode:  "slow",
+		ModelID:      family.ID,
+		Mode:         "slow",
+		Enabled:      true,
+		UpstreamMode: "slow",
 	}
 	if err := db.Create(disabledMode).Error; err != nil {
 		t.Fatalf("create disabled mode: %v", err)
@@ -427,8 +432,8 @@ func TestRegistry_EffectiveFloor(t *testing.T) {
 func TestRegistry_CommitAndApply_DoesNotSwapOnCommitError(t *testing.T) {
 	reg := NewTestRegistry([]TestFamilyWithModes{
 		{
-			Family: store.ModelFamily{ID: 1, Model: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", DefaultModeID: ptrUint(1)},
-			Modes:  []store.ModelMode{{ID: 1, ModelID: 1, Mode: "default", Enabled: true, UpstreamModel: "grok-4", UpstreamMode: "MODEL_MODE_DEFAULT"}},
+			Family: store.ModelFamily{ID: 1, Model: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", UpstreamModel: "grok-4", DefaultModeID: ptrUint(1)},
+			Modes:  []store.ModelMode{{ID: 1, ModelID: 1, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_DEFAULT"}},
 		},
 	})
 
@@ -436,8 +441,8 @@ func TestRegistry_CommitAndApply_DoesNotSwapOnCommitError(t *testing.T) {
 		byRequestName: map[string]*ResolvedModel{
 			"grok-5": {
 				RequestName:    "grok-5",
-				Family:         &store.ModelFamily{ID: 2, Model: "grok-5", Type: "chat", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(2)},
-				Mode:           &store.ModelMode{ID: 2, ModelID: 2, Mode: "default", Enabled: true, UpstreamModel: "grok-5", UpstreamMode: "MODEL_MODE_DEFAULT"},
+				Family:         &store.ModelFamily{ID: 2, Model: "grok-5", Type: "chat", Enabled: true, PoolFloor: "super", UpstreamModel: "grok-5", DefaultModeID: ptrUint(2)},
+				Mode:           &store.ModelMode{ID: 2, ModelID: 2, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_DEFAULT"},
 				EffectiveFloor: "super",
 				UpstreamModel:  "grok-5",
 				UpstreamMode:   "MODEL_MODE_DEFAULT",
@@ -475,11 +480,10 @@ func TestRegistry_RefreshUpdate(t *testing.T) {
 
 	// Add a new mode to grok-4
 	newMode := &store.ModelMode{
-		ModelID:       1, // grok-4's ID
-		Mode:          "turbo",
-		Enabled:       true,
-		UpstreamModel: "grok-3",
-		UpstreamMode:  "turbo",
+		ModelID:      1, // grok-4's ID
+		Mode:         "turbo",
+		Enabled:      true,
+		UpstreamMode: "turbo",
 	}
 	if err := db.Create(newMode).Error; err != nil {
 		t.Fatalf("create turbo mode: %v", err)

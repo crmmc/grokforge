@@ -75,7 +75,11 @@ func (h *Handler) handleMediaRoutes(w http.ResponseWriter, r *http.Request, req 
 		return true
 	}
 	if h.isImageModel(req.Model) {
-		h.handleChatImageGeneration(w, r, req)
+		h.handleChatImage(w, r, req)
+		return true
+	}
+	if h.isImageWSModel(req.Model) {
+		h.handleChatImageWSGeneration(w, r, req)
 		return true
 	}
 	if h.isVideoModel(req.Model) {
@@ -148,6 +152,7 @@ func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 		if rm, ok := h.ModelRegistry.Resolve(req.Model); ok {
 			flowReq.UpstreamModel = rm.UpstreamModel
 			flowReq.UpstreamMode = rm.UpstreamMode
+			flowReq.ForceThinking = rm.ForceThinking
 		}
 	}
 
