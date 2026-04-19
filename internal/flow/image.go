@@ -16,7 +16,7 @@ var imageGenerationTimeout = 120 * time.Second
 
 // ImagineGenerator defines the interface for image generation.
 type ImagineGenerator interface {
-	Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error)
+	Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error)
 }
 
 // ImageRequest represents an OpenAI-compatible image generation request.
@@ -125,6 +125,7 @@ type ImageFlow struct {
 	appConfigFn       func() *config.AppConfig
 	imageConfigFn     func() *config.ImageConfig
 	modelResolver     tkn.ModelResolver
+	enableProFn       func(model string) bool
 }
 
 // NewImageFlow creates a new image flow with per-request token selection.
@@ -170,6 +171,11 @@ func (f *ImageFlow) SetImageConfigProvider(fn func() *config.ImageConfig) {
 	f.imageConfigFn = fn
 }
 
+// SetEnableProResolver sets a function that resolves whether pro mode is enabled for a model.
+func (f *ImageFlow) SetEnableProResolver(fn func(model string) bool) {
+	f.enableProFn = fn
+}
+
 // Generate generates images based on the request.
 func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResponse, error) {
 	if err := req.Validate(); err != nil {
@@ -192,9 +198,10 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 	// Generate N images (consume quota per image, only after success)
 	images := make([]ImageData, 0, req.N)
 	enableNSFW := resolveEnableNSFW(req.EnableNSFW, f.imageConfig())
+	enablePro := f.resolveEnablePro(req.Model)
 	usedTokenIDs := make(map[uint]struct{})
 	for i := 0; i < req.N; i++ {
-		result, err := f.generateWithRecovery(ctx, req.Model, tok, req.Prompt, aspectRatio, enableNSFW)
+		result, err := f.generateWithRecovery(ctx, req.Model, tok, req.Prompt, aspectRatio, enableNSFW, enablePro)
 		if err != nil {
 			if !isTransportError(err) {
 				f.tokenSvc.ReportError(tok.ID, err.Error())
@@ -279,4 +286,11 @@ func (f *ImageFlow) imageConfig() *config.ImageConfig {
 		return nil
 	}
 	return f.imageConfigFn()
+}
+
+func (f *ImageFlow) resolveEnablePro(model string) bool {
+	if f.enableProFn == nil {
+		return false
+	}
+	return f.enableProFn(model)
 }

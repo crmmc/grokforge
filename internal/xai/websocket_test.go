@@ -36,7 +36,14 @@ func TestImagineClient_Generate_Success(t *testing.T) {
 	finalImageData := "base64-image-data-here"
 
 	server := mockWSServer(t, func(conn *websocket.Conn) {
-		// Read the request message
+		// Read the reset message first
+		_, resetMsg, err := conn.ReadMessage()
+		require.NoError(t, err)
+		var resetPayload map[string]any
+		require.NoError(t, json.Unmarshal(resetMsg, &resetPayload))
+		assert.Equal(t, "conversation.item.create", resetPayload["type"])
+
+		// Read the actual request message
 		_, msg, err := conn.ReadMessage()
 		require.NoError(t, err)
 
@@ -94,7 +101,7 @@ func TestImagineClient_Generate_Success(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	eventCh, err := client.Generate(ctx, "a cat", "1:1", false)
+	eventCh, err := client.Generate(ctx, "a cat", "1:1", false, false)
 	require.NoError(t, err)
 
 	var events []ImageEvent
@@ -119,8 +126,11 @@ func TestImagineClient_Generate_Success(t *testing.T) {
 
 func TestImagineClient_Generate_Blocked(t *testing.T) {
 	server := mockWSServer(t, func(conn *websocket.Conn) {
-		// Read request
+		// Read reset message
 		_, _, err := conn.ReadMessage()
+		require.NoError(t, err)
+		// Read request
+		_, _, err = conn.ReadMessage()
 		require.NoError(t, err)
 
 		// Send medium but no final (simulates blocked content)
@@ -149,7 +159,7 @@ func TestImagineClient_Generate_Blocked(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	eventCh, err := client.Generate(ctx, "blocked content", "1:1", false)
+	eventCh, err := client.Generate(ctx, "blocked content", "1:1", false, false)
 	require.NoError(t, err)
 
 	var blockedEvent *ImageEvent
@@ -165,7 +175,8 @@ func TestImagineClient_Generate_Blocked(t *testing.T) {
 
 func TestImagineClient_Generate_ContextCancel(t *testing.T) {
 	server := mockWSServer(t, func(conn *websocket.Conn) {
-		// Read request
+		// Read reset + request
+		_, _, _ = conn.ReadMessage()
 		_, _, _ = conn.ReadMessage()
 		// Just wait - client will cancel
 		time.Sleep(5 * time.Second)
@@ -182,7 +193,7 @@ func TestImagineClient_Generate_ContextCancel(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 
-	eventCh, err := client.Generate(ctx, "test", "1:1", false)
+	eventCh, err := client.Generate(ctx, "test", "1:1", false, false)
 	require.NoError(t, err)
 
 	// Drain channel - should close when context cancels
@@ -203,7 +214,10 @@ func TestImagineClient_Generate_LegacyImagePayload(t *testing.T) {
 	finalBlob := strings.Repeat("f", legacyFinalMinBytes+1)
 
 	server := mockWSServer(t, func(conn *websocket.Conn) {
+		// Read reset + request
 		_, _, err := conn.ReadMessage()
+		require.NoError(t, err)
+		_, _, err = conn.ReadMessage()
 		require.NoError(t, err)
 
 		conn.WriteJSON(map[string]any{
@@ -233,7 +247,7 @@ func TestImagineClient_Generate_LegacyImagePayload(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	eventCh, err := client.Generate(ctx, "legacy payload", "1:1", false)
+	eventCh, err := client.Generate(ctx, "legacy payload", "1:1", false, false)
 	require.NoError(t, err)
 
 	hasFinal := false
@@ -250,7 +264,10 @@ func TestImagineClient_Generate_CloseAfterFinalShouldSucceed(t *testing.T) {
 	finalBlob := strings.Repeat("f", legacyFinalMinBytes+1)
 
 	server := mockWSServer(t, func(conn *websocket.Conn) {
+		// Read reset + request
 		_, _, err := conn.ReadMessage()
+		require.NoError(t, err)
+		_, _, err = conn.ReadMessage()
 		require.NoError(t, err)
 
 		conn.WriteJSON(map[string]any{
@@ -271,7 +288,7 @@ func TestImagineClient_Generate_CloseAfterFinalShouldSucceed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	eventCh, err := client.Generate(ctx, "close after final", "1:1", false)
+	eventCh, err := client.Generate(ctx, "close after final", "1:1", false, false)
 	require.NoError(t, err)
 
 	var (

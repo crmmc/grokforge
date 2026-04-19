@@ -6,13 +6,58 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
 )
+
+// revokedSessions tracks invalidated session values.
+// Key: session cookie value, Value: time.Time (session expiry).
+var revokedSessions sync.Map
+
+func init() {
+	go cleanupRevokedSessions()
+}
+
+func cleanupRevokedSessions() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		revokedSessions.Range(func(key, value any) bool {
+			if expiry, ok := value.(time.Time); ok && now.After(expiry) {
+				revokedSessions.Delete(key)
+			}
+			return true
+		})
+	}
+}
+
+// revokeSession adds a session value to the revocation set.
+// The entry auto-expires when the session's TTL would have expired.
+func revokeSession(value string) {
+	parts := strings.Split(value, ".")
+	if len(parts) != 2 {
+		return
+	}
+	issuedAt, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return
+	}
+	expiry := time.Unix(issuedAt, 0).UTC().Add(adminSessionTTL)
+	revokedSessions.Store(value, expiry)
+	slog.Debug("admin session revoked", "expires", expiry)
+}
+
+func isSessionRevoked(value string) bool {
+	_, ok := revokedSessions.Load(value)
+	return ok
+}
 
 const adminCookieName = "gf_session"
 const adminCookieMaxAge = 30 * 24 * 60 * 60 // 30 days
@@ -47,7 +92,14 @@ func verifyAdminSession(appKey, value string) bool {
 		return false
 	}
 	expected := signAdminSession(appKey, issuedAtTime)
-	return subtle.ConstantTimeCompare([]byte(value), []byte(expected)) == 1
+	if subtle.ConstantTimeCompare([]byte(value), []byte(expected)) != 1 {
+		return false
+	}
+	// Check server-side revocation
+	if isSessionRevoked(value) {
+		return false
+	}
+	return true
 }
 
 // setAdminCookie writes the httpOnly session cookie.
@@ -108,9 +160,12 @@ func handleAdminLoginRuntime(runtime *config.Runtime) http.HandlerFunc {
 }
 
 // handleAdminLogout returns a handler for POST /admin/logout.
-// Clears the session cookie by setting MaxAge=-1.
+// Revokes the current session server-side, then clears the cookie.
 func handleAdminLogout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if c, err := r.Cookie(adminCookieName); err == nil && c.Value != "" {
+			revokeSession(c.Value)
+		}
 		setAdminCookie(w, r, "", -1)
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}

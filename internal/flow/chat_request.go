@@ -91,7 +91,12 @@ func (f *ChatFlow) buildXAIRequest(ctx context.Context, req *ChatRequest, client
 		xaiReq.DisableMemory = appCfg.DisableMemory
 	}
 
-	xaiReq.ReasoningEffort = req.ReasoningEffort
+	// Apply force_thinking: set reasoning_effort=high unless user explicitly provided one
+	if req.ForceThinking && req.ReasoningEffort == "" {
+		xaiReq.ReasoningEffort = "high"
+	} else {
+		xaiReq.ReasoningEffort = req.ReasoningEffort
+	}
 
 	return xaiReq, nil
 }

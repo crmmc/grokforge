@@ -31,7 +31,7 @@ type mockImagineClient struct {
 	nsfwCalls  []bool
 }
 
-func (m *mockImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+func (m *mockImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
 	m.mu.Lock()
 	m.nsfwCalls = append(m.nsfwCalls, enableNSFW)
 	events := m.events
@@ -58,17 +58,17 @@ func (m *mockImagineClient) Edit(
 	prompt, aspectRatio, originalImageB64 string,
 	enableNSFW bool,
 ) (<-chan xai.ImageEvent, error) {
-	return m.Generate(ctx, prompt, aspectRatio, enableNSFW)
+	return m.Generate(ctx, prompt, aspectRatio, enableNSFW, false)
 }
 
-type imagineGeneratorFunc func(context.Context, string, string, bool) (<-chan xai.ImageEvent, error)
+type imagineGeneratorFunc func(context.Context, string, string, bool, bool) (<-chan xai.ImageEvent, error)
 
 func (fn imagineGeneratorFunc) Generate(
 	ctx context.Context,
 	prompt, aspectRatio string,
-	enableNSFW bool,
+	enableNSFW, enablePro bool,
 ) (<-chan xai.ImageEvent, error) {
-	return fn(ctx, prompt, aspectRatio, enableNSFW)
+	return fn(ctx, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 func (fn imagineGeneratorFunc) Edit(
@@ -76,7 +76,7 @@ func (fn imagineGeneratorFunc) Edit(
 	prompt, aspectRatio, originalImageB64 string,
 	enableNSFW bool,
 ) (<-chan xai.ImageEvent, error) {
-	return fn(ctx, prompt, aspectRatio, enableNSFW)
+	return fn(ctx, prompt, aspectRatio, enableNSFW, false)
 }
 
 // newTestImageFlow creates an ImageFlow with a mock token service for testing.
@@ -226,7 +226,7 @@ func TestImageFlow_Generate_BlockedRecoverySuccess(t *testing.T) {
 	var mu sync.Mutex
 	usedTokens := make([]string, 0, 2)
 	flow := NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
-		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
 			mu.Lock()
 			usedTokens = append(usedTokens, token)
 			mu.Unlock()
@@ -370,9 +370,9 @@ type capturingImagineClient struct {
 	capturedRatio *string
 }
 
-func (c *capturingImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+func (c *capturingImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
 	*c.capturedRatio = aspectRatio
-	return c.inner.Generate(ctx, prompt, aspectRatio, enableNSFW)
+	return c.inner.Generate(ctx, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 func (c *capturingImagineClient) Edit(
@@ -518,7 +518,7 @@ func TestImageFlow_Edit_Success(t *testing.T) {
 	assert.Equal(t, "MODEL_MODE_FAST", editor.chatRequests[0].UpstreamMode)
 	modelMap, ok := editor.chatRequests[0].ModelConfig["modelMap"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "imagine-image-edit", modelMap["imageEditModel"])
+	assert.Equal(t, "imagine", modelMap["imageEditModel"])
 }
 
 func TestImageFlow_Edit_Blocked(t *testing.T) {
@@ -717,7 +717,7 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 		},
 	}
 	flow := NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
-		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
 			events := []xai.ImageEvent{{Type: xai.ImageEventFinal, ImageData: "recovered", RequestID: "req-2"}}
 			if token == "tok-1" {
 				events = []xai.ImageEvent{{Type: xai.ImageEventBlocked, RequestID: "req-1"}}
@@ -763,7 +763,7 @@ func TestImageFlow_Generate_Timeout(t *testing.T) {
 		imageGenerationTimeout = originalTimeout
 	}()
 
-	flow := newTestImageFlow(imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan xai.ImageEvent, error) {
+	flow := newTestImageFlow(imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
 		<-ctx.Done()
 		return nil, ctx.Err()
 	}))

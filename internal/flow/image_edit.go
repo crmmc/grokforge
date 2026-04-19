@@ -20,6 +20,7 @@ import (
 const (
 	imageEditReferenceLimit = 3
 	imageEditBatchSize      = 2
+	imageEditModelKind      = "imagine"
 )
 
 var (
@@ -166,12 +167,13 @@ func (f *ImageFlow) buildImageEditChatRequest(
 		}},
 		Model:         req.Model,
 		Stream:        true,
+		IsImageEdit:   true,
 		ToolOverrides: map[string]any{"imageGen": true},
 		UpstreamModel: req.UpstreamModel,
 		UpstreamMode:  req.UpstreamMode,
 		ModelConfig: map[string]any{
 			"modelMap": map[string]any{
-				"imageEditModel":       req.UpstreamModel,
+				"imageEditModel":       imageEditModelKind,
 				"imageEditModelConfig": imageEditConfig,
 			},
 		},

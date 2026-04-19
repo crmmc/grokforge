@@ -36,9 +36,9 @@ func (f *ImageFlow) generateWithRecovery(
 	model string,
 	token *store.Token,
 	prompt, aspectRatio string,
-	enableNSFW bool,
+	enableNSFW, enablePro bool,
 ) (*imageGenerationResult, error) {
-	data, err := f.generateSingle(ctx, f.clientFactory(token.Token), prompt, aspectRatio, enableNSFW)
+	data, err := f.generateSingle(ctx, f.clientFactory(token.Token), prompt, aspectRatio, enableNSFW, enablePro)
 	if !errors.Is(err, errImageGenerationBlocked) {
 		if err != nil {
 			return nil, err
@@ -48,19 +48,19 @@ func (f *ImageFlow) generateWithRecovery(
 	if !blockedParallelEnabled(f.imageConfig()) {
 		return nil, err
 	}
-	return f.generateBlockedRecovery(ctx, model, token.ID, prompt, aspectRatio, enableNSFW)
+	return f.generateBlockedRecovery(ctx, model, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 func (f *ImageFlow) generateSingle(
 	ctx context.Context,
 	client ImagineGenerator,
 	prompt, aspectRatio string,
-	enableNSFW bool,
+	enableNSFW, enablePro bool,
 ) (*ImageData, error) {
 	if client == nil {
 		return nil, errors.New("image client is nil")
 	}
-	eventCh, err := client.Generate(ctx, prompt, aspectRatio, enableNSFW)
+	eventCh, err := client.Generate(ctx, prompt, aspectRatio, enableNSFW, enablePro)
 	if err != nil {
 		return nil, fmt.Errorf("start generation: %w", err)
 	}
@@ -91,7 +91,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 	model string,
 	initialTokenID uint,
 	prompt, aspectRatio string,
-	enableNSFW bool,
+	enableNSFW, enablePro bool,
 ) (*imageGenerationResult, error) {
 	attempts := blockedParallelAttempts(f.imageConfig())
 	if attempts == 0 {
@@ -119,6 +119,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 				prompt,
 				aspectRatio,
 				enableNSFW,
+				enablePro,
 			)
 			if result.err == nil {
 				// Consume quota only on success

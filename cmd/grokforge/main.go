@@ -247,6 +247,13 @@ func main() {
 		return &runtimeCfg.Get().Image
 	})
 	imageFlow.SetModelResolver(reg)
+	imageFlow.SetEnableProResolver(func(model string) bool {
+		rm, ok := reg.Resolve(model)
+		if !ok {
+			return false
+		}
+		return rm.EnablePro
+	})
 	imageFlow.SetUsageRecorder(usageBuffer)
 	logging.Info("image flow ready")
 

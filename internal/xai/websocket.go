@@ -126,13 +126,14 @@ type ImagineRequestContent struct {
 
 // ImagineRequestProperties contains generation parameters.
 type ImagineRequestProperties struct {
-	SectionCount  int    `json:"section_count"`
-	IsKidsMode    bool   `json:"is_kids_mode"`
-	EnableNSFW    bool   `json:"enable_nsfw"`
-	SkipUpsampler bool   `json:"skip_upsampler"`
-	IsInitial     bool   `json:"is_initial"`
-	AspectRatio   string `json:"aspect_ratio"`
-	OriginalImage string `json:"original_image,omitempty"`
+	SectionCount    int    `json:"section_count"`
+	IsKidsMode      bool   `json:"is_kids_mode"`
+	EnableNSFW      bool   `json:"enable_nsfw"`
+	SkipUpsampler   bool   `json:"skip_upsampler"`
+	IsInitial       bool   `json:"is_initial"`
+	AspectRatio     string `json:"aspect_ratio"`
+	EnableSideBySide bool  `json:"enable_side_by_side"`
+	EnablePro       bool   `json:"enable_pro"`
 }
 
 // ImagineResponse is the WebSocket response message.
@@ -149,17 +150,17 @@ type ImagineResponseItem struct {
 }
 
 // Generate starts image generation and returns a channel of events.
-func (c *ImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW bool) (<-chan ImageEvent, error) {
-	return c.doGenerate(ctx, prompt, aspectRatio, "", enableNSFW)
+func (c *ImagineClient) Generate(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan ImageEvent, error) {
+	return c.doGenerate(ctx, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 // doGenerate is the internal implementation for Generate.
 func (c *ImagineClient) doGenerate(
 	ctx context.Context,
 	prompt,
-	aspectRatio,
-	originalImageB64 string,
-	enableNSFW bool,
+	aspectRatio string,
+	enableNSFW,
+	enablePro bool,
 ) (<-chan ImageEvent, error) {
 	headers := c.buildWSHeaders()
 
@@ -178,7 +179,7 @@ func (c *ImagineClient) doGenerate(
 	requestID := uuid.New().String()
 
 	safeGo("xai_stream_images", func() {
-		c.streamImages(ctx, conn, requestID, prompt, aspectRatio, originalImageB64, enableNSFW, eventCh)
+		c.streamImages(ctx, conn, requestID, prompt, aspectRatio, enableNSFW, enablePro, eventCh)
 	})
 
 	return eventCh, nil

@@ -151,18 +151,10 @@ export function RequestLog() {
                       <TableCell className="text-right text-sm">{entry.ttft_ms}</TableCell>
                       <TableCell className="text-right text-sm">{entry.duration_ms}</TableCell>
                       <TableCell className="text-right text-sm">
-                        {entry.estimated ? (
-                          <span className="text-amber-600" title={t.usage.estimatedTooltip}>~{formatNumber(entry.tokens_input)}</span>
-                        ) : (
-                          formatNumber(entry.tokens_input)
-                        )}
+                        <span className="text-muted-foreground" title={t.usage.estimatedTooltip}>~{formatNumber(entry.tokens_input)}</span>
                       </TableCell>
                       <TableCell className="text-right text-sm">
-                        {entry.estimated ? (
-                          <span className="text-amber-600" title={t.usage.estimatedTooltip}>~{formatNumber(entry.tokens_output)}</span>
-                        ) : (
-                          formatNumber(entry.tokens_output)
-                        )}
+                        <span className="text-muted-foreground" title={t.usage.estimatedTooltip}>~{formatNumber(entry.tokens_output)}</span>
                       </TableCell>
                       <TableCell className="text-right text-sm">{formatNumber(entry.cache_tokens)}</TableCell>
                       <TableCell>

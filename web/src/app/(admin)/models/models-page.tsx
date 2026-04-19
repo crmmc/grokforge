@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   useModelFamilies,
   useDeleteFamily,
@@ -11,6 +11,8 @@ import type {
   FamilyWithModes,
   ModelMode,
 } from "@/lib/hooks/use-model-families";
+import { modelFamilyKeys } from "@/lib/hooks/use-model-families";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Button,
   Skeleton,
@@ -44,8 +46,16 @@ function ModelsPageInner() {
   const deleteFamily = useDeleteFamily();
   const deleteMode = useDeleteMode();
   const updateMode = useUpdateMode();
+  const queryClient = useQueryClient();
 
   const [selectedId, setSelectedId] = useState<number | null>(null);
+
+  // Auto-select first family when loaded
+  useEffect(() => {
+    if (families && families.length > 0 && selectedId === null) {
+      setSelectedId(families[0].id);
+    }
+  }, [families, selectedId]);
   const [familyDialog, setFamilyDialog] = useState<{
     open: boolean;
     family?: FamilyWithModes;
@@ -103,11 +113,11 @@ function ModelsPageInner() {
           mode: m.mode,
           enabled: !m.enabled,
           pool_floor_override: m.pool_floor_override,
-          upstream_model: m.upstream_model,
           upstream_mode: m.upstream_mode,
-          quota_override: m.quota_override,
+          force_thinking: m.force_thinking,
         },
       });
+      await queryClient.refetchQueries({ queryKey: modelFamilyKeys.lists() });
       toast({ title: t.common.success, description: t.models.updateSuccess });
     } catch (error) {
       showMutationError(error);
@@ -244,7 +254,14 @@ function ModelsPageInner() {
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">{selected.model}</h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-lg font-semibold">{selected.model}</h2>
+                    {selected.upstream_model && (
+                      <Badge variant="outline" className="text-[11px]">
+                        {t.models.upstreamModel}: {selected.upstream_model}
+                      </Badge>
+                    )}
+                  </div>
                   <Button
                     size="sm"
                     onClick={() =>
@@ -271,30 +288,44 @@ function ModelsPageInner() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Mode</TableHead>
-                          <TableHead>Upstream Model</TableHead>
-                          <TableHead>Upstream Mode</TableHead>
-                          <TableHead>Pool Floor</TableHead>
-                          <TableHead>Enabled</TableHead>
-                          <TableHead className="w-[80px]">Actions</TableHead>
+                          <TableHead>{t.models.subSuffix}</TableHead>
+                          <TableHead>{t.models.upstreamMode}</TableHead>
+                          <TableHead>{t.models.poolFloorOverride}</TableHead>
+                          <TableHead>{t.models.forceThinking}</TableHead>
+                          <TableHead>{t.common.enabled}</TableHead>
+                          <TableHead className="w-[80px]">{t.models.actions}</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {selected.modes.map((m) => (
+                        {selected.modes.map((m) => {
+                          const isDefault = m.id === selected.default_mode_id;
+                          return (
                           <TableRow
                             key={m.id}
                             className={!m.enabled ? "opacity-60" : ""}
                           >
                             <TableCell className="font-medium">
                               {m.mode}
+                              {isDefault && (
+                                <Badge variant="outline" className="ml-2 text-[10px]">
+                                  {t.models.defaultMode}
+                                </Badge>
+                              )}
                             </TableCell>
-                            <TableCell>{m.upstream_model || "-"}</TableCell>
                             <TableCell>{m.upstream_mode || "-"}</TableCell>
                             <TableCell>{m.pool_floor_override || "—"}</TableCell>
+                            <TableCell>
+                              {m.force_thinking ? (
+                                <Badge variant="default" className="text-[10px]">ON</Badge>
+                              ) : (
+                                <span className="text-muted">—</span>
+                              )}
+                            </TableCell>
                             <TableCell>
                               <Switch
                                 checked={m.enabled}
                                 onCheckedChange={() => handleToggleMode(m)}
+                                disabled={isDefault}
                               />
                             </TableCell>
                             <TableCell>
@@ -314,6 +345,7 @@ function ModelsPageInner() {
                                 >
                                   <Pencil className="h-3.5 w-3.5 text-muted" />
                                 </button>
+                                {!isDefault && (
                                 <button
                                   type="button"
                                   aria-label={`${t.models.deleteMode} ${m.mode}`}
@@ -322,10 +354,12 @@ function ModelsPageInner() {
                                 >
                                   <Trash2 className="h-3.5 w-3.5 text-destructive" />
                                 </button>
+                                )}
                               </div>
                             </TableCell>
                           </TableRow>
-                        ))}
+                          );
+                        })}
                       </TableBody>
                     </Table>
                   </div>

@@ -8,10 +8,8 @@ import (
 )
 
 func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
-	var lastUsage *Usage
 	var outputChars int
 	var ttft time.Duration
-	estimated := false
 	streamStart := time.Now()
 	gotFirstToken := false
 	filterTags := f.filterTags()
@@ -24,19 +22,15 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 		case event, ok := <-eventCh:
 			if !ok {
 				// Channel closed normally = success. Send finish event.
-				// Build estimated usage if upstream didn't provide real counts.
-				if lastUsage == nil {
-					lastUsage = &Usage{}
-				}
-				if lastUsage.CompletionTokens == 0 && outputChars > 0 {
-					lastUsage.CompletionTokens = estimateTokens(outputChars)
-					lastUsage.TotalTokens = lastUsage.PromptTokens + lastUsage.CompletionTokens
-					estimated = true
-				}
+				// Upstream does not provide real token counts — always estimate.
 				outputChars += flushStreamParsers(outCh, dl, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
+				usage := &Usage{
+					CompletionTokens: estimateTokens(outputChars),
+				}
+				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 				stop := "stop"
-				outCh <- StreamEvent{FinishReason: &stop, Usage: lastUsage}
-				return true, lastUsage, estimated, ttft, nil
+				outCh <- StreamEvent{FinishReason: &stop, Usage: usage}
+				return true, usage, true, ttft, nil
 			}
 			if event.Error != nil {
 				return false, nil, false, 0, event.Error
@@ -49,9 +43,6 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 			flowEvent = tokenFilter.Apply(flowEvent)
 			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
 			flowEvent.Downloader = dl
-			if flowEvent.Usage != nil {
-				lastUsage = flowEvent.Usage
-			}
 			outputChars += emitStreamEvent(outCh, dl, streamStart, &ttft, &gotFirstToken, flowEvent)
 		}
 	}

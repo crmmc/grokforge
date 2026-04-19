@@ -24,9 +24,8 @@ const (
 var videoGeneratedIDPattern = regexp.MustCompile(`/generated/([0-9a-fA-F-]{32,36})/`)
 
 type videoStreamState struct {
-	postID      string
-	videoURL    string
-	streamError []string
+	videoURL  string
+	moderated bool
 }
 
 func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, req *VideoRequest) (string, error) {
@@ -49,8 +48,11 @@ func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, 
 	if err != nil {
 		return "", err
 	}
+	if result.moderated {
+		return "", errors.New("video generation moderated by upstream")
+	}
 	if strings.TrimSpace(result.videoURL) == "" {
-		return "", fmt.Errorf("video generation missing final url: %s", strings.Join(result.streamError, "; "))
+		return "", errors.New("video generation missing final url")
 	}
 
 	videoURL := result.videoURL
@@ -142,39 +144,14 @@ func updateVideoStreamState(state *videoStreamState, data json.RawMessage) error
 		return nil
 	}
 
-	appendVideoStreamErrors(&state.streamError, response["streamErrors"])
-	if modelResponse, ok := response["modelResponse"].(map[string]any); ok {
-		appendVideoStreamErrors(&state.streamError, modelResponse["streamErrors"])
-		if state.postID == "" {
-			if fileAttachments, ok := modelResponse["fileAttachments"].([]any); ok && len(fileAttachments) > 0 {
-				if first, ok := fileAttachments[0].(string); ok {
-					state.postID = strings.TrimSpace(first)
-				}
-			}
-		}
+	// Check moderated flag (grok2api: moderated → treat as failure)
+	if moderated, ok := response["moderated"].(bool); ok && moderated {
+		state.moderated = true
 	}
 
 	if videoResponse, ok := response["streamingVideoGenerationResponse"].(map[string]any); ok {
 		if url, ok := videoResponse["videoUrl"].(string); ok && strings.TrimSpace(url) != "" {
 			state.videoURL = strings.TrimSpace(url)
-		}
-		if state.postID == "" {
-			if postID, ok := videoResponse["videoPostId"].(string); ok && strings.TrimSpace(postID) != "" {
-				state.postID = strings.TrimSpace(postID)
-			}
-		}
-		if state.postID == "" {
-			if postID, ok := videoResponse["postId"].(string); ok && strings.TrimSpace(postID) != "" {
-				state.postID = strings.TrimSpace(postID)
-			}
-		}
-	}
-
-	if state.postID == "" {
-		if post, ok := response["post"].(map[string]any); ok {
-			if postID, ok := post["id"].(string); ok && strings.TrimSpace(postID) != "" {
-				state.postID = strings.TrimSpace(postID)
-			}
 		}
 	}
 
@@ -188,32 +165,6 @@ func extractVideoResponse(payload map[string]any) (map[string]any, bool) {
 	}
 	response, ok := result["response"].(map[string]any)
 	return response, ok
-}
-
-func appendVideoStreamErrors(target *[]string, raw any) {
-	switch typed := raw.(type) {
-	case string:
-		appendVideoStreamError(target, typed)
-	case []any:
-		for _, item := range typed {
-			if text, ok := item.(string); ok {
-				appendVideoStreamError(target, text)
-			}
-		}
-	}
-}
-
-func appendVideoStreamError(target *[]string, text string) {
-	trimmed := strings.TrimSpace(text)
-	if trimmed == "" {
-		return
-	}
-	for _, existing := range *target {
-		if existing == trimmed {
-			return
-		}
-	}
-	*target = append(*target, trimmed)
 }
 
 func buildVideoModePrompt(prompt, preset string) string {

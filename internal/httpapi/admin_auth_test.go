@@ -124,3 +124,53 @@ func TestVerifyAdminSession_FutureTimestampRejected(t *testing.T) {
 	value := signAdminSession("my-secret-key", time.Now().Add(2*time.Minute))
 	assert.False(t, verifyAdminSession("my-secret-key", value))
 }
+
+func TestLogout_RevokesSession(t *testing.T) {
+	appKey := "test-key"
+
+	// Login to get a valid session
+	session := signAdminSession(appKey, time.Now().UTC())
+	assert.True(t, verifyAdminSession(appKey, session), "session should be valid before logout")
+
+	// Logout with the session cookie
+	handler := handleAdminLogout()
+	req := httptest.NewRequest(http.MethodPost, "/admin/logout", nil)
+	req.AddCookie(&http.Cookie{Name: adminCookieName, Value: session})
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	// Session should now be revoked
+	assert.False(t, verifyAdminSession(appKey, session), "session should be rejected after logout")
+
+	// Cleanup
+	revokedSessions.Delete(session)
+}
+
+func TestLogout_NoCookie_NoRevocation(t *testing.T) {
+	handler := handleAdminLogout()
+	req := httptest.NewRequest(http.MethodPost, "/admin/logout", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	assert.Equal(t, http.StatusOK, rec.Code)
+	// No panic, no error — graceful no-op for revocation
+}
+
+func TestRevokeSession_InvalidFormat(t *testing.T) {
+	// Should not panic on invalid session values
+	revokeSession("")
+	revokeSession("invalid")
+	revokeSession("not.a.valid.session")
+}
+
+func TestIsSessionRevoked_ExpiredEntry(t *testing.T) {
+	// Manually insert an already-expired revocation entry
+	expiredSession := signAdminSession("key", time.Now().Add(-adminSessionTTL-time.Hour))
+	revokedSessions.Store(expiredSession, time.Now().Add(-time.Hour))
+
+	// Still in map (cleanup hasn't run), but isSessionRevoked just checks presence
+	assert.True(t, isSessionRevoked(expiredSession))
+
+	// Cleanup
+	revokedSessions.Delete(expiredSession)
+}

@@ -59,10 +59,10 @@ func (c *client) Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent
 // sent without a role prefix; all others are prefixed with "role: ".
 func buildChatBody(req *ChatRequest) ([]byte, error) {
 	message := flattenMessages(req.Messages)
-	if strings.TrimSpace(req.UpstreamModel) == "" {
-		return nil, fmt.Errorf("upstream model is required")
+	if len(req.ToolOverrides) > 0 && strings.TrimSpace(req.UpstreamModel) == "" {
+		return nil, fmt.Errorf("upstream model is required for media requests")
 	}
-	if strings.TrimSpace(req.UpstreamMode) == "" {
+	if strings.TrimSpace(req.UpstreamMode) == "" && len(req.ToolOverrides) == 0 {
 		return nil, fmt.Errorf("upstream mode is required")
 	}
 	grokModel := req.UpstreamModel
@@ -72,11 +72,7 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 	}
 
 	// Build responseMetadata
-	responseMeta := map[string]any{
-		"requestModelDetails": map[string]any{
-			"modelId": grokModel,
-		},
-	}
+	responseMeta := map[string]any{}
 	modelConfigOverride := cloneMap(req.ModelConfig)
 	if req.Temperature != nil {
 		modelConfigOverride["temperature"] = *req.Temperature
@@ -93,7 +89,6 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 
 	payload := map[string]any{
 		"temporary":                 req.Temporary,
-		"modelName":                 grokModel,
 		"message":                   message,
 		"fileAttachments":           fileAttachments,
 		"imageAttachments":          []any{},
@@ -108,8 +103,9 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 		"toolOverrides":             cloneMap(req.ToolOverrides),
 		"enableSideBySide":          true,
 		"sendFinalMetadata":         true,
-		"isReasoning":               false,
-		"modelMode":                 req.UpstreamMode,
+		"collectionIds":             []any{},
+		"connectors":                []any{},
+		"searchAllConnectors":       false,
 		"responseMetadata":          responseMeta,
 		"deviceEnvInfo": map[string]any{
 			"darkModeEnabled":  false,
@@ -123,6 +119,21 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 		"disableTextFollowUps":        false,
 		"forceSideBySide":             false,
 		"isAsyncChat":                 false,
+	}
+
+	// modelName only for media requests (image_edit, video); chat does not send it
+	if len(req.ToolOverrides) > 0 {
+		payload["modelName"] = grokModel
+	}
+	// modeId only for chat requests; media requests don't need it
+	if len(req.ToolOverrides) == 0 {
+		payload["modeId"] = req.UpstreamMode
+	}
+
+	// Only include isReasoning when this is an image edit request
+	if req.IsImageEdit {
+		payload["isReasoning"] = false
+		payload["disableTextFollowUps"] = true
 	}
 
 	// Only include customPersonality when non-empty after trimming

@@ -20,11 +20,11 @@ func TestParseSeedFile(t *testing.T) {
 
 	// Verify mode counts per family
 	expected := map[string]int{
-		"grok-4.20":               4,
-		"grok-4.20-mini":          1,
-		"grok-imagine-image":      2,
-		"grok-imagine-image-edit": 1,
-		"grok-imagine-video":      1,
+		"grok-4.20":                5,
+		"grok-imagine-image":       2,
+		"grok-imagine-image-lite":  1,
+		"grok-imagine-image-edit":  1,
+		"grok-imagine-video":       1,
 	}
 	totalModes := 0
 	for _, f := range seed.Families {
@@ -38,8 +38,8 @@ func TestParseSeedFile(t *testing.T) {
 		}
 		totalModes += len(f.Modes)
 	}
-	if totalModes != 9 {
-		t.Errorf("expected 9 total modes, got %d", totalModes)
+	if totalModes != 10 {
+		t.Errorf("expected 10 total modes, got %d", totalModes)
 	}
 }
 
@@ -62,8 +62,9 @@ func TestSeedModels_EmptyTable(t *testing.T) {
 
 	// Verify mode counts
 	expectedModes := map[string]int{
-		"grok-4.20": 4, "grok-4.20-mini": 1,
-		"grok-imagine-image": 2, "grok-imagine-image-edit": 1,
+		"grok-4.20": 5,
+		"grok-imagine-image": 2, "grok-imagine-image-lite": 1,
+		"grok-imagine-image-edit": 1,
 		"grok-imagine-video": 1,
 	}
 	for _, f := range families {
@@ -113,16 +114,15 @@ func TestSeedModels_ExternalFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	seedContent := `
 [[family]]
-model        = "custom-model"
-display_name = "Custom Model"
-type         = "chat"
-pool_floor   = "basic"
-default_mode = "default"
+model          = "custom-model"
+display_name   = "Custom Model"
+type           = "chat"
+pool_floor     = "basic"
+upstream_model = "custom"
 
   [[family.mode]]
   mode           = "default"
-  upstream_model = "custom"
-  upstream_mode  = "MODE_DEFAULT"
+  upstream_mode  = "auto"
 `
 	if err := os.WriteFile(filepath.Join(tmpDir, "models.seed.toml"), []byte(seedContent), 0644); err != nil {
 		t.Fatalf("write temp seed: %v", err)
@@ -228,27 +228,3 @@ func TestSeedModels_PoolFloorOverride(t *testing.T) {
 	}
 }
 
-func TestSeedModels_QuotaOverrides(t *testing.T) {
-	db := setupModelTestDB(t)
-	ctx := context.Background()
-
-	if err := SeedModels(ctx, db, "", seedconfig.SeedFS); err != nil {
-		t.Fatalf("SeedModels: %v", err)
-	}
-
-	var family ModelFamily
-	if err := db.Where("model = ?", "grok-4.20").First(&family).Error; err != nil {
-		t.Fatalf("find grok-4.20: %v", err)
-	}
-	if family.QuotaDefault == nil || *family.QuotaDefault != `{"chat": 1}` {
-		t.Fatalf("expected family quota_default to be imported, got %v", family.QuotaDefault)
-	}
-
-	var mode ModelMode
-	if err := db.Where("model_id = ? AND mode = ?", family.ID, "expert").First(&mode).Error; err != nil {
-		t.Fatalf("find expert mode: %v", err)
-	}
-	if mode.QuotaOverride == nil || *mode.QuotaOverride != `{"chat": 2}` {
-		t.Fatalf("expected mode quota_override to be imported, got %v", mode.QuotaOverride)
-	}
-}

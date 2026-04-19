@@ -756,24 +756,20 @@ func TestChatFlow_RecordUsageAPIKeyID(t *testing.T) {
 	}
 }
 
-func TestChatFlow_ParseEvent_Usage(t *testing.T) {
+func TestChatFlow_ParseEvent_NoUsage(t *testing.T) {
 	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
 	event := xai.StreamEvent{
 		Data: json.RawMessage(`{"result":{"response":{"token":"hi","isThinking":false},"usage":{"input_tokens":10,"output_tokens":2}}}`),
 	}
 
 	got := f.parseEvent(event)
-	if got.Usage == nil {
-		t.Fatal("expected usage to be parsed")
+	// Upstream usage is no longer extracted — always nil from parseEvent.
+	// Usage is estimated at stream-end in streamEvents instead.
+	if got.Usage != nil {
+		t.Errorf("expected Usage to be nil, got %+v", got.Usage)
 	}
-	if got.Usage.PromptTokens != 10 {
-		t.Errorf("PromptTokens = %d, want 10", got.Usage.PromptTokens)
-	}
-	if got.Usage.CompletionTokens != 2 {
-		t.Errorf("CompletionTokens = %d, want 2", got.Usage.CompletionTokens)
-	}
-	if got.Usage.TotalTokens != 12 {
-		t.Errorf("TotalTokens = %d, want 12", got.Usage.TotalTokens)
+	if got.Content != "hi" {
+		t.Errorf("Content = %q, want %q", got.Content, "hi")
 	}
 }
 
@@ -1011,12 +1007,12 @@ func TestChatFlow_EstimatedTrue_WhenNoUsageFromUpstream(t *testing.T) {
 	}
 }
 
-func TestChatFlow_EstimatedFalse_WhenUsageFromUpstream(t *testing.T) {
+func TestChatFlow_UsageAlwaysEstimated(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
 	}
 
-	// Response WITH real usage data
+	// Response with upstream usage data (which we now ignore)
 	respData := `{"result":{"response":{"token":"Hello","isThinking":false},"usage":{"input_tokens":10,"output_tokens":5}}}`
 	client := &mockXAIClient{
 		events: []xai.StreamEvent{
@@ -1049,7 +1045,8 @@ func TestChatFlow_EstimatedFalse_WhenUsageFromUpstream(t *testing.T) {
 	if len(recorder.records) != 1 {
 		t.Fatalf("expected 1 usage record, got %d", len(recorder.records))
 	}
-	if recorder.records[0].Estimated {
-		t.Error("expected Estimated=false when upstream provides real usage")
+	// Upstream usage is no longer parsed — always estimated
+	if !recorder.records[0].Estimated {
+		t.Error("expected Estimated=true since upstream usage is no longer parsed")
 	}
 }

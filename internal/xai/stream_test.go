@@ -143,7 +143,7 @@ func TestBuildChatBody(t *testing.T) {
 		Model:         "grok-3",
 		Stream:        true,
 		UpstreamModel: "grok-3",
-		UpstreamMode:  "MODEL_MODE_GROK_3",
+		UpstreamMode:  "auto",
 	}
 
 	body, err := buildChatBody(req)
@@ -156,9 +156,9 @@ func TestBuildChatBody(t *testing.T) {
 		t.Fatalf("Failed to unmarshal body: %v", err)
 	}
 
-	// Check required fields
-	if payload["modelName"] != "grok-3" {
-		t.Errorf("modelName = %v, want grok-3", payload["modelName"])
+	// Check required fields — chat requests do NOT send modelName
+	if _, exists := payload["modelName"]; exists {
+		t.Errorf("chat request should NOT contain modelName, got %v", payload["modelName"])
 	}
 	if payload["message"] != "Hello" {
 		t.Errorf("message = %v, want Hello", payload["message"])
@@ -167,22 +167,18 @@ func TestBuildChatBody(t *testing.T) {
 		t.Errorf("temporary = %v, want false", payload["temporary"])
 	}
 
-	// P0 #1: modelMode must be present
-	if payload["modelMode"] != "MODEL_MODE_GROK_3" {
-		t.Errorf("modelMode = %v, want MODEL_MODE_GROK_3", payload["modelMode"])
+	// modeId must be present for chat requests
+	if payload["modeId"] != "auto" {
+		t.Errorf("modeId = %v, want auto", payload["modeId"])
 	}
 
-	// P0 #3: responseMetadata must be present
+	// responseMetadata must be present but empty (requestModelDetails removed)
 	rm, ok := payload["responseMetadata"].(map[string]any)
 	if !ok {
 		t.Fatal("responseMetadata missing or not an object")
 	}
-	rmd, ok := rm["requestModelDetails"].(map[string]any)
-	if !ok {
-		t.Fatal("responseMetadata.requestModelDetails missing or not an object")
-	}
-	if rmd["modelId"] != "grok-3" {
-		t.Errorf("responseMetadata.requestModelDetails.modelId = %v, want grok-3", rmd["modelId"])
+	if _, exists := rm["requestModelDetails"]; exists {
+		t.Error("responseMetadata should NOT contain requestModelDetails")
 	}
 
 	// P0 #4: customInstructions must NOT be present
@@ -221,7 +217,7 @@ func TestBuildChatBody_CustomPersonality(t *testing.T) {
 				Messages:          []Message{{Role: "user", Content: "hi"}},
 				Model:             "grok-3",
 				UpstreamModel:     "grok-3",
-				UpstreamMode:      "MODEL_MODE_GROK_3",
+				UpstreamMode:      "auto",
 				CustomInstruction: tt.instruction,
 			}
 			body, err := buildChatBody(req)
@@ -251,7 +247,7 @@ func TestBuildChatBody_ResponseMetadata_WithTemperature(t *testing.T) {
 		Messages:      []Message{{Role: "user", Content: "hi"}},
 		Model:         "grok-4-heavy",
 		UpstreamModel: "grok-4",
-		UpstreamMode:  "MODEL_MODE_HEAVY",
+		UpstreamMode:  "heavy",
 	}
 	temp := 0.7
 	req.Temperature = &temp
@@ -264,14 +260,14 @@ func TestBuildChatBody_ResponseMetadata_WithTemperature(t *testing.T) {
 		t.Fatalf("Failed to unmarshal: %v", err)
 	}
 
-	// modelMode should reflect grok-4-heavy
-	if payload["modelMode"] != "MODEL_MODE_HEAVY" {
-		t.Errorf("modelMode = %v, want MODEL_MODE_HEAVY", payload["modelMode"])
+	// modeId should reflect grok-4-heavy
+	if payload["modeId"] != "heavy" {
+		t.Errorf("modeId = %v, want heavy", payload["modeId"])
 	}
 
-	// modelName should be mapped to grok-4
-	if payload["modelName"] != "grok-4" {
-		t.Errorf("modelName = %v, want grok-4", payload["modelName"])
+	// chat requests do NOT send modelName
+	if _, exists := payload["modelName"]; exists {
+		t.Errorf("chat request should NOT contain modelName, got %v", payload["modelName"])
 	}
 
 	// responseMetadata should contain modelConfigOverride with temperature
@@ -289,12 +285,12 @@ func TestBuildChatBody_ResponseMetadata_WithTemperature(t *testing.T) {
 }
 
 func TestBuildChatBodyUpstream(t *testing.T) {
-	t.Run("uses UpstreamModel and UpstreamMode", func(t *testing.T) {
+	t.Run("chat uses UpstreamMode but not modelName", func(t *testing.T) {
 		req := &ChatRequest{
 			Messages:      []Message{{Role: "user", Content: "Hello"}},
 			Model:         "grok-3",
 			UpstreamModel: "grok-3",
-			UpstreamMode:  "MODEL_MODE_GROK_3",
+			UpstreamMode:  "auto",
 		}
 		body, err := buildChatBody(req)
 		if err != nil {
@@ -304,22 +300,49 @@ func TestBuildChatBodyUpstream(t *testing.T) {
 		if err := json.Unmarshal(body, &payload); err != nil {
 			t.Fatalf("unmarshal: %v", err)
 		}
-		if payload["modelName"] != "grok-3" {
-			t.Errorf("modelName = %v, want grok-3", payload["modelName"])
+		// Chat requests do NOT send modelName
+		if _, exists := payload["modelName"]; exists {
+			t.Errorf("chat request should NOT contain modelName, got %v", payload["modelName"])
 		}
-		if payload["modelMode"] != "MODEL_MODE_GROK_3" {
-			t.Errorf("modelMode = %v, want MODEL_MODE_GROK_3", payload["modelMode"])
+		if payload["modeId"] != "auto" {
+			t.Errorf("modeId = %v, want auto", payload["modeId"])
 		}
 	})
 
-	t.Run("empty UpstreamModel returns error", func(t *testing.T) {
+	t.Run("media request sends modelName", func(t *testing.T) {
 		req := &ChatRequest{
-			Messages: []Message{{Role: "user", Content: "Hello"}},
-			Model:    "grok-4",
+			Messages:      []Message{{Role: "user", Content: "Hello"}},
+			Model:         "grok-imagine-image-edit",
+			UpstreamModel: "imagine-image-edit",
+			UpstreamMode:  "auto",
+			ToolOverrides: map[string]any{"imageGen": true},
+		}
+		body, err := buildChatBody(req)
+		if err != nil {
+			t.Fatalf("buildChatBody error: %v", err)
+		}
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if payload["modelName"] != "imagine-image-edit" {
+			t.Errorf("modelName = %v, want imagine-image-edit", payload["modelName"])
+		}
+		// Media requests do NOT send modeId
+		if _, exists := payload["modeId"]; exists {
+			t.Errorf("media request should NOT contain modeId, got %v", payload["modeId"])
+		}
+	})
+
+	t.Run("media request with empty UpstreamModel returns error", func(t *testing.T) {
+		req := &ChatRequest{
+			Messages:      []Message{{Role: "user", Content: "Hello"}},
+			Model:         "grok-4",
+			ToolOverrides: map[string]any{"imageGen": true},
 		}
 		_, err := buildChatBody(req)
-		if err == nil || err.Error() != "upstream model is required" {
-			t.Fatalf("buildChatBody error = %v, want upstream model is required", err)
+		if err == nil || err.Error() != "upstream model is required for media requests" {
+			t.Fatalf("buildChatBody error = %v, want upstream model is required for media requests", err)
 		}
 	})
 
@@ -408,7 +431,7 @@ func TestBuildChatBody_P1PayloadFields(t *testing.T) {
 		Messages:      []Message{{Role: "user", Content: "hi"}},
 		Model:         "grok-3",
 		UpstreamModel: "grok-3",
-		UpstreamMode:  "MODEL_MODE_GROK_3",
+		UpstreamMode:  "auto",
 	}
 	body, err := buildChatBody(req)
 	if err != nil {

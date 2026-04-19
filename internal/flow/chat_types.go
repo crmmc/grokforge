@@ -90,6 +90,7 @@ type ChatRequest struct {
 	ParallelToolCalls bool      `json:"parallel_tool_calls,omitempty"`
 	UpstreamModel     string    `json:"-"` // Grok API model name from registry
 	UpstreamMode      string    `json:"-"` // Grok API model mode from registry
+	ForceThinking     bool      `json:"-"` // Force reasoning_effort=high from registry
 }
 
 // Usage represents token usage statistics.
