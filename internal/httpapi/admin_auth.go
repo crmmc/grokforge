@@ -6,7 +6,6 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -115,12 +114,4 @@ func handleAdminLogout() http.HandlerFunc {
 		setAdminCookie(w, r, "", -1)
 		WriteJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
-}
-
-func issueAdminSession(appKey string) string {
-	return signAdminSession(appKey, time.Now().UTC())
-}
-
-func formatSessionPayload(ts int64) string {
-	return fmt.Sprintf("%d", ts)
 }

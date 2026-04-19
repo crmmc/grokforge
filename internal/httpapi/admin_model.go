@@ -41,24 +41,22 @@ type FamilyResponse struct {
 }
 
 type familyCreateRequest struct {
-	Model        string  `json:"model"`
-	DisplayName  string  `json:"display_name"`
-	Type         string  `json:"type"`
-	Enabled      *bool   `json:"enabled"`
-	PoolFloor    string  `json:"pool_floor"`
-	QuotaDefault *string `json:"quota_default"`
-	Description  string  `json:"description"`
+	Model       string `json:"model"`
+	DisplayName string `json:"display_name"`
+	Type        string `json:"type"`
+	Enabled     *bool  `json:"enabled"`
+	PoolFloor   string `json:"pool_floor"`
+	Description string `json:"description"`
 }
 
 type familyUpdateRequest struct {
-	Model         string         `json:"model"`
-	DisplayName   string         `json:"display_name"`
-	Type          string         `json:"type"`
-	Enabled       *bool          `json:"enabled"`
-	PoolFloor     string         `json:"pool_floor"`
-	DefaultModeID optionalUint   `json:"default_mode_id"`
-	QuotaDefault  optionalString `json:"quota_default"`
-	Description   string         `json:"description"`
+	Model         string       `json:"model"`
+	DisplayName   string       `json:"display_name"`
+	Type          string       `json:"type"`
+	Enabled       *bool        `json:"enabled"`
+	PoolFloor     string       `json:"pool_floor"`
+	DefaultModeID optionalUint `json:"default_mode_id"`
+	Description   string       `json:"description"`
 }
 
 type modeCreateRequest struct {
@@ -68,7 +66,6 @@ type modeCreateRequest struct {
 	PoolFloorOverride *string `json:"pool_floor_override"`
 	UpstreamMode      string  `json:"upstream_mode"`
 	UpstreamModel     string  `json:"upstream_model"`
-	QuotaOverride     *string `json:"quota_override"`
 }
 
 type modeUpdateRequest struct {
@@ -78,7 +75,6 @@ type modeUpdateRequest struct {
 	PoolFloorOverride *string `json:"pool_floor_override"`
 	UpstreamMode      string  `json:"upstream_mode"`
 	UpstreamModel     string  `json:"upstream_model"`
-	QuotaOverride     *string `json:"quota_override"`
 }
 
 func refreshRegistry(ctx context.Context, reg RegistryRefresher) error {
@@ -184,7 +180,7 @@ func normalizeOptionalRequestString(value *string) *string {
 }
 
 // handleListFamilies returns all families, each with its modes attached.
-func handleListFamilies(ms ModelStoreInterface, reg RegistryRefresher) http.HandlerFunc {
+func handleListFamilies(ms ModelStoreInterface, _ RegistryRefresher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		families, err := ms.ListFamilies(r.Context())
 		if err != nil {
@@ -224,13 +220,12 @@ func handleCreateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 			return
 		}
 		family := &store.ModelFamily{
-			Model:        normalizeRequestIdentifier(req.Model),
-			DisplayName:  req.DisplayName,
-			Type:         normalizeRequestIdentifier(req.Type),
-			Enabled:      boolValue(req.Enabled, true),
-			PoolFloor:    normalizeRequestIdentifier(req.PoolFloor),
-			QuotaDefault: normalizeOptionalRequestString(req.QuotaDefault),
-			Description:  req.Description,
+			Model:       normalizeRequestIdentifier(req.Model),
+			DisplayName: req.DisplayName,
+			Type:        normalizeRequestIdentifier(req.Type),
+			Enabled:     boolValue(req.Enabled, true),
+			PoolFloor:   normalizeRequestIdentifier(req.PoolFloor),
+			Description: req.Description,
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
 			return txStore.CreateFamily(ctx, family)
@@ -248,7 +243,7 @@ func handleCreateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 }
 
 // handleGetFamily returns a single family with its modes.
-func handleGetFamily(ms ModelStoreInterface, reg RegistryRefresher) http.HandlerFunc {
+func handleGetFamily(ms ModelStoreInterface, _ RegistryRefresher) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id, err := parseIDParam(r)
 		if err != nil {
@@ -315,11 +310,6 @@ func handleUpdateFamily(ms ModelStoreInterface, reg RegistryRefresher) http.Hand
 		} else {
 			family.DefaultModeID = existing.DefaultModeID
 		}
-		if req.QuotaDefault.Set {
-			family.QuotaDefault = normalizeOptionalRequestString(req.QuotaDefault.Value)
-		} else {
-			family.QuotaDefault = existing.QuotaDefault
-		}
 
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
 			return txStore.UpdateFamily(ctx, family)
@@ -381,7 +371,6 @@ func handleCreateMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
 			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
 			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
-			QuotaOverride:     normalizeOptionalRequestString(req.QuotaOverride),
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {
 			return txStore.CreateMode(ctx, mode)
@@ -454,7 +443,6 @@ func handleUpdateMode(ms ModelStoreInterface, reg RegistryRefresher) http.Handle
 			PoolFloorOverride: normalizeOptionalRequestString(req.PoolFloorOverride),
 			UpstreamMode:      normalizeRequestIdentifier(req.UpstreamMode),
 			UpstreamModel:     normalizeRequestIdentifier(req.UpstreamModel),
-			QuotaOverride:     normalizeOptionalRequestString(req.QuotaOverride),
 			CreatedAt:         existing.CreatedAt,
 		}
 		if err := mutateAndRefreshRegistry(r.Context(), ms, reg, func(ctx context.Context, txStore ModelStoreInterface) error {

@@ -104,14 +104,6 @@ func doDelete(t *testing.T, srv http.Handler, path string) *httptest.ResponseRec
 	return rec
 }
 
-func doGet(t *testing.T, srv http.Handler, path string) *httptest.ResponseRecorder {
-	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	rec := httptest.NewRecorder()
-	srv.ServeHTTP(rec, req)
-	return rec
-}
-
 // modelsListResponse mirrors openai.ModelsResponse to avoid import cycle.
 type modelsListResponse struct {
 	Object string             `json:"object"`
