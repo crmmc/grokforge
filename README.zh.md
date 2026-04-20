@@ -42,7 +42,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - **单二进制部署** — 前端通过 `go:embed` 嵌入，拷贝即跑，无需额外运行时
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
 - **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
-- **注册表驱动的模型管理** — DB 存储模型定义，管理面板 CRUD，种子数据自动导入，零硬编码
+- **静态模型目录** — 模型定义嵌入二进制的 TOML 文件中，支持外部文件覆盖
 - **三类独立配额** — Chat / Image / Video 分别计量与恢复，互不影响
 - **配置热重载** — 管理面板修改即时生效，无需重启
 - **结构化日志** — slog + 文件轮转，支持 JSON / Text 格式
@@ -60,7 +60,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **多模态输入** — 图片 URL / base64，自动下载解码缩放
 - [x] **图片生成 / 编辑** — WebSocket 通道，支持多张生成，多种尺寸
 - [x] **视频生成** — 多种宽高比和分辨率
-- [x] **模型列表** — `GET /v1/models` 动态返回，配置热修改
+- [x] **模型列表** — `GET /v1/models` 返回静态目录中已启用的模型
 
 ### Token 管理
 
@@ -71,12 +71,12 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **自动刷新** — Session 定时刷新，异常自动重建
 - [x] **Token 状态机** — active / cooling / disabled / expired 四态流转
 
-### 模型管理
+### 模型目录
 
-- [x] **注册表驱动路由** — 模型定义存储于 DB，内存快照提供 O(1) 请求名解析
-- [x] **种子数据自动导入** — 首次启动自动加载 `config/models.seed.toml`
-- [x] **管理面板 CRUD** — 通过 Admin API 和 UI 完整管理 model family + mode
-- [x] **请求名派生规则** — 固定 `model-mode` 命名 + 写入时冲突校验
+- [x] **静态 TOML 目录** — 模型定义在 `internal/modelconfig/models.toml`，嵌入二进制
+- [x] **外部覆盖** — 在 `config.toml` 中设置 `models_file` 可完全替换默认目录
+- [x] **只读管理视图** — Settings 页面展示完整模型目录（不可编辑）
+- [x] **注册表驱动路由** — 内存快照提供 O(1) 请求名解析
 - [x] **按 mode 覆盖 pool_floor** — 如 expert → super、heavy → heavy
 
 ### 安全与可靠
@@ -91,7 +91,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **Dashboard** — 统计卡片 + 配额进度 + 调用趋势图
 - [x] **Token 管理** — 批量导入 / 启停 / 删除，状态筛选，健康指示
 - [x] **API Key 管理** — 创建 / 禁用 / 过期控制 / Key 重新生成
-- [x] **系统设置** — General + Models 双标签，修改即热重载
+- [x] **系统设置** — General + Models 双标签，General 修改即热重载，Models 为只读目录查看
 - [x] **使用统计** — 聚合概览 + 逐条请求日志（含 TTFT）
 - [x] **缓存管理** — 图片 / 视频统计，预览 / 下载 / 批量清理
 - [x] **功能体验** — Chat / 图片 / 视频生成在线体验，支持多轮对话和 Markdown 渲染
@@ -126,7 +126,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 </details>
 
-> 所有模型定义在 `config/models.seed.toml`，可通过管理面板动态管理，支持自定义任意 `model-mode` 组合。
+> 所有模型定义在 `internal/modelconfig/models.toml`（嵌入二进制）。如需自定义，在 `config.toml` 中设置 `models_file` 指向你的 TOML catalog 文件即可完全替换默认目录。
 
 ---
 
@@ -467,8 +467,8 @@ sequenceDiagram
 - **Dashboard** — 一目了然的系统状态：Token 数量、API Key 数、调用量、配额进度、趋势图表
 - **Token 管理** — 批量导入 / 启停 / 删除、状态筛选、配额修改、优先级设置、手动刷新
 - **API Key** — 创建与管理 API 密钥、模型白名单、日限额、速率限制
-- **模型管理** — 注册表驱动的 model family + mode CRUD、种子数据自动导入、pool_floor 配置
-- **设置** — 全局配置在线编辑，修改即时生效
+- **模型目录** — 静态模型目录只读查看，含 pool_floor 和 upstream 详情
+- **设置** — General 配置在线编辑（热重载）+ 只读模型目录查看
 - **使用统计** — 聚合概览 + 逐条请求日志（包含 TTFT、Token 消耗等指标）
 - **缓存** — 图片/视频缓存浏览、预览、下载、清理
 - **功能体验** — Chat / 图片 / 视频生成在线体验，支持多轮对话和 Markdown 渲染
@@ -493,7 +493,7 @@ sequenceDiagram
 - **Basic 池 (`ssoBasic`)**：最低能力门槛，只能满足 `pool_floor = basic` 的模型或 mode。
 - **Super 池 (`ssoSuper`)**：更高能力门槛，可满足 `super` 和 `basic` 请求。
 - **Heavy 池 (`ssoHeavy`)**：最高能力门槛，专门承接 `heavy` 请求，也可以服务更低门槛的请求。
-- 模型路由由管理后台的“模型管理”页面维护（`model_family` + `model_mode`），不再通过手写池内模型列表控制。
+- 模型路由由静态模型目录（`internal/modelconfig/models.toml`）定义，不再通过手写池内模型列表控制。
 - `pool_floor` 是硬门槛。如果在所有等级 >= 该门槛的池中都没有可用 Token，请求会直接失败，不会静默降级。
 
 </details>
@@ -567,11 +567,11 @@ grokforge/
 │   ├── token/           # Token 池管理（路由 / 选择 / 配额 / 刷新）
 │   ├── xai/             # 上游通信（SSE / WebSocket）
 │   ├── store/           # 持久化（GORM + 当前 schema / 约束）
+│   ├── modelconfig/    # 静态模型目录（TOML 嵌入 + 加载器）
 │   ├── config/          # 配置管理（TOML + DB 覆盖 + 热重载）
 │   ├── cfrefresh/       # Cloudflare 防护（FlareSolverr 集成）
 │   ├── cache/           # 缓存管理（图片 / 视频本地缓存）
 │   └── logging/         # 日志管理（slog + 文件轮转）
-├── config/              # 种子数据（models.seed.toml 首次启动自动导入）
 ├── web/                 # Next.js 前端
 │   └── src/app/         # 页面路由
 ├── config.defaults.toml # 配置模板

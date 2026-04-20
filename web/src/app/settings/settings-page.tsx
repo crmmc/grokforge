@@ -18,6 +18,11 @@ const ModelsConfigForm = dynamic(
   { loading: () => <ConfigFormSkeleton /> }
 )
 
+const ModelCatalogTable = dynamic(
+  () => import('./model-catalog-table').then((mod) => mod.ModelCatalogTable),
+  { loading: () => <ConfigFormSkeleton /> }
+)
+
 export default function SettingsPage() {
   const { data: config, isLoading, error } = useConfig()
   const updateConfig = useUpdateConfig()
@@ -76,9 +81,10 @@ export default function SettingsPage() {
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-2 h-11 mb-6">
+        <TabsList className="grid w-full max-w-lg grid-cols-3 h-11 mb-6">
           <TabsTrigger value="general" className="text-base">{t.settings.generalTab}</TabsTrigger>
           <TabsTrigger value="models" className="text-base">{t.settings.modelsTab}</TabsTrigger>
+          <TabsTrigger value="catalog" className="text-base">{t.settings.catalogTab}</TabsTrigger>
         </TabsList>
         <div className="flex-1 min-w-0">
           <TabsContent value="general" className="m-0 focus-visible:outline-none">
@@ -94,6 +100,9 @@ export default function SettingsPage() {
               onSubmit={handleSubmit}
               isPending={updateConfig.isPending}
             />
+          </TabsContent>
+          <TabsContent value="catalog" className="m-0 focus-visible:outline-none">
+            <ModelCatalogTable />
           </TabsContent>
         </div>
       </Tabs>

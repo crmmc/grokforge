@@ -42,7 +42,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - **Single binary deployment** — Frontend embedded via `go:embed`, just copy and run
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
 - **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
-- **Registry-driven model management** — DB-backed model definitions with admin CRUD, seed data auto-import, zero hardcoding
+- **Static model catalog** — Models defined in a TOML file embedded in the binary, overridable via external file
 - **Three independent quotas** — Chat / Image / Video metered and recovered separately
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
 - **Structured logging** — slog + file rotation, JSON / Text formats
@@ -60,7 +60,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Multimodal input** — Image URL / base64, auto download, decode and resize
 - [x] **Image generation / editing** — WebSocket channel, multiple images, various sizes
 - [x] **Video generation** — Multiple aspect ratios and resolutions
-- [x] **Model listing** — `GET /v1/models` dynamically returns models, hot-configurable
+- [x] **Model listing** — `GET /v1/models` returns enabled models from the static catalog
 
 ### Token Management
 
@@ -71,12 +71,12 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Auto refresh** — Periodic session refresh, auto rebuild on failure
 - [x] **Token state machine** — active / cooling / disabled / expired four-state transitions
 
-### Model Management
+### Model Catalog
 
-- [x] **Registry-driven routing** — Model definitions stored in DB, O(1) request-name resolution via in-memory snapshot
-- [x] **Seed data auto-import** — `config/models.seed.toml` loaded on first startup
-- [x] **Admin CRUD** — Full model family + mode management via admin API and UI
-- [x] **Request name derivation** — Fixed naming rule (`model-mode`) with conflict detection
+- [x] **Static TOML catalog** — Models defined in `internal/modelconfig/models.toml`, embedded in binary
+- [x] **External override** — Set `models_file` in `config.toml` to replace the default catalog entirely
+- [x] **Read-only admin view** — Settings page displays the full model catalog (no editing)
+- [x] **Registry-driven routing** — O(1) request-name resolution via in-memory snapshot
 - [x] **Per-mode pool_floor override** — Expert → super, Heavy → heavy, etc.
 
 ### Security & Reliability
@@ -126,7 +126,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 </details>
 
-> All models are defined in `config/models.seed.toml` and can be dynamically managed via the admin panel. Custom models with any `model-mode` combination are supported.
+> All models are defined in `internal/modelconfig/models.toml` (embedded in the binary). To customize, set `models_file` in `config.toml` to point to your own TOML catalog file — it replaces the default entirely.
 
 ---
 
@@ -355,8 +355,8 @@ The admin panel includes:
 - **Dashboard** — System status at a glance: Token count, API Key count, call volume, quota progress, trend charts
 - **Token Management** — Batch import / enable / disable / delete, status filtering, quota editing, priority settings, manual refresh
 - **API Key** — Create and manage API keys, model whitelist, daily limit, rate limit
-- **Model Management** — Registry-driven model family + mode CRUD, seed data auto-import, pool_floor configuration
-- **Settings** — Global config online editing, changes take effect immediately
+- **Model Catalog** — Read-only view of the static model catalog with pool_floor and upstream details
+- **Settings** — General config online editing (hot-reload) + read-only model catalog view
 - **Usage Stats** — Aggregate overview + per-request logs (including TTFT, token consumption metrics)
 - **Cache** — Image / video cache browsing, preview, download, cleanup
 - **Playground** — Chat / Image / Video generation online, multi-turn conversation with Markdown rendering
@@ -493,7 +493,7 @@ GrokForge is compatible with all OpenAI API clients — just point the API URL t
 - **Basic pool (`ssoBasic`)**: Lowest capability floor. Can serve models/modes whose `pool_floor` is `basic`.
 - **Super pool (`ssoSuper`)**: Higher capability floor. Can serve `super` and `basic` models/modes.
 - **Heavy pool (`ssoHeavy`)**: Highest capability floor. Reserved for `heavy` models/modes and can also serve lower-floor requests.
-- Model routing is defined in the admin Models page (`model_family` + `model_mode`), not by editing per-pool model lists.
+- Model routing is defined in the static model catalog (`internal/modelconfig/models.toml`), not by editing per-pool model lists.
 - `pool_floor` is a hard requirement. If no eligible token exists in pools with level >= the model's floor, the request fails with no silent downgrade.
 
 </details>
@@ -567,11 +567,11 @@ grokforge/
 │   ├── token/           # Token pool management (routing / selection / quota / refresh)
 │   ├── xai/             # Upstream communication (SSE / WebSocket)
 │   ├── store/           # Persistence (GORM + current schema/constraints)
+│   ├── modelconfig/    # Static model catalog (TOML embedded + loader)
 │   ├── config/          # Config management (TOML + DB override + hot-reload)
 │   ├── cfrefresh/       # Cloudflare defense (FlareSolverr integration)
 │   ├── cache/           # Cache management (image / video local cache)
 │   └── logging/         # Log management (slog + file rotation)
-├── config/              # Seed data (models.seed.toml auto-imported on first startup)
 ├── web/                 # Next.js frontend
 │   └── src/app/         # Page routes
 ├── config.defaults.toml # Config template

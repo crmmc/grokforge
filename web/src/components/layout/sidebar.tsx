@@ -10,7 +10,6 @@ import {
   LayoutDashboard,
   Key,
   KeyRound,
-  Layers,
   Settings,
   Activity,
   Sparkles,
@@ -52,7 +51,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     return [
       { href: '/', label: t.nav.dashboard, icon: LayoutDashboard },
       { href: '/tokens', label: t.nav.tokens, icon: Key },
-      { href: '/models', label: t.nav.models, icon: Layers },
       { href: '/apikeys', label: t.nav.apiKeys, icon: KeyRound },
       { href: '/function', label: t.nav.function, icon: Sparkles },
       { href: '/usage', label: t.nav.usage, icon: Activity },

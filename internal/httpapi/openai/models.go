@@ -30,19 +30,15 @@ func HandleModelsFromRegistry(reg *registry.ModelRegistry) http.HandlerFunc {
 		created := int64(1709251200) // 2024-03-01
 		entries := make([]ModelEntry, 0, len(all))
 		for _, rm := range all {
-			if !httpapi.CheckModelWhitelist(r.Context(), rm.RequestName) {
+			if !httpapi.CheckModelWhitelist(r.Context(), rm.ID) {
 				continue
 			}
-			typ := ""
-			if rm.Family != nil {
-				typ = rm.Family.Type
-			}
 			entries = append(entries, ModelEntry{
-				ID:      rm.RequestName,
+				ID:      rm.ID,
 				Object:  "model",
 				Created: created,
 				OwnedBy: "xai",
-				Type:    typ,
+				Type:    rm.PublicType,
 			})
 		}
 		// Sort by ID for stable output

@@ -111,41 +111,6 @@ type UsageLog struct {
 	CreatedAt    time.Time `gorm:"index;index:idx_created_status,priority:1" json:"created_at"`
 }
 
-// ModelFamily represents a model family (for example "grok-4.20").
-type ModelFamily struct {
-	ID            uint       `gorm:"primaryKey" json:"id"`
-	Model         string     `gorm:"uniqueIndex;size:128" json:"model"`
-	DisplayName   string     `gorm:"size:128" json:"display_name"`
-	Type          string     `gorm:"size:32" json:"type"`
-	Enabled       bool       `json:"enabled"`
-	PoolFloor     string     `gorm:"size:32;default:basic" json:"pool_floor"`
-	DefaultModeID *uint      `json:"default_mode_id"`
-	DefaultMode   *ModelMode `gorm:"foreignKey:DefaultModeID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;" json:"-"`
-	UpstreamModel string     `gorm:"size:128" json:"upstream_model"`
-	Description   string     `gorm:"type:text" json:"description"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-
-	// DefaultUpstreamMode is a transient field used only during CreateFamily
-	// to set the default mode's upstream_mode. Not persisted to DB.
-	DefaultUpstreamMode string `gorm:"-" json:"-"`
-}
-
-// ModelMode represents a mode variant within a model family.
-type ModelMode struct {
-	ID                uint         `gorm:"primaryKey" json:"id"`
-	ModelID           uint         `gorm:"uniqueIndex:idx_model_mode;index" json:"model_id"`
-	Family            *ModelFamily `gorm:"foreignKey:ModelID;references:ID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
-	Mode              string       `gorm:"uniqueIndex:idx_model_mode;size:64" json:"mode"`
-	Enabled           bool         `json:"enabled"`
-	PoolFloorOverride *string      `gorm:"size:32" json:"pool_floor_override"`
-	UpstreamMode  string `gorm:"size:128" json:"upstream_mode"`
-	ForceThinking bool   `gorm:"default:false" json:"force_thinking"`
-	EnablePro     bool   `gorm:"default:false" json:"enable_pro"`
-	CreatedAt         time.Time    `json:"created_at"`
-	UpdatedAt         time.Time    `json:"updated_at"`
-}
-
 // AllModels returns all models for AutoMigrate.
 func AllModels() []any {
 	return []any{
@@ -153,21 +118,10 @@ func AllModels() []any {
 		&ConfigEntry{},
 		&UsageLog{},
 		&APIKey{},
-		&ModelFamily{},
-		&ModelMode{},
 	}
 }
 
-// AutoMigrate creates the current schema and installs current constraints.
+// AutoMigrate creates the current schema.
 func AutoMigrate(db *gorm.DB) error {
-	if err := enableSQLiteForeignKeys(db); err != nil {
-		return err
-	}
-	if err := db.AutoMigrate(AllModels()...); err != nil {
-		return err
-	}
-	if err := ensureModelConstraints(db); err != nil {
-		return err
-	}
-	return nil
+	return db.AutoMigrate(AllModels()...)
 }

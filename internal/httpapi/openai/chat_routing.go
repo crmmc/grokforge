@@ -29,10 +29,10 @@ func (h *Handler) resolveModelType(model string) string {
 		return ""
 	}
 	rm, ok := h.ModelRegistry.Resolve(model)
-	if !ok || rm.Family == nil {
+	if !ok {
 		return ""
 	}
-	return rm.Family.Type
+	return rm.Type
 }
 
 func (h *Handler) isImageWSModel(model string) bool {
@@ -40,7 +40,7 @@ func (h *Handler) isImageWSModel(model string) bool {
 }
 
 func (h *Handler) isImageModel(model string) bool {
-	return h.resolveModelType(model) == "image"
+	return h.resolveModelType(model) == "image_lite"
 }
 
 func (h *Handler) isImageEditModel(model string) bool {
@@ -53,7 +53,7 @@ func (h *Handler) isVideoModel(model string) bool {
 
 func (h *Handler) isMediaModel(model string) bool {
 	t := h.resolveModelType(model)
-	return t == "image_ws" || t == "image" || t == "image_edit" || t == "video"
+	return t == "image_ws" || t == "image_lite" || t == "image_edit" || t == "video"
 }
 
 func (h *Handler) resolveUpstream(model string) (string, string) {
