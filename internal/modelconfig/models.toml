@@ -1,0 +1,93 @@
+version = 1
+
+[[model]]
+id = "grok-4.20"
+display_name = "Grok 4.20"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+quota_mode = "auto"
+upstream_mode = "auto"
+
+[[model]]
+id = "grok-4.20-fast"
+display_name = "Grok 4.20 Fast"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+quota_mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-4.20-think"
+display_name = "Grok 4.20 Think"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+quota_mode = "auto"
+upstream_mode = "auto"
+force_thinking = true
+
+[[model]]
+id = "grok-4.20-expert"
+display_name = "Grok 4.20 Expert"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+quota_mode = "expert"
+upstream_mode = "expert"
+
+[[model]]
+id = "grok-4.20-heavy"
+display_name = "Grok 4.20 Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+quota_mode = "heavy"
+upstream_mode = "heavy"
+
+[[model]]
+id = "grok-imagine-image"
+display_name = "Grok Imagine Image"
+type = "image_ws"
+enabled = true
+pool_floor = "super"
+quota_mode = "auto"
+
+[[model]]
+id = "grok-imagine-image-pro"
+display_name = "Grok Imagine Image Pro"
+type = "image_ws"
+enabled = true
+pool_floor = "super"
+quota_mode = "auto"
+enable_pro = true
+
+[[model]]
+id = "grok-imagine-image-lite"
+display_name = "Grok Imagine Image Lite"
+type = "image_lite"
+enabled = true
+pool_floor = "basic"
+quota_mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-imagine-image-edit"
+display_name = "Grok Imagine Image Edit"
+type = "image_edit"
+enabled = true
+pool_floor = "super"
+quota_mode = "auto"
+upstream_model = "imagine-image-edit"
+upstream_mode = "auto"
+
+[[model]]
+id = "grok-imagine-video"
+display_name = "Grok Imagine Video"
+type = "video"
+enabled = true
+pool_floor = "super"
+quota_mode = "auto"
+upstream_model = "grok-3"
+upstream_mode = "auto"

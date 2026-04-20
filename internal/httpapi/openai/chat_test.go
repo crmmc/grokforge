@@ -14,6 +14,7 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
@@ -330,27 +331,13 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 // testMediaRegistry returns a ModelRegistry pre-populated with the standard
 // image/video/image_edit models used in routing tests.
 func testMediaRegistry() *registry.ModelRegistry {
-	return registry.NewTestRegistry([]registry.TestFamilyWithModes{
-		{
-			Family: store.ModelFamily{ID: 1, Model: "grok-imagine-image", Type: "image_ws", Enabled: true, PoolFloor: "super", DefaultModeID: ptrUint(1)},
-			Modes: []store.ModelMode{
-				{ID: 1, ModelID: 1, Mode: "default", Enabled: true},
-				{ID: 2, ModelID: 1, Mode: "lite", Enabled: true, PoolFloorOverride: ptrString("basic")},
-			},
-		},
-		{
-			Family: store.ModelFamily{ID: 3, Model: "grok-imagine-image-edit", Type: "image_edit", Enabled: true, PoolFloor: "super", UpstreamModel: "imagine-image-edit", DefaultModeID: ptrUint(3)},
-			Modes:  []store.ModelMode{{ID: 3, ModelID: 3, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_FAST"}},
-		},
-		{
-			Family: store.ModelFamily{ID: 4, Model: "grok-imagine-video", Type: "video", Enabled: true, PoolFloor: "super", UpstreamModel: "grok-3", DefaultModeID: ptrUint(4)},
-			Modes:  []store.ModelMode{{ID: 4, ModelID: 4, Mode: "default", Enabled: true, UpstreamMode: "MODEL_MODE_FAST"}},
-		},
+	return registry.NewTestRegistry([]modelconfig.ModelSpec{
+		{ID: "grok-imagine-image", Type: modelconfig.TypeImageWS, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, PublicType: "image_ws"},
+		{ID: "grok-imagine-image-lite", Type: modelconfig.TypeImageLite, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, PublicType: "image"},
+		{ID: "grok-imagine-image-edit", Type: modelconfig.TypeImageEdit, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST", PublicType: "image_edit"},
+		{ID: "grok-imagine-video", Type: modelconfig.TypeVideo, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST", PublicType: "video"},
 	})
 }
-
-func ptrUint(v uint) *uint       { return &v }
-func ptrString(v string) *string { return &v }
 
 func TestHandleChat_ImageModelRoute(t *testing.T) {
 	mock := &mockImagineClient{

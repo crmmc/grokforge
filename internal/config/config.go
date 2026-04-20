@@ -28,6 +28,8 @@ type AppConfig struct {
 	DynamicStatsig         bool     `toml:"dynamic_statsig"`
 	CustomInstruction      string   `toml:"custom_instruction"`
 	FilterTags             []string `toml:"filter_tags"`
+	// Model catalog settings
+	ModelsFile string `toml:"models_file"` // optional external model catalog file path
 	// Server settings
 	Host          string `toml:"host"`
 	Port          int    `toml:"port"`

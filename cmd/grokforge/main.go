@@ -13,7 +13,6 @@ import (
 
 	"path/filepath"
 
-	seedconfig "github.com/crmmc/grokforge/config"
 	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/cfrefresh"
 	"github.com/crmmc/grokforge/internal/config"
@@ -21,6 +20,7 @@ import (
 	"github.com/crmmc/grokforge/internal/httpapi"
 	"github.com/crmmc/grokforge/internal/httpapi/openai"
 	"github.com/crmmc/grokforge/internal/logging"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
@@ -79,21 +79,23 @@ func main() {
 	}
 	logging.Info("database ready", "driver", cfg.App.DBDriver)
 
-	// Seed model data on first run
+	// Load static model catalog
 	configDir := filepath.Dir(*configPath)
-	if err := store.SeedModels(context.Background(), db, configDir, seedconfig.SeedFS); err != nil {
-		logging.Error("failed to seed models", "error", err)
+	modelsFile := ""
+	if cfg.App.ModelsFile != "" {
+		modelsFile = filepath.Join(configDir, cfg.App.ModelsFile)
+	}
+	modelSpecs, err := modelconfig.Load(modelconfig.EmbeddedFS, modelsFile)
+	if err != nil {
+		logging.Error("failed to load model catalog", "error", err)
 		os.Exit(1)
 	}
-
-	// Build model registry (in-memory snapshot)
-	modelStore := store.NewModelStore(db)
-	reg := registry.NewModelRegistry(modelStore)
-	if err := reg.Refresh(context.Background()); err != nil {
-		logging.Error("failed to load model registry", "error", err)
-		os.Exit(1)
+	catalogSource := "embedded"
+	if modelsFile != "" {
+		catalogSource = modelsFile
 	}
-	logging.Info("model registry ready", "models", reg.Count())
+	reg := registry.NewModelRegistry(modelSpecs)
+	logging.Info("model catalog loaded", "source", catalogSource, "models", reg.Count())
 
 	// Load DB config overrides (DB > config file > defaults)
 	configStore := store.NewConfigStore(db)
@@ -288,7 +290,6 @@ func main() {
 		APIKeyStore:     apiKeyStore,
 		CacheService:    cacheSvc,
 		ConfigStore:     configStore,
-		ModelStore:      modelStore,
 		ModelRegistry:   reg,
 	})
 	addr := fmt.Sprintf("%s:%d", cfg.App.Host, cfg.App.Port)
