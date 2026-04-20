@@ -272,6 +272,12 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Token.DefaultVideoQuota = parsed
+		case "token.default_grok43_quota":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Token.DefaultGrok43Quota = parsed
 		case "token.quota_recovery_mode":
 			if _, ok := validQuotaRecoveryModes[v]; !ok {
 				return fmt.Errorf("config: invalid value %q for %s", v, k)

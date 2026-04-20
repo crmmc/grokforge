@@ -81,9 +81,10 @@ type BatchTokenRequest struct {
 	Tokens      []string       `json:"tokens,omitempty"`       // For import: raw token strings
 	IDs         []uint         `json:"ids,omitempty"`          // For delete/enable/disable
 	Pool        string         `json:"pool,omitempty"`         // For import: default pool
-	ChatQuota   *int           `json:"chat_quota,omitempty"`   // For import: chat quota
-	ImageQuota  *int           `json:"image_quota,omitempty"`  // For import: image quota
-	VideoQuota  *int           `json:"video_quota,omitempty"`  // For import: video quota
+	ChatQuota    *int           `json:"chat_quota,omitempty"`    // For import: chat quota
+	ImageQuota   *int           `json:"image_quota,omitempty"`   // For import: image quota
+	VideoQuota   *int           `json:"video_quota,omitempty"`   // For import: video quota
+	Grok43Quota  *int           `json:"grok43_quota,omitempty"`  // For import: grok43 quota
 	Priority    int            `json:"priority"`               // For import: token priority
 	Status      string         `json:"status,omitempty"`       // For import: initial status (active or disabled, default: active)
 	Remark      string         `json:"remark,omitempty"`       // For import: default remark
@@ -131,11 +132,12 @@ func configDefaultChatQuota(cfg *config.TokenConfig) int {
 	return cfg.DefaultChatQuota
 }
 
-func resolveImportMediaQuotas(req BatchTokenRequest, cfg *config.TokenConfig) (int, int, int) {
+func resolveImportMediaQuotas(req BatchTokenRequest, cfg *config.TokenConfig) (int, int, int, int) {
 	chat := resolveImportQuota(req.ChatQuota, cfg)
 	image := resolveImportQuotaValue(req.ImageQuota, configDefaultImageQuota(cfg), 20)
 	video := resolveImportQuotaValue(req.VideoQuota, configDefaultVideoQuota(cfg), 10)
-	return chat, image, video
+	grok43 := resolveImportQuotaValue(req.Grok43Quota, configDefaultGrok43Quota(cfg), 25)
+	return chat, image, video, grok43
 }
 
 func configDefaultImageQuota(cfg *config.TokenConfig) int {
@@ -150,6 +152,13 @@ func configDefaultVideoQuota(cfg *config.TokenConfig) int {
 		return 0
 	}
 	return cfg.DefaultVideoQuota
+}
+
+func configDefaultGrok43Quota(cfg *config.TokenConfig) int {
+	if cfg == nil {
+		return 0
+	}
+	return cfg.DefaultGrok43Quota
 }
 
 // handleBatchImport imports multiple tokens.
@@ -188,16 +197,18 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 			continue
 		}
 
-		chatQ, imageQ, videoQ := resolveImportMediaQuotas(req, cfg)
+		chatQ, imageQ, videoQ, grok43Q := resolveImportMediaQuotas(req, cfg)
 		token := &store.Token{
-			Token:             tokenStr,
-			Pool:              pool,
-			ChatQuota:         chatQ,
-			InitialChatQuota:  chatQ,
-			ImageQuota:        imageQ,
-			InitialImageQuota: imageQ,
-			VideoQuota:        videoQ,
-			InitialVideoQuota: videoQ,
+			Token:              tokenStr,
+			Pool:               pool,
+			ChatQuota:          chatQ,
+			InitialChatQuota:   chatQ,
+			ImageQuota:         imageQ,
+			InitialImageQuota:  imageQ,
+			VideoQuota:         videoQ,
+			InitialVideoQuota:  videoQ,
+			Grok43Quota:        grok43Q,
+			InitialGrok43Quota: grok43Q,
 			Priority:          req.Priority,
 			Status:            importStatus,
 			Remark:            req.Remark,

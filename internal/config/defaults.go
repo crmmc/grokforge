@@ -83,6 +83,7 @@ func DefaultConfig() *Config {
 			DefaultChatQuota:      50,
 			DefaultImageQuota:     20,
 			DefaultVideoQuota:     10,
+			DefaultGrok43Quota:    25,
 			QuotaRecoveryMode:     "auto",
 			SelectionAlgorithm:    "high_quota_first",
 		},

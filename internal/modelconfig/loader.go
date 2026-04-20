@@ -77,7 +77,7 @@ var validPoolFloors = map[string]bool{
 
 // validQuotaModes is the set of allowed quota_mode values.
 var validQuotaModes = map[string]bool{
-	QuotaAuto: true, QuotaFast: true, QuotaExpert: true, QuotaHeavy: true,
+	QuotaAuto: true, QuotaFast: true, QuotaExpert: true, QuotaHeavy: true, QuotaGrok43: true,
 }
 
 // validate checks all semantic rules on the parsed catalog.

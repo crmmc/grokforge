@@ -81,6 +81,9 @@ type ChatRequest struct {
 	// UpstreamMode is the Grok API mode ID (for example "auto", "fast", "expert", "heavy").
 	// Set by flow layer from ModelRegistry. Used by buildChatBody().
 	UpstreamMode string `json:"-"`
+
+	// DeepSearch preset: "default" or "deeper".
+	DeepSearch string `json:"-"`
 }
 
 // Message represents a single message in the conversation.

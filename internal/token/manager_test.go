@@ -196,7 +196,7 @@ func TestRestoreToken_RestoresCoolingToken(t *testing.T) {
 		ChatQuota: 5, ImageQuota: 3, VideoQuota: 1,
 	})
 
-	mgr.RestoreToken(1, 80, 10, 5)
+	mgr.RestoreToken(1, 80, 10, 5, 25)
 
 	// Cooling token should be restored to active
 	tok1 := mgr.GetToken(1)

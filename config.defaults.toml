@@ -133,6 +133,8 @@ default_chat_quota = 50
 default_image_quota = 20
 # Default video quota per token
 default_video_quota = 10
+# Default Grok 4.3 quota per token
+default_grok43_quota = 25
 # Quota recovery mode: auto (restore configured defaults) or upstream (sync Grok rate limits)
 quota_recovery_mode = "auto"
 # Token selection algorithm: high_quota_first / random / round_robin

@@ -74,6 +74,7 @@ func (f *ChatFlow) buildXAIRequest(ctx context.Context, req *ChatRequest, client
 		FileAttachments: fileAttachments,
 		UpstreamModel:   req.UpstreamModel,
 		UpstreamMode:    req.UpstreamMode,
+		DeepSearch:      req.DeepSearch,
 	}
 
 	// Resolve upstream model/mode from registry callback if not already set

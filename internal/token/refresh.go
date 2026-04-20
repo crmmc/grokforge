@@ -151,6 +151,7 @@ func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
 	chatQ := cfg.DefaultChatQuota
 	imageQ := cfg.DefaultImageQuota
 	videoQ := cfg.DefaultVideoQuota
+	grok43Q := cfg.DefaultGrok43Quota
 	if chatQ <= 0 {
 		chatQ = 50
 	}
@@ -160,10 +161,13 @@ func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
 	if videoQ <= 0 {
 		videoQ = 10
 	}
+	if grok43Q <= 0 {
+		grok43Q = 25
+	}
 
-	s.manager.RestoreToken(t.ID, chatQ, imageQ, videoQ)
+	s.manager.RestoreToken(t.ID, chatQ, imageQ, videoQ, grok43Q)
 	slog.Debug("auto-restored token quota",
-		"token_id", t.ID, "chat", chatQ, "image", imageQ, "video", videoQ)
+		"token_id", t.ID, "chat", chatQ, "image", imageQ, "video", videoQ, "grok43", grok43Q)
 }
 
 func (s *Scheduler) syncTokenFromUpstream(ctx context.Context, id uint) {

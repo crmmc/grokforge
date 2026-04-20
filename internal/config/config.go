@@ -97,6 +97,7 @@ type TokenConfig struct {
 	DefaultChatQuota      int    `toml:"default_chat_quota"`
 	DefaultImageQuota     int    `toml:"default_image_quota"`
 	DefaultVideoQuota     int    `toml:"default_video_quota"`
+	DefaultGrok43Quota    int    `toml:"default_grok43_quota"`
 	QuotaRecoveryMode     string `toml:"quota_recovery_mode"`
 	SelectionAlgorithm    string `toml:"selection_algorithm" json:"selection_algorithm"`
 }

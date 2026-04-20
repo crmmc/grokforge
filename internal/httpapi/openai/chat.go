@@ -19,6 +19,7 @@ type ChatRequest struct {
 	ParallelToolCalls *bool         `json:"parallel_tool_calls,omitempty"`
 	ImageConfig       *ImageConfig  `json:"image_config,omitempty"`
 	VideoConfig       *VideoConfig  `json:"video_config,omitempty"`
+	DeepSearch        string        `json:"deepsearch,omitempty"` // "default" | "deeper"
 }
 
 // ImageConfig controls image generation in chat multimodal mode.

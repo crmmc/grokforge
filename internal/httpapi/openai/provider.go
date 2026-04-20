@@ -153,7 +153,13 @@ func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 			flowReq.UpstreamModel = rm.UpstreamModel
 			flowReq.UpstreamMode = rm.UpstreamMode
 			flowReq.ForceThinking = rm.ForceThinking
+			flowReq.QuotaMode = rm.QuotaMode
 		}
+	}
+
+	// Pass through deepsearch preset (only valid values)
+	if req.DeepSearch == "default" || req.DeepSearch == "deeper" {
+		flowReq.DeepSearch = req.DeepSearch
 	}
 
 	return flowReq
