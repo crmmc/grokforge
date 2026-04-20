@@ -77,7 +77,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **External override** — Set `models_file` in `config.toml` to replace the default catalog entirely
 - [x] **Read-only admin view** — Settings page displays the full model catalog (no editing)
 - [x] **Registry-driven routing** — O(1) request-name resolution via in-memory snapshot
-- [x] **Per-mode pool_floor override** — Expert → super, Heavy → heavy, etc.
+- [x] **Per-mode pool_floor override** — Expert → basic, Heavy → heavy, etc.
 
 ### Security & Reliability
 
@@ -108,7 +108,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 | `grok-4.20` | default | basic | Default Grok 4.20 mode |
 | `grok-4.20-fast` | fast | basic | Faster Grok 4.20 variant |
 | `grok-4.20-think` | think (force_thinking) | basic | Deep reasoning mode |
-| `grok-4.20-expert` | expert | super | Expert mode, requires Super pool |
+| `grok-4.20-expert` | expert | basic | Expert mode |
 | `grok-4.20-heavy` | heavy | heavy | Heavy pool only |
 
 </details>

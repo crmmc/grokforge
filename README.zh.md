@@ -77,7 +77,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **外部覆盖** — 在 `config.toml` 中设置 `models_file` 可完全替换默认目录
 - [x] **只读管理视图** — Settings 页面展示完整模型目录（不可编辑）
 - [x] **注册表驱动路由** — 内存快照提供 O(1) 请求名解析
-- [x] **按 mode 覆盖 pool_floor** — 如 expert → super、heavy → heavy
+- [x] **按 mode 覆盖 pool_floor** — 如 expert → basic、heavy → heavy
 
 ### 安全与可靠
 
@@ -108,7 +108,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 | `grok-4.20` | default | basic | Grok 4.20 默认模式 |
 | `grok-4.20-fast` | fast | basic | Grok 4.20 快速模式 |
 | `grok-4.20-think` | think (force_thinking) | basic | 深度推理模式 |
-| `grok-4.20-expert` | expert | super | 专家模式，需要 Super 池 |
+| `grok-4.20-expert` | expert | basic | 专家模式 |
 | `grok-4.20-heavy` | heavy | heavy | 仅 Heavy 池可用 |
 
 </details>
