@@ -43,7 +43,9 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
 - **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
 - **Static model catalog** — Models defined in a TOML file embedded in the binary, overridable via external file
-- **Three independent quotas** — Chat / Image / Video metered and recovered separately
+- **Four independent quotas** — Chat / Image / Video / Grok 4.3 metered and recovered separately
+- **SSE heartbeat** — 2KB initial padding + 15s ping keeps connections alive through proxies and CDNs
+- **DeepSearch** — Pass `deepsearch` parameter to enable Grok's deep search capability
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
 - **Structured logging** — slog + file rotation, JSON / Text formats
 - **Bilingual UI** — Admin panel supports English and Chinese
@@ -61,6 +63,8 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Image generation / editing** — WebSocket channel, multiple images, various sizes
 - [x] **Video generation** — Multiple aspect ratios and resolutions
 - [x] **Model listing** — `GET /v1/models` returns enabled models from the static catalog
+- [x] **SSE heartbeat** — 2KB padding + 15s ping prevents proxy/CDN timeout disconnections
+- [x] **DeepSearch** — `deepsearch` parameter passthrough for Grok's deep search capability
 
 ### Token Management
 
@@ -68,6 +72,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **3 selection algorithms** — high_quota_first / random / round_robin
 - [x] **Priority tiers** — Higher priority tokens are selected first
 - [x] **Three quota categories** — Chat / Image / Video independently metered and recovered
+- [x] **Grok 4.3 quota** — Independent quota category for Grok 4.3 Beta model
 - [x] **Auto refresh** — Periodic session refresh, auto rebuild on failure
 - [x] **Token state machine** — active / cooling / disabled / expired four-state transitions
 
