@@ -3,6 +3,7 @@ package openai
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
@@ -14,6 +15,7 @@ const (
 	chatObject               = "chat.completion"
 	defaultChoiceIndex       = 0
 	defaultToolCallIndexBase = 0
+	heartbeatInterval        = 15 * time.Second
 )
 
 // streamResponse handles SSE streaming response for chat completions.
@@ -32,34 +34,49 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 	writer.WriteSSE(adapter.RoleChunk())
 	flusher.Flush()
 
+	// Send initial padding to force proxy/CDN buffer flush
+	w.Write([]byte(": heartbeat stream connected\n" + strings.Repeat(" ", 2048) + "\n\n"))
+	flusher.Flush()
+
 	var rewriter *mediaRewriter
 
-	for event := range eventCh {
+	timer := time.NewTimer(heartbeatInterval)
+	defer timer.Stop()
+
+	for {
 		select {
+		case event, ok := <-eventCh:
+			if !ok {
+				goto done
+			}
+			timer.Reset(heartbeatInterval)
+
+			if event.Error != nil {
+				_, apiErr := httpapi.MapXAIError(event.Error)
+				writer.WriteSSEError(apiErr)
+				return
+			}
+
+			// Lazily create rewriter on first event with a downloader
+			if rewriter == nil && event.Downloader != nil && cfg != nil && cfg.App.MediaGenerationEnabled {
+				rewriter = newMediaRewriter(event.Downloader)
+			}
+			event.Content = rewriteContent(rewriter, r.Context(), event.Content)
+
+			chunks := adapter.HandleEvent(event)
+			for _, chunk := range chunks {
+				writer.WriteSSE(chunk)
+				flusher.Flush()
+			}
+		case <-timer.C:
+			w.Write([]byte(": ping\n\n"))
+			flusher.Flush()
+			timer.Reset(heartbeatInterval)
 		case <-r.Context().Done():
 			return
-		default:
-		}
-
-		if event.Error != nil {
-			_, apiErr := httpapi.MapXAIError(event.Error)
-			writer.WriteSSEError(apiErr)
-			return
-		}
-
-		// Lazily create rewriter on first event with a downloader
-		if rewriter == nil && event.Downloader != nil && cfg != nil && cfg.App.MediaGenerationEnabled {
-			rewriter = newMediaRewriter(event.Downloader)
-		}
-		event.Content = rewriteContent(rewriter, r.Context(), event.Content)
-
-		chunks := adapter.HandleEvent(event)
-		for _, chunk := range chunks {
-			writer.WriteSSE(chunk)
-			flusher.Flush()
 		}
 	}
-
+done:
 	for _, chunk := range adapter.FinishChunks() {
 		writer.WriteSSE(chunk)
 		flusher.Flush()

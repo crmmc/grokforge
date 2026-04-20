@@ -91,6 +91,8 @@ type ChatRequest struct {
 	UpstreamModel     string    `json:"-"` // Grok API model name from registry
 	UpstreamMode      string    `json:"-"` // Grok API model mode from registry
 	ForceThinking     bool      `json:"-"` // Force reasoning_effort=high from registry
+	DeepSearch        string    `json:"-"` // "default" | "deeper"
+	QuotaMode         string    `json:"-"` // quota_mode from registry for category mapping
 }
 
 // Usage represents token usage statistics.

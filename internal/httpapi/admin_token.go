@@ -51,6 +51,8 @@ type TokenResponse struct {
 	TotalImageQuota int        `json:"total_image_quota"`
 	VideoQuota      int        `json:"video_quota"`
 	TotalVideoQuota int        `json:"total_video_quota"`
+	Grok43Quota      int        `json:"grok43_quota"`
+	TotalGrok43Quota int        `json:"total_grok43_quota"`
 	FailCount       int        `json:"fail_count"`
 	CoolUntil       *time.Time `json:"cool_until,omitempty"`
 	LastUsed        *time.Time `json:"last_used,omitempty"`
@@ -63,20 +65,22 @@ type TokenResponse struct {
 
 // tokenToResponse converts a store.Token to TokenResponse with masked token.
 func tokenToResponse(t *store.Token) TokenResponse {
-	totalChat, totalImage, totalVideo := resolveTokenQuotaTotals(t, nil)
+	totalChat, totalImage, totalVideo, totalGrok43 := resolveTokenQuotaTotals(t, nil)
 
 	return TokenResponse{
-		ID:              t.ID,
-		Token:           maskSecret(t.Token),
-		Pool:            t.Pool,
-		Status:          t.Status,
-		StatusReason:    t.StatusReason,
-		ChatQuota:       t.ChatQuota,
-		TotalChatQuota:  totalChat,
-		ImageQuota:      t.ImageQuota,
-		TotalImageQuota: totalImage,
-		VideoQuota:      t.VideoQuota,
-		TotalVideoQuota: totalVideo,
+		ID:               t.ID,
+		Token:            maskSecret(t.Token),
+		Pool:             t.Pool,
+		Status:           t.Status,
+		StatusReason:     t.StatusReason,
+		ChatQuota:        t.ChatQuota,
+		TotalChatQuota:   totalChat,
+		ImageQuota:       t.ImageQuota,
+		TotalImageQuota:  totalImage,
+		VideoQuota:       t.VideoQuota,
+		TotalVideoQuota:  totalVideo,
+		Grok43Quota:      t.Grok43Quota,
+		TotalGrok43Quota: totalGrok43,
 		FailCount:       t.FailCount,
 		CoolUntil:       t.CoolUntil,
 		LastUsed:        t.LastUsed,
@@ -217,6 +221,7 @@ type TokenUpdateRequest struct {
 	ChatQuota   *int    `json:"chat_quota,omitempty"`
 	ImageQuota  *int    `json:"image_quota,omitempty"`
 	VideoQuota  *int    `json:"video_quota,omitempty"`
+	Grok43Quota *int    `json:"grok43_quota,omitempty"`
 	Remark      *string `json:"remark,omitempty"`
 	NsfwEnabled *bool   `json:"nsfw_enabled,omitempty"`
 }
@@ -308,6 +313,10 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 		if req.VideoQuota != nil {
 			token.VideoQuota = *req.VideoQuota
 			token.InitialVideoQuota = *req.VideoQuota
+		}
+		if req.Grok43Quota != nil {
+			token.Grok43Quota = *req.Grok43Quota
+			token.InitialGrok43Quota = *req.Grok43Quota
 		}
 		if req.Remark != nil {
 			token.Remark = *req.Remark

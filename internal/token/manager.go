@@ -302,7 +302,7 @@ func (m *TokenManager) GetCoolingTokens() []TokenSnapshot {
 
 // RestoreToken restores a single token to the given quotas and marks it active.
 // Used by the auto-mode recovery scheduler when a token's cooling period expires.
-func (m *TokenManager) RestoreToken(id uint, chatQuota, imageQuota, videoQuota int) {
+func (m *TokenManager) RestoreToken(id uint, chatQuota, imageQuota, videoQuota, grok43Quota int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -317,6 +317,8 @@ func (m *TokenManager) RestoreToken(id uint, chatQuota, imageQuota, videoQuota i
 	t.InitialImageQuota = imageQuota
 	t.VideoQuota = videoQuota
 	t.InitialVideoQuota = videoQuota
+	t.Grok43Quota = grok43Quota
+	t.InitialGrok43Quota = grok43Quota
 	t.Status = string(StatusActive)
 	t.StatusReason = ""
 	t.CoolUntil = nil
@@ -335,5 +337,8 @@ func normalizeTokenQuotaBaselines(token *store.Token) {
 	}
 	if token.InitialVideoQuota < token.VideoQuota {
 		token.InitialVideoQuota = token.VideoQuota
+	}
+	if token.InitialGrok43Quota < token.Grok43Quota {
+		token.InitialGrok43Quota = token.Grok43Quota
 	}
 }

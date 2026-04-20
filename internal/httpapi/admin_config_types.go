@@ -81,6 +81,7 @@ type TokenConfigResponse struct {
 	DefaultChatQuota      int    `json:"default_chat_quota"`
 	DefaultImageQuota     int    `json:"default_image_quota"`
 	DefaultVideoQuota     int    `json:"default_video_quota"`
+	DefaultGrok43Quota    int    `json:"default_grok43_quota"`
 	QuotaRecoveryMode     string `json:"quota_recovery_mode"`
 	SelectionAlgorithm    string `json:"selection_algorithm"`
 }
@@ -159,6 +160,7 @@ type TokenConfigUpdate struct {
 	DefaultChatQuota      *int    `json:"default_chat_quota,omitempty"`
 	DefaultImageQuota     *int    `json:"default_image_quota,omitempty"`
 	DefaultVideoQuota     *int    `json:"default_video_quota,omitempty"`
+	DefaultGrok43Quota    *int    `json:"default_grok43_quota,omitempty"`
 	QuotaRecoveryMode     *string `json:"quota_recovery_mode,omitempty"`
 	SelectionAlgorithm    *string `json:"selection_algorithm,omitempty"`
 }

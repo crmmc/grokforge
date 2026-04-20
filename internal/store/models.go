@@ -72,6 +72,8 @@ type Token struct {
 	InitialImageQuota int            `gorm:"default:0" json:"-"`
 	VideoQuota        int            `json:"video_quota"`
 	InitialVideoQuota int            `gorm:"default:0" json:"-"`
+	Grok43Quota        int            `json:"grok43_quota"`
+	InitialGrok43Quota int            `gorm:"default:0" json:"-"`
 	FailCount         int            `json:"fail_count"`
 	CoolUntil         *time.Time     `json:"cool_until,omitempty"`
 	LastUsed          *time.Time     `json:"last_used,omitempty"`

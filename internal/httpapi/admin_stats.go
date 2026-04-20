@@ -40,13 +40,15 @@ type QuotaStatsResponse struct {
 
 // PoolQuota represents quota stats for a single pool.
 type PoolQuota struct {
-	Pool                string `json:"pool"`
-	TotalChatQuota      int    `json:"total_chat_quota"`
-	RemainingChatQuota  int    `json:"remaining_chat_quota"`
-	TotalImageQuota     int    `json:"total_image_quota"`
-	RemainingImageQuota int    `json:"remaining_image_quota"`
-	TotalVideoQuota     int    `json:"total_video_quota"`
-	RemainingVideoQuota int    `json:"remaining_video_quota"`
+	Pool                 string `json:"pool"`
+	TotalChatQuota       int    `json:"total_chat_quota"`
+	RemainingChatQuota   int    `json:"remaining_chat_quota"`
+	TotalImageQuota      int    `json:"total_image_quota"`
+	RemainingImageQuota  int    `json:"remaining_image_quota"`
+	TotalVideoQuota      int    `json:"total_video_quota"`
+	RemainingVideoQuota  int    `json:"remaining_video_quota"`
+	TotalGrok43Quota     int    `json:"total_grok43_quota"`
+	RemainingGrok43Quota int    `json:"remaining_grok43_quota"`
 }
 
 // UsageStatsResponse is the response for usage stats endpoint.
@@ -110,13 +112,15 @@ func handleQuotaStatsFromProvider(ts TokenStoreInterface, getCfg func() *config.
 				poolMap[t.Pool] = pq
 			}
 
-			totalChat, totalImage, totalVideo := resolveTokenQuotaTotals(t, cfg)
+			totalChat, totalImage, totalVideo, totalGrok43 := resolveTokenQuotaTotals(t, cfg)
 			pq.TotalChatQuota += totalChat
 			pq.RemainingChatQuota += t.ChatQuota
 			pq.TotalImageQuota += totalImage
 			pq.RemainingImageQuota += t.ImageQuota
 			pq.TotalVideoQuota += totalVideo
 			pq.RemainingVideoQuota += t.VideoQuota
+			pq.TotalGrok43Quota += totalGrok43
+			pq.RemainingGrok43Quota += t.Grok43Quota
 		}
 
 		pools := make([]PoolQuota, 0, len(poolMap))
@@ -131,14 +135,15 @@ func handleQuotaStatsFromProvider(ts TokenStoreInterface, getCfg func() *config.
 	}
 }
 
-func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat, image, video int) {
+func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat, image, video, grok43 int) {
 	if token == nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	chat = max(token.InitialChatQuota, token.ChatQuota)
 	image = max(token.InitialImageQuota, token.ImageQuota)
 	video = max(token.InitialVideoQuota, token.VideoQuota)
+	grok43 = max(token.InitialGrok43Quota, token.Grok43Quota)
 
 	if cfg != nil {
 		if chat == 0 && cfg.DefaultChatQuota > 0 {
@@ -150,9 +155,12 @@ func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat,
 		if video == 0 && cfg.DefaultVideoQuota > 0 {
 			video = cfg.DefaultVideoQuota
 		}
+		if grok43 == 0 && cfg.DefaultGrok43Quota > 0 {
+			grok43 = cfg.DefaultGrok43Quota
+		}
 	}
 
-	return chat, image, video
+	return chat, image, video, grok43
 }
 
 // handleUsageStats returns a handler that returns today's usage with hourly breakdown and delta.

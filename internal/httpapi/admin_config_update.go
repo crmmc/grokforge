@@ -191,6 +191,9 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.DefaultVideoQuota != nil {
 				cfg.Token.DefaultVideoQuota = *req.Token.DefaultVideoQuota
 			}
+			if req.Token.DefaultGrok43Quota != nil {
+				cfg.Token.DefaultGrok43Quota = *req.Token.DefaultGrok43Quota
+			}
 			if req.Token.QuotaRecoveryMode != nil {
 				mode := *req.Token.QuotaRecoveryMode
 				if mode != "auto" && mode != "upstream" {
@@ -375,6 +378,9 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.Token.DefaultVideoQuota != nil {
 				dbUpdates["token.default_video_quota"] = fmt.Sprintf("%d", *req.Token.DefaultVideoQuota)
+			}
+			if req.Token.DefaultGrok43Quota != nil {
+				dbUpdates["token.default_grok43_quota"] = fmt.Sprintf("%d", *req.Token.DefaultGrok43Quota)
 			}
 			if req.Token.QuotaRecoveryMode != nil {
 				dbUpdates["token.quota_recovery_mode"] = *req.Token.QuotaRecoveryMode

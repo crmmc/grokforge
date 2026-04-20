@@ -18,10 +18,11 @@ const (
 
 // Quota mode constants.
 const (
-	QuotaAuto   = "auto"
-	QuotaFast   = "fast"
-	QuotaExpert = "expert"
-	QuotaHeavy  = "heavy"
+	QuotaAuto    = "auto"
+	QuotaFast    = "fast"
+	QuotaExpert  = "expert"
+	QuotaHeavy   = "heavy"
+	QuotaGrok43  = "grok_4_3"
 )
 
 // ModelSpec represents a single model entry in the static catalog.

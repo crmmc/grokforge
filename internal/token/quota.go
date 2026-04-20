@@ -66,7 +66,7 @@ func (m *TokenManager) Consume(tokenID uint, cat QuotaCategory, cost int) (remai
 	token.LastUsed = &now
 
 	// Only enter cooling if ALL categories are exhausted
-	if token.ChatQuota <= 0 && token.ImageQuota <= 0 && token.VideoQuota <= 0 {
+	if token.ChatQuota <= 0 && token.ImageQuota <= 0 && token.VideoQuota <= 0 && token.Grok43Quota <= 0 {
 		coolUntil := now.Add(m.coolingDurationForToken(token))
 		token.Status = string(StatusCooling)
 		token.CoolUntil = &coolUntil
@@ -104,6 +104,10 @@ func (m *TokenManager) SyncQuota(ctx context.Context, tokenID uint, authToken st
 	if m.cfg.DefaultVideoQuota > 0 {
 		token.VideoQuota = m.cfg.DefaultVideoQuota
 		token.InitialVideoQuota = m.cfg.DefaultVideoQuota
+	}
+	if m.cfg.DefaultGrok43Quota > 0 {
+		token.Grok43Quota = m.cfg.DefaultGrok43Quota
+		token.InitialGrok43Quota = m.cfg.DefaultGrok43Quota
 	}
 
 	switch {

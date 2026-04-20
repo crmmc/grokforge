@@ -141,6 +141,11 @@ func buildChatBody(req *ChatRequest) ([]byte, error) {
 		payload["customPersonality"] = req.CustomInstruction
 	}
 
+	// DeepSearch preset
+	if req.DeepSearch != "" {
+		payload["deepsearchPreset"] = req.DeepSearch
+	}
+
 	return json.Marshal(payload)
 }
 

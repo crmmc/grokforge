@@ -97,6 +97,9 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools []string, outCh chan<- StreamEvent) {
 	defer close(outCh)
 
+	// Resolve quota category from model's quota_mode
+	quotaCat := tkn.CategoryFromQuotaMode(req.QuotaMode)
+
 	// Hot-reload: read config from provider if available
 	cfg := f.cfg.RetryConfig
 	if f.cfg.RetryConfigProvider != nil {
@@ -128,7 +131,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			var tok *store.Token
 			var pickErr error
 			for _, pool := range pools {
-				tok, pickErr = f.tokenSvc.Pick(pool, tkn.CategoryChat)
+				tok, pickErr = f.tokenSvc.Pick(pool, quotaCat)
 				if pickErr == nil {
 					break
 				}
@@ -146,7 +149,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 			slog.Debug("flow: token picked",
 				"token_id", tok.ID, "token", maskedTok,
-				"pools", pools, "quota", tkn.GetQuota(tok, tkn.CategoryChat),
+				"pools", pools, "quota", tkn.GetQuota(tok, quotaCat),
 				"priority", tok.Priority, "attempt", attempt)
 			currentToken = tok
 			tokenRetries = 0
@@ -222,7 +225,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 			f.tokenSvc.ReportSuccess(currentToken.ID)
 			// Deduct quota only on success
-			if _, err := f.tokenSvc.Consume(currentToken.ID, tkn.CategoryChat, 1); err != nil {
+			if _, err := f.tokenSvc.Consume(currentToken.ID, quotaCat, 1); err != nil {
 				slog.Warn("flow: chat quota consume failed", "token_id", currentToken.ID, "error", err)
 			}
 			var tokIn, tokOut int

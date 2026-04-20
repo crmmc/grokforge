@@ -57,8 +57,8 @@ func TestLoad_EmbeddedCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load embedded: %v", err)
 	}
-	if got := len(specs); got != 10 {
-		t.Fatalf("expected 10 models, got %d", got)
+	if got := len(specs); got != 11 {
+		t.Fatalf("expected 11 models, got %d", got)
 	}
 
 	first := specs[0]
