@@ -113,3 +113,23 @@ feea09c: fix: upgrade Go 1.24.1 → 1.25.8 to resolve 19 stdlib vulnerabilities
 667e172: fix: make SPA handler tests self-contained with fstest.MapFS
 
 ---
+
+## Unreleased
+
+更新内容:
+
+c8a1493: docs: update expert model pool_floor from super to basic in READMEs
+
+5ba72ac: chore: clean up stale i18n references to removed Models page
+
+0f57c65: refactor: replace DB-driven model registry with static TOML catalog
+
+f2729ec: docs: update all admin panel screenshots with demo data
+
+23b628c: feat: add SSE heartbeat, deepsearch passthrough, and grok-4.3-beta model
+- SSE 心跳保活：2KB 初始填充 + 15s ping，防止反代/CDN 超时断连
+- DeepSearch 透传：请求体新增 `deepsearch` 参数，透传到上游 `deepsearchPreset`
+- 新增 Grok 4.3 Beta 模型（pool_floor=super, upstream=grok-420-computer-use-sa）
+- 新增 grok43 独立配额类别 + admin API 支持
+
+---

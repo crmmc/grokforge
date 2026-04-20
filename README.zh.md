@@ -43,7 +43,9 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
 - **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
 - **静态模型目录** — 模型定义嵌入二进制的 TOML 文件中，支持外部文件覆盖
-- **三类独立配额** — Chat / Image / Video 分别计量与恢复，互不影响
+- **四类独立配额** — Chat / Image / Video / Grok 4.3 分别计量与恢复，互不影响
+- **SSE 心跳保活** — 2KB 初始填充 + 15s 心跳，防止反代/CDN 超时断连
+- **DeepSearch** — 透传 `deepsearch` 参数，启用 Grok 深度搜索能力
 - **配置热重载** — 管理面板修改即时生效，无需重启
 - **结构化日志** — slog + 文件轮转，支持 JSON / Text 格式
 - **中英双语** — 管理面板支持中英文切换
@@ -61,6 +63,8 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **图片生成 / 编辑** — WebSocket 通道，支持多张生成，多种尺寸
 - [x] **视频生成** — 多种宽高比和分辨率
 - [x] **模型列表** — `GET /v1/models` 返回静态目录中已启用的模型
+- [x] **SSE 心跳保活** — 2KB 填充 + 15s 心跳，防止反代/CDN 超时断连
+- [x] **DeepSearch** — 透传 `deepsearch` 参数，启用 Grok 深度搜索能力
 
 ### Token 管理
 
@@ -68,6 +72,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **3 种选择算法** — high_quota_first / random / round_robin
 - [x] **Priority 分层** — 高优先级 token 先被选择
 - [x] **三类配额** — Chat / Image / Video 独立计量与恢复
+- [x] **Grok 4.3 配额** — Grok 4.3 Beta 模型独立配额类别
 - [x] **自动刷新** — Session 定时刷新，异常自动重建
 - [x] **Token 状态机** — active / cooling / disabled / expired 四态流转
 
