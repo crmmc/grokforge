@@ -3,19 +3,23 @@
 export interface DashboardTokenStats {
   total: number
   active: number
-  cooling: number
+  exhausted: number
   expired: number
   disabled: number
 }
 
+export interface ModeQuotaSummary {
+  total_remaining: number
+  total_limit: number
+}
+
 export interface PoolQuota {
   pool: string
-  total_chat_quota: number
-  remaining_chat_quota: number
-  total_image_quota: number
-  remaining_image_quota: number
-  total_video_quota: number
-  remaining_video_quota: number
+  token_count: number
+  active_count: number
+  disabled_count: number
+  expired_count: number
+  mode_quotas: Record<string, ModeQuotaSummary>
 }
 
 export interface QuotaStatsResponse {

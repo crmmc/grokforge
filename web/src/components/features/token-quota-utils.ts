@@ -1,9 +1,7 @@
 import type { Token } from '@/types'
 
-export type TokenQuotaKey = 'chat' | 'image' | 'video'
-
 export interface TokenQuotaMetric {
-  key: TokenQuotaKey
+  key: string
   label: string
   shortLabel: string
   remaining: number
@@ -11,18 +9,25 @@ export interface TokenQuotaMetric {
   percent: number
 }
 
-interface TokenQuotaLabels {
-  chat: string
-  image: string
-  video: string
-}
+/**
+ * Build quota metrics from token's dynamic mode-based quotas.
+ * Falls back to mode key as label/shortLabel when no translation provided.
+ */
+export function buildTokenQuotaMetrics(
+  token: Token,
+  modeLabels?: Record<string, string>,
+): TokenQuotaMetric[] {
+  const quotas = token.quotas ?? {}
+  const limits = token.limit_quotas ?? {}
+  const modes = Array.from(new Set([...Object.keys(quotas), ...Object.keys(limits)])).sort()
 
-export function buildTokenQuotaMetrics(token: Token, labels: TokenQuotaLabels): TokenQuotaMetric[] {
-  return [
-    createQuotaMetric('chat', labels.chat, 'C', token.chat_quota, token.total_chat_quota),
-    createQuotaMetric('image', labels.image, 'I', token.image_quota, token.total_image_quota),
-    createQuotaMetric('video', labels.video, 'V', token.video_quota, token.total_video_quota),
-  ]
+  return modes.map((mode) => {
+    const remaining = quotas[mode] ?? 0
+    const total = limits[mode] ?? remaining
+    const label = modeLabels?.[mode] ?? mode
+    const shortLabel = mode.charAt(0).toUpperCase()
+    return createQuotaMetric(mode, label, shortLabel, remaining, total)
+  })
 }
 
 export function quotaTextColor(percent: number): string {
@@ -44,7 +49,7 @@ export function quotaProgressColor(percent: number): string {
 }
 
 function createQuotaMetric(
-  key: TokenQuotaKey,
+  key: string,
   label: string,
   shortLabel: string,
   remaining: number,

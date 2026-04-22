@@ -13,7 +13,6 @@ import (
 	"strings"
 	"time"
 
-	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -51,9 +50,15 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 		return nil, errors.New("image edit client not configured")
 	}
 
+	// Resolve mode from request or model registry
+	mode := req.Mode
+	if mode == "" {
+		mode = f.resolveMode(req.Model)
+	}
+
 	start, apiKeyID := time.Now(), FlowAPIKeyIDFromContext(ctx)
 
-	tok, err := f.pickTokenForModel(req.Model)
+	tok, err := f.pickTokenForModel(req.Model, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +69,8 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 	}
 
 	handleErr := func(err error) (*ImageResponse, error) {
-		if !isTransportError(err) {
-			f.tokenSvc.ReportError(tok.ID, err.Error())
-		}
+		recoverable := isTransportError(err) || isServerError(err)
+		f.tokenSvc.ReportError(tok.ID, mode, recoverable, truncateReason(err.Error()))
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 		return nil, err
 	}
@@ -116,13 +120,6 @@ func (f *ImageFlow) collectEditedImages(
 		urls, err := collectImageEditURLs(eventCh)
 		if err != nil {
 			return nil, err
-		}
-
-		// Consume quota only after the batch call succeeds
-		if len(urls) > 0 {
-			if _, err := f.tokenSvc.Consume(tokenID, tkn.CategoryImage, 1); err != nil {
-				return nil, fmt.Errorf("token quota exhausted: %w", err)
-			}
 		}
 
 		for _, rawURL := range urls {

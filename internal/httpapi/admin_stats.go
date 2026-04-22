@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"sort"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -28,7 +27,6 @@ type UsageLogStoreInterface interface {
 type TokenStatsResponse struct {
 	Total    int `json:"total"`
 	Active   int `json:"active"`
-	Cooling  int `json:"cooling"`
 	Expired  int `json:"expired"`
 	Disabled int `json:"disabled"`
 }
@@ -40,15 +38,18 @@ type QuotaStatsResponse struct {
 
 // PoolQuota represents quota stats for a single pool.
 type PoolQuota struct {
-	Pool                 string `json:"pool"`
-	TotalChatQuota       int    `json:"total_chat_quota"`
-	RemainingChatQuota   int    `json:"remaining_chat_quota"`
-	TotalImageQuota      int    `json:"total_image_quota"`
-	RemainingImageQuota  int    `json:"remaining_image_quota"`
-	TotalVideoQuota      int    `json:"total_video_quota"`
-	RemainingVideoQuota  int    `json:"remaining_video_quota"`
-	TotalGrok43Quota     int    `json:"total_grok43_quota"`
-	RemainingGrok43Quota int    `json:"remaining_grok43_quota"`
+	Pool          string                      `json:"pool"`
+	TokenCount    int                         `json:"token_count"`
+	ActiveCount   int                         `json:"active_count"`
+	DisabledCount int                         `json:"disabled_count"`
+	ExpiredCount  int                         `json:"expired_count"`
+	ModeQuotas    map[string]ModeQuotaSummary `json:"mode_quotas"`
+}
+
+// ModeQuotaSummary aggregates remaining and limit quota for a single mode.
+type ModeQuotaSummary struct {
+	TotalRemaining int `json:"total_remaining"`
+	TotalLimit     int `json:"total_limit"`
 }
 
 // UsageStatsResponse is the response for usage stats endpoint.
@@ -74,8 +75,6 @@ func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
 			switch t.Status {
 			case store.TokenStatusActive:
 				resp.Active++
-			case store.TokenStatusCooling:
-				resp.Cooling++
 			case store.TokenStatusExpired:
 				resp.Expired++
 			case store.TokenStatusDisabled:
@@ -88,39 +87,46 @@ func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
 }
 
 // handleQuotaStats returns a handler that aggregates quota totals and remaining quota by pool for active tokens.
-func handleQuotaStats(ts TokenStoreInterface, cfg *config.TokenConfig) http.HandlerFunc {
-	return handleQuotaStatsFromProvider(ts, func() *config.TokenConfig { return cfg })
-}
-
-func handleQuotaStatsFromProvider(ts TokenStoreInterface, getCfg func() *config.TokenConfig) http.HandlerFunc {
+func handleQuotaStats(ts TokenStoreInterface) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokens, err := ts.ListTokens(r.Context())
 		if err != nil {
 			WriteError(w, 500, "server_error", "stats_failed", "Failed to get quota stats")
 			return
 		}
-		cfg := getCfg()
 
 		poolMap := make(map[string]*PoolQuota)
 		for _, t := range tokens {
+			pq, ok := poolMap[t.Pool]
+			if !ok {
+				pq = &PoolQuota{
+					Pool:       t.Pool,
+					ModeQuotas: make(map[string]ModeQuotaSummary),
+				}
+				poolMap[t.Pool] = pq
+			}
+			pq.TokenCount++
+			switch t.Status {
+			case store.TokenStatusActive:
+				pq.ActiveCount++
+			case store.TokenStatusDisabled:
+				pq.DisabledCount++
+			case store.TokenStatusExpired:
+				pq.ExpiredCount++
+			}
+
+			// Only aggregate quotas for active tokens
 			if t.Status != store.TokenStatusActive {
 				continue
 			}
-			pq, ok := poolMap[t.Pool]
-			if !ok {
-				pq = &PoolQuota{Pool: t.Pool}
-				poolMap[t.Pool] = pq
+			for mode, remaining := range t.Quotas {
+				ms := pq.ModeQuotas[mode]
+				ms.TotalRemaining += remaining
+				if limit, ok := t.LimitQuotas[mode]; ok {
+					ms.TotalLimit += limit
+				}
+				pq.ModeQuotas[mode] = ms
 			}
-
-			totalChat, totalImage, totalVideo, totalGrok43 := resolveTokenQuotaTotals(t, cfg)
-			pq.TotalChatQuota += totalChat
-			pq.RemainingChatQuota += t.ChatQuota
-			pq.TotalImageQuota += totalImage
-			pq.RemainingImageQuota += t.ImageQuota
-			pq.TotalVideoQuota += totalVideo
-			pq.RemainingVideoQuota += t.VideoQuota
-			pq.TotalGrok43Quota += totalGrok43
-			pq.RemainingGrok43Quota += t.Grok43Quota
 		}
 
 		pools := make([]PoolQuota, 0, len(poolMap))
@@ -133,34 +139,6 @@ func handleQuotaStatsFromProvider(ts TokenStoreInterface, getCfg func() *config.
 
 		WriteJSON(w, http.StatusOK, QuotaStatsResponse{Pools: pools})
 	}
-}
-
-func resolveTokenQuotaTotals(token *store.Token, cfg *config.TokenConfig) (chat, image, video, grok43 int) {
-	if token == nil {
-		return 0, 0, 0, 0
-	}
-
-	chat = max(token.InitialChatQuota, token.ChatQuota)
-	image = max(token.InitialImageQuota, token.ImageQuota)
-	video = max(token.InitialVideoQuota, token.VideoQuota)
-	grok43 = max(token.InitialGrok43Quota, token.Grok43Quota)
-
-	if cfg != nil {
-		if chat == 0 && cfg.DefaultChatQuota > 0 {
-			chat = cfg.DefaultChatQuota
-		}
-		if image == 0 && cfg.DefaultImageQuota > 0 {
-			image = cfg.DefaultImageQuota
-		}
-		if video == 0 && cfg.DefaultVideoQuota > 0 {
-			video = cfg.DefaultVideoQuota
-		}
-		if grok43 == 0 && cfg.DefaultGrok43Quota > 0 {
-			grok43 = cfg.DefaultGrok43Quota
-		}
-	}
-
-	return chat, image, video, grok43
 }
 
 // handleUsageStats returns a handler that returns today's usage with hourly breakdown and delta.

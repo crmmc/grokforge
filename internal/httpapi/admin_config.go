@@ -91,11 +91,6 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			BasicCoolDurationMin:  cfg.Token.BasicCoolDurationMin,
 			SuperCoolDurationMin:  cfg.Token.SuperCoolDurationMin,
 			HeavyCoolDurationMin:  cfg.Token.HeavyCoolDurationMin,
-			DefaultChatQuota:      cfg.Token.DefaultChatQuota,
-			DefaultImageQuota:     cfg.Token.DefaultImageQuota,
-			DefaultVideoQuota:     cfg.Token.DefaultVideoQuota,
-			DefaultGrok43Quota:    cfg.Token.DefaultGrok43Quota,
-			QuotaRecoveryMode:     cfg.Token.QuotaRecoveryMode,
 			SelectionAlgorithm:    cfg.Token.SelectionAlgorithm,
 		},
 	}

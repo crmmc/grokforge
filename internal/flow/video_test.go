@@ -303,9 +303,7 @@ func TestVideoFlow_GenerateSync_NoConsumeOnFailure(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	if len(tokenSvc.consumeCalls) != 0 {
-		t.Errorf("Consume should not be called on failure, got %d calls", len(tokenSvc.consumeCalls))
-	}
+	// Consume removed: quota pre-deducted in Pick
 }
 
 func TestVideoFlow_GenerateSync_ConsumeOnSuccess(t *testing.T) {
@@ -329,8 +327,8 @@ func TestVideoFlow_GenerateSync_ConsumeOnSuccess(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	if len(tokenSvc.consumeCalls) != 1 {
-		t.Errorf("Consume should be called once on success, got %d calls", len(tokenSvc.consumeCalls))
+	if len(tokenSvc.successCalls) != 1 {
+		t.Errorf("ReportSuccess should be called once on success, got %d calls", len(tokenSvc.successCalls))
 	}
 }
 

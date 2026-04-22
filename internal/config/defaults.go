@@ -80,11 +80,6 @@ func DefaultConfig() *Config {
 			BasicCoolDurationMin:  240,
 			SuperCoolDurationMin:  120,
 			HeavyCoolDurationMin:  60,
-			DefaultChatQuota:      50,
-			DefaultImageQuota:     20,
-			DefaultVideoQuota:     10,
-			DefaultGrok43Quota:    25,
-			QuotaRecoveryMode:     "auto",
 			SelectionAlgorithm:    "high_quota_first",
 		},
 	}

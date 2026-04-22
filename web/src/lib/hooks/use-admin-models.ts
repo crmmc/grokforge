@@ -7,7 +7,7 @@ export interface AdminModelEntry {
   type: string
   public_type: string
   pool_floor: string
-  quota_mode: string
+  mode: string
   upstream_model?: string
   upstream_mode?: string
   force_thinking?: boolean

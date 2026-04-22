@@ -49,7 +49,7 @@ func GetPoolForModel(model string, resolver ModelResolver) ([]string, bool) {
 // PickForModel selects a token by trying each eligible pool in order.
 // Returns the first available token, or ErrNoTokenAvailable if all pools are exhausted.
 // Returns ErrModelNotFound if the model is not found in the resolver.
-func (m *TokenManager) PickForModel(model string, resolver ModelResolver, cat QuotaCategory) (*store.Token, error) {
+func (m *TokenManager) PickForModel(model string, resolver ModelResolver, mode string) (*store.Token, error) {
 	pools, ok := GetPoolForModel(model, resolver)
 	if !ok {
 		return nil, ErrModelNotFound
@@ -57,7 +57,7 @@ func (m *TokenManager) PickForModel(model string, resolver ModelResolver, cat Qu
 
 	var lastErr error
 	for _, pool := range pools {
-		tok, err := m.Pick(pool, cat)
+		tok, err := m.Pick(pool, mode)
 		if err == nil {
 			return tok, nil
 		}

@@ -16,27 +16,28 @@ const (
 	PoolHeavy = "heavy"
 )
 
-// Quota mode constants.
-const (
-	QuotaAuto    = "auto"
-	QuotaFast    = "fast"
-	QuotaExpert  = "expert"
-	QuotaHeavy   = "heavy"
-	QuotaGrok43  = "grok_4_3"
-)
+// ModeSpec represents a quota mode entry in the static catalog.
+type ModeSpec struct {
+	ID            string         `toml:"id"`
+	UpstreamName  string         `toml:"upstream_name"`
+	WindowSeconds int            `toml:"window_seconds"`
+	DefaultQuota  map[string]int `toml:"default_quota"` // pool -> default quota
+}
 
 // ModelSpec represents a single model entry in the static catalog.
 type ModelSpec struct {
-	ID            string `toml:"id"`
-	DisplayName   string `toml:"display_name"`
-	Type          string `toml:"type"`           // internal runtime type
-	Enabled       bool   `toml:"enabled"`
-	PoolFloor     string `toml:"pool_floor"`
-	QuotaMode     string `toml:"quota_mode"`
-	UpstreamModel string `toml:"upstream_model,omitempty"`
-	UpstreamMode  string `toml:"upstream_mode,omitempty"`
-	ForceThinking bool   `toml:"force_thinking,omitempty"`
-	EnablePro     bool   `toml:"enable_pro,omitempty"`
+	ID              string `toml:"id"`
+	DisplayName     string `toml:"display_name"`
+	Type            string `toml:"type"`
+	Enabled         bool   `toml:"enabled"`
+	PoolFloor       string `toml:"pool_floor"`
+	Mode            string `toml:"mode,omitempty"`
+	QuotaSync       *bool  `toml:"quota_sync,omitempty"`
+	CooldownSeconds int    `toml:"cooldown_seconds,omitempty"`
+	UpstreamModel   string `toml:"upstream_model,omitempty"`
+	UpstreamMode    string `toml:"upstream_mode,omitempty"`
+	ForceThinking   bool   `toml:"force_thinking,omitempty"`
+	EnablePro       bool   `toml:"enable_pro,omitempty"`
 
 	PublicType string `toml:"-"` // derived at load time, not serialized
 }

@@ -11,17 +11,19 @@ import (
 
 // ResolvedModel holds the resolved model info for a model ID.
 type ResolvedModel struct {
-	ID            string
-	DisplayName   string
-	Type          string // internal runtime type
-	PublicType    string // derived public type
-	Enabled       bool
-	PoolFloor     string // effective pool floor
-	QuotaMode     string
-	UpstreamModel string
-	UpstreamMode  string
-	ForceThinking bool
-	EnablePro     bool
+	ID              string
+	DisplayName     string
+	Type            string // internal runtime type
+	PublicType      string // derived public type
+	Enabled         bool
+	PoolFloor       string // effective pool floor
+	Mode            string
+	QuotaSync       bool // whether this model participates in quota tracking
+	CooldownSeconds int  // cooldown duration; only used when QuotaSync is false
+	UpstreamModel   string
+	UpstreamMode    string
+	ForceThinking   bool
+	EnablePro       bool
 }
 
 // ModelRegistry maintains an in-memory snapshot of enabled models.
@@ -31,30 +33,41 @@ type ModelRegistry struct {
 	mu            sync.RWMutex
 	byID          map[string]*ResolvedModel
 	enabledByType map[string][]*ResolvedModel
+	modeByID      map[string]modelconfig.ModeSpec
+	modeOrder     []modelconfig.ModeSpec // preserves original order
 }
 
 // NewModelRegistry creates a read-only ModelRegistry from static catalog specs.
-func NewModelRegistry(specs []modelconfig.ModelSpec) *ModelRegistry {
+func NewModelRegistry(specs []modelconfig.ModelSpec, modes []modelconfig.ModeSpec) *ModelRegistry {
+	modeByID := make(map[string]modelconfig.ModeSpec, len(modes))
+	for _, m := range modes {
+		modeByID[m.ID] = m
+	}
+
 	r := &ModelRegistry{
 		byID:          make(map[string]*ResolvedModel, len(specs)),
 		enabledByType: make(map[string][]*ResolvedModel),
+		modeByID:      modeByID,
+		modeOrder:     append([]modelconfig.ModeSpec(nil), modes...),
 	}
 	for _, s := range specs {
 		if !s.Enabled {
 			continue
 		}
 		rm := &ResolvedModel{
-			ID:            s.ID,
-			DisplayName:   s.DisplayName,
-			Type:          s.Type,
-			PublicType:    s.PublicType,
-			Enabled:       s.Enabled,
-			PoolFloor:     s.PoolFloor,
-			QuotaMode:     s.QuotaMode,
-			UpstreamModel: s.UpstreamModel,
-			UpstreamMode:  s.UpstreamMode,
-			ForceThinking: s.ForceThinking,
-			EnablePro:     s.EnablePro,
+			ID:              s.ID,
+			DisplayName:     s.DisplayName,
+			Type:            s.Type,
+			PublicType:      s.PublicType,
+			Enabled:         s.Enabled,
+			PoolFloor:       s.PoolFloor,
+			Mode:            s.Mode,
+			QuotaSync:       s.IsQuotaTracked(),
+			CooldownSeconds: s.CooldownSeconds,
+			UpstreamModel:   s.UpstreamModel,
+			UpstreamMode:    s.UpstreamMode,
+			ForceThinking:   s.ForceThinking,
+			EnablePro:       s.EnablePro,
 		}
 		r.byID[s.ID] = rm
 		r.enabledByType[s.Type] = append(r.enabledByType[s.Type], rm)
@@ -62,10 +75,10 @@ func NewModelRegistry(specs []modelconfig.ModelSpec) *ModelRegistry {
 	return r
 }
 
-// NewTestRegistry creates a ModelRegistry from ModelSpec slice for testing.
+// NewTestRegistry creates a ModelRegistry from ModelSpec and ModeSpec slices for testing.
 // This is an alias for NewModelRegistry for semantic clarity in test code.
-func NewTestRegistry(specs []modelconfig.ModelSpec) *ModelRegistry {
-	return NewModelRegistry(specs)
+func NewTestRegistry(specs []modelconfig.ModelSpec, modes []modelconfig.ModeSpec) *ModelRegistry {
+	return NewModelRegistry(specs, modes)
 }
 
 // Resolve looks up a model ID and returns the resolved model.
@@ -119,6 +132,37 @@ func (r *ModelRegistry) AllEnabled() []*ResolvedModel {
 	out := make([]*ResolvedModel, 0, len(r.byID))
 	for _, rm := range r.byID {
 		out = append(out, rm)
+	}
+	return out
+}
+
+// GetMode looks up a mode by ID.
+func (r *ModelRegistry) GetMode(id string) (modelconfig.ModeSpec, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	m, ok := r.modeByID[id]
+	return m, ok
+}
+
+// AllModes returns all modes in their original catalog order.
+func (r *ModelRegistry) AllModes() []modelconfig.ModeSpec {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]modelconfig.ModeSpec, len(r.modeOrder))
+	copy(out, r.modeOrder)
+	return out
+}
+
+// SupportedModes returns modes whose default_quota for the given pool is > 0,
+// preserving the original catalog order.
+func (r *ModelRegistry) SupportedModes(pool string) []modelconfig.ModeSpec {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	var out []modelconfig.ModeSpec
+	for _, m := range r.modeOrder {
+		if m.DefaultQuota[pool] > 0 {
+			out = append(out, m)
+		}
 	}
 	return out
 }

@@ -17,12 +17,12 @@ import (
 func newTestRegistry(t *testing.T) *registry.ModelRegistry {
 	t.Helper()
 	return registry.NewTestRegistry([]modelconfig.ModelSpec{
-		{ID: "grok-2", DisplayName: "Grok 2", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-2", PublicType: "chat"},
-		{ID: "grok-2-mini", DisplayName: "Grok 2 Mini", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-2-mini", PublicType: "chat"},
-		{ID: "grok-3", DisplayName: "Grok 3", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-3", PublicType: "chat"},
-		{ID: "grok-3-heavy", DisplayName: "Grok 3 Heavy", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolHeavy, QuotaMode: modelconfig.QuotaHeavy, UpstreamModel: "grok-3", UpstreamMode: "heavy", PublicType: "chat"},
-		{ID: "grok-3-mini", DisplayName: "Grok 3 Mini", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-3-mini", PublicType: "chat"},
-	})
+		{ID: "grok-2", DisplayName: "Grok 2", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", UpstreamModel: "grok-2", PublicType: "chat"},
+		{ID: "grok-2-mini", DisplayName: "Grok 2 Mini", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", UpstreamModel: "grok-2-mini", PublicType: "chat"},
+		{ID: "grok-3", DisplayName: "Grok 3", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", UpstreamModel: "grok-3", PublicType: "chat"},
+		{ID: "grok-3-heavy", DisplayName: "Grok 3 Heavy", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolHeavy, Mode: "heavy", UpstreamModel: "grok-3", UpstreamMode: "heavy", PublicType: "chat"},
+		{ID: "grok-3-mini", DisplayName: "Grok 3 Mini", Type: modelconfig.TypeChat, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", UpstreamModel: "grok-3-mini", PublicType: "chat"},
+	}, nil)
 }
 
 type modelsMockAPIKeyStore struct {

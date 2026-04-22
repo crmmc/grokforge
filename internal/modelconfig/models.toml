@@ -1,12 +1,61 @@
 version = 1
 
+# ── Quota Modes ──────────────────────────────────────────────
+
+[[mode]]
+id = "auto"
+upstream_name = "auto"
+window_seconds = 72000
+[mode.default_quota]
+basic = 20
+super = 50
+heavy = 150
+
+[[mode]]
+id = "fast"
+upstream_name = "fast"
+window_seconds = 36000
+[mode.default_quota]
+basic = 60
+super = 140
+heavy = 400
+
+[[mode]]
+id = "expert"
+upstream_name = "expert"
+window_seconds = 36000
+[mode.default_quota]
+basic = 8
+super = 50
+heavy = 150
+
+[[mode]]
+id = "heavy"
+upstream_name = "heavy"
+window_seconds = 7200
+[mode.default_quota]
+basic = 0
+super = 0
+heavy = 20
+
+[[mode]]
+id = "grok43"
+upstream_name = "grok-420-computer-use-sa"
+window_seconds = 36000
+[mode.default_quota]
+basic = 0
+super = 50
+heavy = 150
+
+# ── Quota-Tracked Models ─────────────────────────────────────
+
 [[model]]
 id = "grok-4.20"
 display_name = "Grok 4.20"
 type = "chat"
 enabled = true
 pool_floor = "basic"
-quota_mode = "auto"
+mode = "auto"
 upstream_mode = "auto"
 
 [[model]]
@@ -15,7 +64,7 @@ display_name = "Grok 4.20 Fast"
 type = "chat"
 enabled = true
 pool_floor = "basic"
-quota_mode = "fast"
+mode = "fast"
 upstream_mode = "fast"
 
 [[model]]
@@ -24,7 +73,7 @@ display_name = "Grok 4.20 Think"
 type = "chat"
 enabled = true
 pool_floor = "basic"
-quota_mode = "auto"
+mode = "auto"
 upstream_mode = "auto"
 force_thinking = true
 
@@ -34,7 +83,7 @@ display_name = "Grok 4.20 Expert"
 type = "chat"
 enabled = true
 pool_floor = "basic"
-quota_mode = "expert"
+mode = "expert"
 upstream_mode = "expert"
 
 [[model]]
@@ -43,7 +92,7 @@ display_name = "Grok 4.20 Heavy"
 type = "chat"
 enabled = true
 pool_floor = "heavy"
-quota_mode = "heavy"
+mode = "heavy"
 upstream_mode = "heavy"
 
 [[model]]
@@ -52,25 +101,8 @@ display_name = "Grok 4.3 Beta"
 type = "chat"
 enabled = true
 pool_floor = "super"
-quota_mode = "grok_4_3"
+mode = "grok43"
 upstream_mode = "grok-420-computer-use-sa"
-
-[[model]]
-id = "grok-imagine-image"
-display_name = "Grok Imagine Image"
-type = "image_ws"
-enabled = true
-pool_floor = "super"
-quota_mode = "auto"
-
-[[model]]
-id = "grok-imagine-image-pro"
-display_name = "Grok Imagine Image Pro"
-type = "image_ws"
-enabled = true
-pool_floor = "super"
-quota_mode = "auto"
-enable_pro = true
 
 [[model]]
 id = "grok-imagine-image-lite"
@@ -78,7 +110,7 @@ display_name = "Grok Imagine Image Lite"
 type = "image_lite"
 enabled = true
 pool_floor = "basic"
-quota_mode = "fast"
+mode = "fast"
 upstream_mode = "fast"
 
 [[model]]
@@ -87,7 +119,7 @@ display_name = "Grok Imagine Image Edit"
 type = "image_edit"
 enabled = true
 pool_floor = "super"
-quota_mode = "auto"
+mode = "auto"
 upstream_model = "imagine-image-edit"
 upstream_mode = "auto"
 
@@ -97,6 +129,27 @@ display_name = "Grok Imagine Video"
 type = "video"
 enabled = true
 pool_floor = "super"
-quota_mode = "auto"
+mode = "auto"
 upstream_model = "grok-3"
 upstream_mode = "auto"
+
+# ── Non-Tracked Models (quota_sync = false) ──────────────────
+
+[[model]]
+id = "grok-imagine-image"
+display_name = "Grok Imagine Image"
+type = "image_ws"
+enabled = true
+pool_floor = "super"
+quota_sync = false
+cooldown_seconds = 300
+
+[[model]]
+id = "grok-imagine-image-pro"
+display_name = "Grok Imagine Image Pro"
+type = "image_ws"
+enabled = true
+pool_floor = "super"
+quota_sync = false
+cooldown_seconds = 300
+enable_pro = true

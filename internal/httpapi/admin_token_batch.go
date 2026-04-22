@@ -3,28 +3,27 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
-	"strconv"
+	"strings"
 
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
-	"github.com/go-chi/chi/v5"
 )
 
 // handleBatchTokens returns a handler for batch token operations.
-func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *config.Config) http.HandlerFunc {
+func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *config.Config, reg *registry.ModelRegistry) http.HandlerFunc {
 	return handleBatchTokensFromProvider(ts, syncer, func() *config.TokenConfig {
 		if cfg == nil {
 			return nil
 		}
 		return &cfg.Token
-	})
+	}, reg)
 }
 
-func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, getCfg func() *config.TokenConfig) http.HandlerFunc {
+func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, getCfg func() *config.TokenConfig, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req BatchTokenRequest
 		decoder := json.NewDecoder(r.Body)
@@ -44,7 +43,7 @@ func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSynce
 			if tokenCfg == nil {
 				tokenCfg = &config.TokenConfig{}
 			}
-			resp = handleBatchImport(r.Context(), ts, syncer, req, tokenCfg)
+			resp = handleBatchImport(r.Context(), ts, syncer, req, tokenCfg, reg)
 		case BatchOpExport:
 			resp = handleBatchExport(r.Context(), ts, req.IDs, r.URL.Query().Get("raw") == "true")
 		case BatchOpDelete:
@@ -81,10 +80,7 @@ type BatchTokenRequest struct {
 	Tokens      []string       `json:"tokens,omitempty"`       // For import: raw token strings
 	IDs         []uint         `json:"ids,omitempty"`          // For delete/enable/disable
 	Pool        string         `json:"pool,omitempty"`         // For import: default pool
-	ChatQuota    *int           `json:"chat_quota,omitempty"`    // For import: chat quota
-	ImageQuota   *int           `json:"image_quota,omitempty"`   // For import: image quota
-	VideoQuota   *int           `json:"video_quota,omitempty"`   // For import: video quota
-	Grok43Quota  *int           `json:"grok43_quota,omitempty"`  // For import: grok43 quota
+	Quotas      store.IntMap   `json:"quotas,omitempty"`       // For import: initial quotas (mode -> value)
 	Priority    int            `json:"priority"`               // For import: token priority
 	Status      string         `json:"status,omitempty"`       // For import: initial status (active or disabled, default: active)
 	Remark      string         `json:"remark,omitempty"`       // For import: default remark
@@ -109,66 +105,25 @@ type BatchError struct {
 	Message string `json:"message"`
 }
 
-// resolveImportQuota resolves the chat quota for an imported token.
-// If quota is nil or *quota <= 0, auto-resolve based on config defaults.
-func resolveImportQuota(quota *int, cfg *config.TokenConfig) int {
-	return resolveImportQuotaValue(quota, configDefaultChatQuota(cfg), 50)
-}
-
-func resolveImportQuotaValue(quota *int, configValue, fallback int) int {
-	if quota != nil && *quota > 0 {
-		return *quota
-	}
-	if configValue > 0 {
-		return configValue
-	}
-	return fallback
-}
-
-func configDefaultChatQuota(cfg *config.TokenConfig) int {
-	if cfg == nil {
-		return 0
-	}
-	return cfg.DefaultChatQuota
-}
-
-func resolveImportMediaQuotas(req BatchTokenRequest, cfg *config.TokenConfig) (int, int, int, int) {
-	chat := resolveImportQuota(req.ChatQuota, cfg)
-	image := resolveImportQuotaValue(req.ImageQuota, configDefaultImageQuota(cfg), 20)
-	video := resolveImportQuotaValue(req.VideoQuota, configDefaultVideoQuota(cfg), 10)
-	grok43 := resolveImportQuotaValue(req.Grok43Quota, configDefaultGrok43Quota(cfg), 25)
-	return chat, image, video, grok43
-}
-
-func configDefaultImageQuota(cfg *config.TokenConfig) int {
-	if cfg == nil {
-		return 0
-	}
-	return cfg.DefaultImageQuota
-}
-
-func configDefaultVideoQuota(cfg *config.TokenConfig) int {
-	if cfg == nil {
-		return 0
-	}
-	return cfg.DefaultVideoQuota
-}
-
-func configDefaultGrok43Quota(cfg *config.TokenConfig) int {
-	if cfg == nil {
-		return 0
-	}
-	return cfg.DefaultGrok43Quota
-}
-
 // handleBatchImport imports multiple tokens.
-func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, cfg *config.TokenConfig) BatchTokenResponse {
+func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, cfg *config.TokenConfig, reg *registry.ModelRegistry) BatchTokenResponse {
 	resp := BatchTokenResponse{Operation: BatchOpImport}
 	pool, err := token.NormalizePoolName(req.Pool)
 	if err != nil {
 		resp.Failed = len(req.Tokens)
 		resp.Errors = append(resp.Errors, BatchError{Message: "invalid pool"})
 		return resp
+	}
+
+	// If no quotas provided, use catalog default_quota for the pool
+	quotas := req.Quotas
+	if len(quotas) == 0 && reg != nil {
+		// Convert normalized pool name (ssoBasic) to catalog key (basic)
+		catalogPool := strings.ToLower(strings.TrimPrefix(pool, "sso"))
+		quotas = make(store.IntMap)
+		for _, m := range reg.SupportedModes(catalogPool) {
+			quotas[m.ID] = m.DefaultQuota[catalogPool]
+		}
 	}
 
 	// Resolve import status: default to "active", only allow "active" or "disabled"
@@ -197,25 +152,18 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 			continue
 		}
 
-		chatQ, imageQ, videoQ, grok43Q := resolveImportMediaQuotas(req, cfg)
-		token := &store.Token{
-			Token:              tokenStr,
-			Pool:               pool,
-			ChatQuota:          chatQ,
-			InitialChatQuota:   chatQ,
-			ImageQuota:         imageQ,
-			InitialImageQuota:  imageQ,
-			VideoQuota:         videoQ,
-			InitialVideoQuota:  videoQ,
-			Grok43Quota:        grok43Q,
-			InitialGrok43Quota: grok43Q,
-			Priority:          req.Priority,
-			Status:            importStatus,
-			Remark:            req.Remark,
-			NsfwEnabled:       req.NsfwEnabled != nil && *req.NsfwEnabled,
+		t := &store.Token{
+			Token:       tokenStr,
+			Pool:        pool,
+			Quotas:      quotas,
+			LimitQuotas: quotas, // initial limit = initial quota
+			Priority:    req.Priority,
+			Status:      importStatus,
+			Remark:      req.Remark,
+			NsfwEnabled: req.NsfwEnabled != nil && *req.NsfwEnabled,
 		}
 
-		if err := ts.CreateToken(ctx, token); err != nil {
+		if err := ts.CreateToken(ctx, t); err != nil {
 			resp.Failed++
 			resp.Errors = append(resp.Errors, BatchError{
 				Index:   i,
@@ -226,8 +174,8 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 		}
 		// Sync to in-memory pool
 		if syncer != nil {
-			if err := syncer.AddToPool(token); err != nil {
-				_ = ts.DeleteToken(ctx, token.ID)
+			if err := syncer.AddToPool(t); err != nil {
+				_ = ts.DeleteToken(ctx, t.ID)
 				resp.Failed++
 				resp.Errors = append(resp.Errors, BatchError{
 					Index:   i,
@@ -347,35 +295,6 @@ func handleBatchUpdate(ctx context.Context, ts TokenStoreInterface, syncer Token
 
 	resp.Success = count
 	return resp
-}
-
-// handleRefreshToken returns a handler that refreshes a token's quota.
-func handleRefreshToken(tr TokenRefresher) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		idStr := chi.URLParam(r, "id")
-		id, err := strconv.ParseUint(idStr, 10, 32)
-		if err != nil {
-			WriteError(w, 400, "invalid_request", "invalid_id",
-				"Invalid token ID")
-			return
-		}
-
-		refreshed, err := tr.RefreshToken(r.Context(), uint(id))
-		if err != nil {
-			if errors.Is(err, token.ErrTokenNotFound) {
-				WriteError(w, 404, "not_found", "token_not_found",
-					"Token not found")
-				return
-			}
-			WriteError(w, 502, "server_error", "upstream_error",
-				"Failed to refresh token quota")
-			return
-		}
-
-		resp := tokenToResponse(refreshed)
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
-	}
 }
 
 // ptrString returns a pointer to a string.

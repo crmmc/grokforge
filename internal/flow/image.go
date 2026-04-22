@@ -30,6 +30,7 @@ type ImageRequest struct {
 	Style          string `json:"style,omitempty"`
 	User           string `json:"user,omitempty"`
 	EnableNSFW     *bool  `json:"enable_nsfw,omitempty"`
+	Mode           string `json:"-"` // mode from registry for quota tracking
 }
 
 // Validate validates the image request.
@@ -79,6 +80,7 @@ type ImageEditRequest struct {
 	Model          string
 	UpstreamModel  string
 	UpstreamMode   string
+	Mode           string // mode from registry for quota tracking
 	Prompt         string
 	OriginalImages [][]byte
 	N              int
@@ -125,6 +127,7 @@ type ImageFlow struct {
 	appConfigFn       func() *config.AppConfig
 	imageConfigFn     func() *config.ImageConfig
 	modelResolver     tkn.ModelResolver
+	modeResolver      ModeResolver
 	enableProFn       func(model string) bool
 }
 
@@ -161,6 +164,20 @@ func (f *ImageFlow) SetModelResolver(resolver tkn.ModelResolver) {
 	f.modelResolver = resolver
 }
 
+// SetModeResolver sets the mode resolver for quota tracking.
+func (f *ImageFlow) SetModeResolver(resolver ModeResolver) {
+	f.modeResolver = resolver
+}
+
+// resolveMode returns the quota mode for a model, or empty string if unknown.
+func (f *ImageFlow) resolveMode(model string) string {
+	if f.modeResolver == nil {
+		return ""
+	}
+	mode, _ := f.modeResolver.ResolveMode(model)
+	return mode
+}
+
 // SetImageConfig sets image-generation defaults and retry behavior.
 func (f *ImageFlow) SetImageConfig(cfg *config.ImageConfig) {
 	f.imageConfigFn = func() *config.ImageConfig { return cfg }
@@ -185,37 +202,39 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 	ctx, cancel := context.WithTimeout(ctx, imageGenerationTimeout)
 	defer cancel()
 
+	// Resolve mode from request or model registry
+	mode := req.Mode
+	if mode == "" {
+		mode = f.resolveMode(req.Model)
+	}
+
 	start := time.Now()
 	aspectRatio := xai.ParseAspectRatio(req.Size)
 	apiKeyID := FlowAPIKeyIDFromContext(ctx)
 
 	// Pick token per request
-	tok, err := f.pickTokenForModel(req.Model)
+	tok, err := f.pickTokenForModel(req.Model, mode)
 	if err != nil {
 		return nil, err
 	}
 
-	// Generate N images (consume quota per image, only after success)
+	// Generate N images (quota pre-deducted in Pick)
 	images := make([]ImageData, 0, req.N)
 	enableNSFW := resolveEnableNSFW(req.EnableNSFW, f.imageConfig())
 	enablePro := f.resolveEnablePro(req.Model)
 	usedTokenIDs := make(map[uint]struct{})
 	for i := 0; i < req.N; i++ {
-		result, err := f.generateWithRecovery(ctx, req.Model, tok, req.Prompt, aspectRatio, enableNSFW, enablePro)
+		result, err := f.generateWithRecovery(ctx, req.Model, mode, tok, req.Prompt, aspectRatio, enableNSFW, enablePro)
 		if err != nil {
-			if !isTransportError(err) {
-				f.tokenSvc.ReportError(tok.ID, err.Error())
+			if isTransportError(err) {
+				f.tokenSvc.ReportError(tok.ID, mode, true, truncateReason(err.Error()))
+			} else {
+				f.tokenSvc.ReportError(tok.ID, mode, false, truncateReason(err.Error()))
 			}
 			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 			return nil, err
 		}
 		tok = result.token
-		if !result.consumed {
-			if _, err := f.tokenSvc.Consume(tok.ID, tkn.CategoryImage, 1); err != nil {
-				f.recordUsage(apiKeyID, tok.ID, req.Model, 429, time.Since(start))
-				return nil, fmt.Errorf("token quota exhausted: %w", err)
-			}
-		}
 		images = append(images, *result.data)
 		usedTokenIDs[tok.ID] = struct{}{}
 	}
@@ -248,11 +267,11 @@ func (f *ImageFlow) recordUsage(apiKeyID, tokenID uint, model string, status int
 	})
 }
 
-func (f *ImageFlow) pickTokenForModel(model string) (*store.Token, error) {
-	return f.pickTokenForModelExcluding(model, nil)
+func (f *ImageFlow) pickTokenForModel(model, mode string) (*store.Token, error) {
+	return f.pickTokenForModelExcluding(model, mode, nil)
 }
 
-func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]struct{}) (*store.Token, error) {
+func (f *ImageFlow) pickTokenForModelExcluding(model, mode string, exclude map[uint]struct{}) (*store.Token, error) {
 	if f.modelResolver == nil {
 		return nil, tkn.ErrModelNotFound
 	}
@@ -262,7 +281,7 @@ func (f *ImageFlow) pickTokenForModelExcluding(model string, exclude map[uint]st
 	}
 	var lastErr error
 	for _, pool := range pools {
-		tok, err := f.tokenSvc.PickExcluding(pool, tkn.CategoryImage, exclude)
+		tok, err := f.tokenSvc.PickExcluding(pool, mode, exclude)
 		if err == nil {
 			return tok, nil
 		}

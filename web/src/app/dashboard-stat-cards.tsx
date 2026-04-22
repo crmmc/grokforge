@@ -4,7 +4,7 @@ import { useTranslation } from '@/lib/i18n/context'
 import { formatNumber } from '@/lib/utils'
 
 interface DashboardStatCardsProps {
-  tokenStats?: { active: number; total: number; disabled: number; cooling: number; expired: number }
+  tokenStats?: { active: number; total: number; disabled: number; exhausted: number; expired: number }
   usageStats?: { total: number; today?: Record<string, number>; tokens_today?: { total: number; input: number; output: number; cache: number }; delta?: Record<string, number | null> }
   status?: { uptime: number; version?: string }
   apiKeyStats?: { active: number; total: number; inactive: number; rate_limited: number; expired: number }

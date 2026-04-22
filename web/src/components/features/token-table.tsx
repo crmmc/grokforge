@@ -18,7 +18,7 @@ import { buildTokenQuotaMetrics, quotaSurfaceColor, quotaTextColor } from './tok
 const statusColors: Record<TokenStatus, string> = {
   active: 'bg-green-700',
   expired: 'bg-red-600',
-  cooling: 'bg-yellow-500',
+  exhausted: 'bg-yellow-500',
   disabled: 'bg-gray-400',
 }
 
@@ -89,7 +89,7 @@ function TokenTableInner({
 
   const allSelected = tokens.length > 0 && selectedIds.size === tokens.length
   const someSelected = selectedIds.size > 0 && selectedIds.size < tokens.length
-  const quotaLabels = {
+  const quotaLabels: Record<string, string> = {
     chat: t.tokens.chatQuota,
     image: t.tokens.imageQuota,
     video: t.tokens.videoQuota,
@@ -142,7 +142,7 @@ function TokenTableInner({
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center gap-2">
-                      <div className={`w-2 h-2 rounded-full ${statusColors[token.status]}`} title={token.status} />
+                      <div className={`w-2 h-2 rounded-full ${statusColors[(token.display_status || token.status) as TokenStatus]}`} title={token.display_status || token.status} />
                       <button type="button" onClick={() => onEdit(token)} className="rounded bg-[rgba(0,0,0,0.04)] px-2 py-0.5 text-left text-sm font-mono hover:bg-[rgba(0,0,0,0.04)]/80 min-w-[180px]" title={t.common.edit}>
                         {maskToken(token.token)}
                       </button>
@@ -154,8 +154,8 @@ function TokenTableInner({
                   <TableCell className="font-medium">{poolLabel(token.pool, t)}</TableCell>
                   <TableCell>
                     <StatusBadge
-                      status={token.status}
-                      label={token.status === 'active' ? t.tokens.active : token.status === 'expired' ? t.tokens.expired : token.status === 'cooling' ? t.tokens.cooling : t.tokens.disabled}
+                      status={token.display_status || token.status}
+                      label={(() => { const s = token.display_status || token.status; return s === 'active' ? t.tokens.active : s === 'expired' ? t.tokens.expired : s === 'exhausted' ? t.tokens.exhausted : t.tokens.disabled })()}
                       title={token.status_reason || ''}
                     />
                   </TableCell>

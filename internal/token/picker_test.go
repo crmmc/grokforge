@@ -111,13 +111,13 @@ func TestPickForModel_ThreePool(t *testing.T) {
 
 	t.Run("picks from first available pool in order", func(t *testing.T) {
 		m := NewTokenManager(cfg)
-		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
-		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}}
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 140}}
 		m.AddToken(basicToken)
 		m.AddToken(superToken)
 
 		// basic floor model should pick from basic pool first
-		tok, err := m.PickForModel("grok-basic", resolver, CategoryChat)
+		tok, err := m.PickForModel("grok-basic", resolver, "auto")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -129,11 +129,11 @@ func TestPickForModel_ThreePool(t *testing.T) {
 	t.Run("falls back to next pool when first is empty", func(t *testing.T) {
 		m := NewTokenManager(cfg)
 		// Only super token, no basic token
-		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 140}}
 		m.AddToken(superToken)
 
 		// basic floor model: basic pool empty -> try super pool
-		tok, err := m.PickForModel("grok-basic", resolver, CategoryChat)
+		tok, err := m.PickForModel("grok-basic", resolver, "auto")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -146,7 +146,7 @@ func TestPickForModel_ThreePool(t *testing.T) {
 		m := NewTokenManager(cfg)
 		// No tokens at all
 
-		_, err := m.PickForModel("grok-basic", resolver, CategoryChat)
+		_, err := m.PickForModel("grok-basic", resolver, "auto")
 		if err != ErrNoTokenAvailable {
 			t.Errorf("expected ErrNoTokenAvailable, got %v", err)
 		}
@@ -154,7 +154,7 @@ func TestPickForModel_ThreePool(t *testing.T) {
 
 	t.Run("unknown model returns ErrModelNotFound", func(t *testing.T) {
 		m := NewTokenManager(cfg)
-		_, err := m.PickForModel("unknown", resolver, CategoryChat)
+		_, err := m.PickForModel("unknown", resolver, "auto")
 		if err != ErrModelNotFound {
 			t.Errorf("expected ErrModelNotFound, got %v", err)
 		}
@@ -162,13 +162,13 @@ func TestPickForModel_ThreePool(t *testing.T) {
 
 	t.Run("super floor skips basic pool", func(t *testing.T) {
 		m := NewTokenManager(cfg)
-		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
-		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), ChatQuota: 140}
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}}
+		superToken := &store.Token{ID: 2, Token: "super-tok", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 140}}
 		m.AddToken(basicToken)
 		m.AddToken(superToken)
 
 		// super floor model should NOT pick from basic pool
-		tok, err := m.PickForModel("grok-super", resolver, CategoryChat)
+		tok, err := m.PickForModel("grok-super", resolver, "auto")
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -179,11 +179,11 @@ func TestPickForModel_ThreePool(t *testing.T) {
 
 	t.Run("super floor with only basic token returns error", func(t *testing.T) {
 		m := NewTokenManager(cfg)
-		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), ChatQuota: 80}
+		basicToken := &store.Token{ID: 1, Token: "basic-tok", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}}
 		m.AddToken(basicToken)
 
 		// super floor model: only basic pool has tokens, but super floor can't use basic
-		_, err := m.PickForModel("grok-super", resolver, CategoryChat)
+		_, err := m.PickForModel("grok-super", resolver, "auto")
 		if err != ErrNoTokenAvailable {
 			t.Errorf("expected ErrNoTokenAvailable, got %v", err)
 		}

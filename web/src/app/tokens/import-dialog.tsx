@@ -19,9 +19,6 @@ interface ImportDialogProps {
 export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const [tokens, setTokens] = useState('')
   const [pool, setPool] = useState<string>('ssoBasic')
-  const [chatQuota, setChatQuota] = useState<string>('')
-  const [imageQuota, setImageQuota] = useState<string>('')
-  const [videoQuota, setVideoQuota] = useState<string>('')
   const [priority, setPriority] = useState<string>('')
   const [importStatus, setImportStatus] = useState<string>('active')
   const [remark, setRemark] = useState('')
@@ -44,17 +41,11 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
     }
 
     try {
-      const chatQuotaNum = parseOptionalInt(chatQuota)
-      const imageQuotaNum = parseOptionalInt(imageQuota)
-      const videoQuotaNum = parseOptionalInt(videoQuota)
       const priorityNum = parseOptionalInt(priority)
       const result = await batchTokens.mutateAsync({
         operation: 'import',
         tokens: validLines,
         pool,
-        chat_quota: chatQuotaNum,
-        image_quota: imageQuotaNum,
-        video_quota: videoQuotaNum,
         priority: priorityNum,
         status: importStatus !== 'active' ? importStatus : undefined,
         remark: remark || undefined,
@@ -71,9 +62,6 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
       if (result.success > 0) {
         setTokens('')
         setPool('ssoBasic')
-        setChatQuota('')
-        setImageQuota('')
-        setVideoQuota('')
         setPriority('')
         setImportStatus('active')
         setRemark('')
@@ -92,9 +80,6 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
   const handleClose = () => {
     setTokens('')
     setPool('ssoBasic')
-    setChatQuota('')
-    setImageQuota('')
-    setVideoQuota('')
     setPriority('')
     setImportStatus('active')
     setRemark('')
@@ -111,7 +96,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
         <div className="space-y-4 py-4">
           <ImportTokensInput tokens={tokens} onChange={setTokens} />
 
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="pool">{t.tokens.pool}</Label>
               <Select value={pool} onChange={(e) => setPool(e.target.value)}>
@@ -120,41 +105,6 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
                 <SelectOption value="ssoHeavy">{t.dashboard.heavyPool}</SelectOption>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="chatQuota">{t.tokens.chatQuota}</Label>
-              <Input
-                id="chatQuota"
-                type="number"
-                value={chatQuota}
-                onChange={(e) => setChatQuota(e.target.value)}
-                placeholder="80"
-                min={0}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="imageQuota">{t.tokens.imageQuota}</Label>
-              <Input
-                id="imageQuota"
-                type="number"
-                value={imageQuota}
-                onChange={(e) => setImageQuota(e.target.value)}
-                placeholder="20"
-                min={0}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="videoQuota">{t.tokens.videoQuota}</Label>
-              <Input
-                id="videoQuota"
-                type="number"
-                value={videoQuota}
-                onChange={(e) => setVideoQuota(e.target.value)}
-                placeholder="5"
-                min={0}
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-4 gap-4">
             <div className="space-y-2">
               <Label htmlFor="priority">{t.tokens.priority}</Label>
               <Input

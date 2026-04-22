@@ -38,8 +38,6 @@ func (m *TokenManager) AddToken(token *store.Token) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	normalizeTokenQuotaBaselines(token)
-
 	pool, ok := m.pools[token.Pool]
 	if !ok {
 		pool = NewTokenPool(token.Pool)
@@ -73,19 +71,19 @@ func (m *TokenManager) GetToken(id uint) *store.Token {
 }
 
 // Pick selects a token from the specified pool using the configured selection algorithm.
-// Returns ErrNoTokenAvailable when no active tokens are available (no cooling fallback).
-func (m *TokenManager) Pick(poolName string, cat QuotaCategory) (*store.Token, error) {
-	return m.pick(poolName, cat, nil)
+// Performs optimistic quota deduction on selection.
+func (m *TokenManager) Pick(poolName string, mode string) (*store.Token, error) {
+	return m.pick(poolName, mode, nil)
 }
 
 // PickExcluding selects a token while skipping excluded token IDs.
-func (m *TokenManager) PickExcluding(poolName string, cat QuotaCategory, exclude map[uint]struct{}) (*store.Token, error) {
-	return m.pick(poolName, cat, exclude)
+func (m *TokenManager) PickExcluding(poolName string, mode string, exclude map[uint]struct{}) (*store.Token, error) {
+	return m.pick(poolName, mode, exclude)
 }
 
-func (m *TokenManager) pick(poolName string, cat QuotaCategory, exclude map[uint]struct{}) (*store.Token, error) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struct{}) (*store.Token, error) {
+	m.mu.Lock() // 写锁，因为要修改 quota
+	defer m.mu.Unlock()
 
 	pool, ok := m.pools[poolName]
 	if !ok {
@@ -97,28 +95,19 @@ func (m *TokenManager) pick(poolName string, cat QuotaCategory, exclude map[uint
 		algo = AlgoHighQuotaFirst
 	}
 
-	if token := pool.SelectExcluding(algo, cat, exclude); token != nil {
+	if token := pool.SelectExcluding(algo, mode, exclude); token != nil {
+		// 乐观预扣：pick 即扣减
+		if token.Quotas == nil {
+			token.Quotas = make(store.IntMap)
+		}
+		token.Quotas[mode]--
+		now := time.Now()
+		token.LastUsed = &now
+		m.dirty[token.ID] = struct{}{}
 		return token, nil
 	}
 
 	return nil, ErrNoTokenAvailable
-}
-
-// MarkCooling transitions a token to cooling state.
-func (m *TokenManager) MarkCooling(id uint, duration time.Duration, reason string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	token, ok := m.tokens[id]
-	if !ok {
-		return
-	}
-
-	coolUntil := time.Now().Add(duration)
-	token.Status = string(StatusCooling)
-	token.StatusReason = reason
-	token.CoolUntil = &coolUntil
-	m.dirty[id] = struct{}{}
 }
 
 // MarkSuccess transitions a token back to active state.
@@ -133,7 +122,6 @@ func (m *TokenManager) MarkSuccess(id uint) {
 
 	token.Status = string(StatusActive)
 	token.StatusReason = ""
-	token.CoolUntil = nil
 	token.FailCount = 0
 	m.dirty[id] = struct{}{}
 }
@@ -187,20 +175,73 @@ func (m *TokenManager) MarkExpired(id uint, reason string) {
 	m.dirty[id] = struct{}{}
 }
 
+// RefundQuota restores one unit of quota for the given mode.
+// Used when a recoverable error occurs after optimistic deduction.
+func (m *TokenManager) RefundQuota(id uint, mode string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	token, ok := m.tokens[id]
+	if !ok {
+		return
+	}
+
+	if token.Quotas == nil {
+		token.Quotas = make(store.IntMap)
+	}
+	token.Quotas[mode]++
+	m.dirty[id] = struct{}{}
+}
+
+// ClearModeQuota sets the quota for a specific mode to zero.
+// Used when a 429 rate limit is received for a specific mode.
+func (m *TokenManager) ClearModeQuota(id uint, mode string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	token, ok := m.tokens[id]
+	if !ok {
+		return
+	}
+
+	if token.Quotas == nil {
+		token.Quotas = make(store.IntMap)
+	}
+	token.Quotas[mode] = 0
+	m.dirty[id] = struct{}{}
+}
+
+// UpdateModeQuota sets both quota and limit for a specific mode.
+// Used by the refresh scheduler after fetching upstream rate limits.
+func (m *TokenManager) UpdateModeQuota(id uint, mode string, remaining int, limit int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	token, ok := m.tokens[id]
+	if !ok {
+		return
+	}
+
+	if token.Quotas == nil {
+		token.Quotas = make(store.IntMap)
+	}
+	if token.LimitQuotas == nil {
+		token.LimitQuotas = make(store.IntMap)
+	}
+	token.Quotas[mode] = remaining
+	token.LimitQuotas[mode] = limit
+	m.dirty[id] = struct{}{}
+}
+
 // TokenSnapshot holds a copy of token data for safe persistence.
 type TokenSnapshot struct {
-	ID                uint
-	Status            string
-	StatusReason      string
-	ChatQuota         int
-	InitialChatQuota  int
-	ImageQuota        int
-	InitialImageQuota int
-	VideoQuota        int
-	InitialVideoQuota int
-	FailCount         int
-	CoolUntil         *time.Time
-	LastUsed          *time.Time
+	ID           uint
+	Status       string
+	StatusReason string
+	Quotas       store.IntMap
+	LimitQuotas  store.IntMap
+	FailCount    int
+	LastUsed     *time.Time
 }
 
 // GetDirtyTokens returns snapshots of tokens that have been modified.
@@ -214,20 +255,12 @@ func (m *TokenManager) GetDirtyTokens() []TokenSnapshot {
 	for id := range m.dirty {
 		if token, ok := m.tokens[id]; ok {
 			snapshot := TokenSnapshot{
-				ID:                token.ID,
-				Status:            token.Status,
-				StatusReason:      token.StatusReason,
-				ChatQuota:         token.ChatQuota,
-				InitialChatQuota:  token.InitialChatQuota,
-				ImageQuota:        token.ImageQuota,
-				InitialImageQuota: token.InitialImageQuota,
-				VideoQuota:        token.VideoQuota,
-				InitialVideoQuota: token.InitialVideoQuota,
-				FailCount:         token.FailCount,
-			}
-			if token.CoolUntil != nil {
-				t := *token.CoolUntil
-				snapshot.CoolUntil = &t
+				ID:           token.ID,
+				Status:       token.Status,
+				StatusReason: token.StatusReason,
+				Quotas:       copyIntMap(token.Quotas),
+				LimitQuotas:  copyIntMap(token.LimitQuotas),
+				FailCount:    token.FailCount,
 			}
 			if token.LastUsed != nil {
 				t := *token.LastUsed
@@ -237,6 +270,17 @@ func (m *TokenManager) GetDirtyTokens() []TokenSnapshot {
 		}
 	}
 	return result
+}
+
+func copyIntMap(m store.IntMap) store.IntMap {
+	if m == nil {
+		return nil
+	}
+	cp := make(store.IntMap, len(m))
+	for k, v := range m {
+		cp[k] = v
+	}
+	return cp
 }
 
 // ClearDirty removes the given token IDs from the dirty set.
@@ -266,43 +310,9 @@ func (m *TokenManager) GetTokenPool(id uint) string {
 	return ""
 }
 
-// GetCoolingTokens returns all tokens in cooling state.
-func (m *TokenManager) GetCoolingTokens() []TokenSnapshot {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	result := make([]TokenSnapshot, 0)
-	for _, token := range m.tokens {
-		if Status(token.Status) == StatusCooling {
-			snapshot := TokenSnapshot{
-				ID:                token.ID,
-				Status:            token.Status,
-				StatusReason:      token.StatusReason,
-				ChatQuota:         token.ChatQuota,
-				InitialChatQuota:  token.InitialChatQuota,
-				ImageQuota:        token.ImageQuota,
-				InitialImageQuota: token.InitialImageQuota,
-				VideoQuota:        token.VideoQuota,
-				InitialVideoQuota: token.InitialVideoQuota,
-				FailCount:         token.FailCount,
-			}
-			if token.CoolUntil != nil {
-				t := *token.CoolUntil
-				snapshot.CoolUntil = &t
-			}
-			if token.LastUsed != nil {
-				t := *token.LastUsed
-				snapshot.LastUsed = &t
-			}
-			result = append(result, snapshot)
-		}
-	}
-	return result
-}
-
-// RestoreToken restores a single token to the given quotas and marks it active.
-// Used by the auto-mode recovery scheduler when a token's cooling period expires.
-func (m *TokenManager) RestoreToken(id uint, chatQuota, imageQuota, videoQuota, grok43Quota int) {
+// RestoreToken updates quotas and limit_quotas for a token after refresh.
+// Used by the refresh scheduler to batch-update multiple modes at once.
+func (m *TokenManager) RestoreToken(id uint, quotas store.IntMap, limitQuotas store.IntMap) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -311,34 +321,23 @@ func (m *TokenManager) RestoreToken(id uint, chatQuota, imageQuota, videoQuota, 
 		return
 	}
 
-	t.ChatQuota = chatQuota
-	t.InitialChatQuota = chatQuota
-	t.ImageQuota = imageQuota
-	t.InitialImageQuota = imageQuota
-	t.VideoQuota = videoQuota
-	t.InitialVideoQuota = videoQuota
-	t.Grok43Quota = grok43Quota
-	t.InitialGrok43Quota = grok43Quota
-	t.Status = string(StatusActive)
-	t.StatusReason = ""
-	t.CoolUntil = nil
-	m.dirty[id] = struct{}{}
-}
+	if t.Quotas == nil {
+		t.Quotas = make(store.IntMap)
+	}
+	if t.LimitQuotas == nil {
+		t.LimitQuotas = make(store.IntMap)
+	}
+	for mode, val := range quotas {
+		t.Quotas[mode] = val
+	}
+	for mode, val := range limitQuotas {
+		t.LimitQuotas[mode] = val
+	}
 
-func normalizeTokenQuotaBaselines(token *store.Token) {
-	if token == nil {
-		return
+	// If any quota was restored and token was active, ensure it stays active
+	if Status(t.Status) == StatusActive {
+		t.StatusReason = ""
+		t.FailCount = 0
 	}
-	if token.InitialChatQuota < token.ChatQuota {
-		token.InitialChatQuota = token.ChatQuota
-	}
-	if token.InitialImageQuota < token.ImageQuota {
-		token.InitialImageQuota = token.ImageQuota
-	}
-	if token.InitialVideoQuota < token.VideoQuota {
-		token.InitialVideoQuota = token.VideoQuota
-	}
-	if token.InitialGrok43Quota < token.Grok43Quota {
-		token.InitialGrok43Quota = token.Grok43Quota
-	}
+	m.dirty[id] = struct{}{}
 }

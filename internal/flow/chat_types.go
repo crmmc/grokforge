@@ -9,6 +9,11 @@ import (
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
+// ModeResolver resolves a model request name to its quota mode string.
+type ModeResolver interface {
+	ResolveMode(requestName string) (mode string, ok bool)
+}
+
 // flowCtxKey is a context key type for flow-layer values.
 type flowCtxKey string
 
@@ -26,12 +31,12 @@ func FlowAPIKeyIDFromContext(ctx context.Context) uint {
 
 // TokenServicer defines the interface for token management.
 type TokenServicer interface {
-	Pick(pool string, cat tkn.QuotaCategory) (*store.Token, error)
-	PickExcluding(pool string, cat tkn.QuotaCategory, exclude map[uint]struct{}) (*store.Token, error)
-	Consume(tokenID uint, cat tkn.QuotaCategory, cost int) (remaining int, err error)
+	Pick(pool string, mode string) (*store.Token, error)
+	PickExcluding(pool string, mode string, exclude map[uint]struct{}) (*store.Token, error)
+	RefundQuota(id uint, mode string)
 	ReportSuccess(id uint)
-	ReportRateLimit(id uint, reason string)
-	ReportError(id uint, reason string)
+	ReportRateLimit(id uint, mode string, reason string)
+	ReportError(id uint, mode string, recoverable bool, reason string)
 	MarkExpired(id uint, reason string)
 }
 
@@ -92,7 +97,7 @@ type ChatRequest struct {
 	UpstreamMode      string    `json:"-"` // Grok API model mode from registry
 	ForceThinking     bool      `json:"-"` // Force reasoning_effort=high from registry
 	DeepSearch        string    `json:"-"` // "default" | "deeper"
-	QuotaMode         string    `json:"-"` // quota_mode from registry for category mapping
+	Mode              string    `json:"-"` // mode from registry for quota tracking
 }
 
 // Usage represents token usage statistics.

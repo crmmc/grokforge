@@ -81,9 +81,7 @@ export interface BatchTokenRequest {
   ids?: number[];
   tokens?: string[];
   pool?: string;
-  chat_quota?: number;
-  image_quota?: number;
-  video_quota?: number;
+  quotas?: Record<string, number>;
   priority?: number;
   status?: string;
   remark?: string;

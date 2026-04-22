@@ -24,9 +24,7 @@ function toFormValues(token?: Token): TokenUpdateInput {
     return {
       status: 'active',
       pool: 'ssoBasic',
-      chat_quota: 0,
-      image_quota: 0,
-      video_quota: 0,
+      quotas: {},
       remark: '',
       nsfw_enabled: false,
     }
@@ -35,11 +33,28 @@ function toFormValues(token?: Token): TokenUpdateInput {
   return {
     status: token.status,
     pool: token.pool,
-    chat_quota: token.chat_quota,
-    image_quota: token.image_quota,
-    video_quota: token.video_quota,
+    quotas: { ...(token.quotas ?? {}) },
     remark: token.remark ?? '',
     nsfw_enabled: token.nsfw_enabled ?? false,
+  }
+}
+
+/** Get sorted mode keys from token quotas/limit_quotas */
+function getQuotaModes(token?: Token): string[] {
+  if (!token) return []
+  const keys = new Set([
+    ...Object.keys(token.quotas ?? {}),
+    ...Object.keys(token.limit_quotas ?? {}),
+  ])
+  return Array.from(keys).sort()
+}
+
+function modeLabel(mode: string, t: ReturnType<typeof useTranslation>['t']): string {
+  switch (mode) {
+    case 'chat': return t.tokens.chatQuota
+    case 'image': return t.tokens.imageQuota
+    case 'video': return t.tokens.videoQuota
+    default: return mode
   }
 }
 
@@ -92,6 +107,8 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
     }
   }
 
+  const modes = getQuotaModes(tokenQuery.data)
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-[500px]">
@@ -136,25 +153,32 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
                     <SelectOption value="active">{t.tokens.active}</SelectOption>
                     <SelectOption value="disabled">{t.tokens.disabled}</SelectOption>
                     <SelectOption value="expired">{t.tokens.expired}</SelectOption>
-                    <SelectOption value="cooling">{t.tokens.cooling}</SelectOption>
+                    <SelectOption value="exhausted">{t.tokens.exhausted}</SelectOption>
                   </Select>
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="chat_quota">{t.tokens.chatQuota}</Label>
-                  <Input id="chat_quota" type="number" {...form.register('chat_quota', { valueAsNumber: true })} placeholder="80" />
+              {modes.length > 0 && (
+                <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(modes.length, 3)}, 1fr)` }}>
+                  {modes.map((mode) => {
+                    const limit = tokenQuery.data?.limit_quotas?.[mode] ?? 0
+                    return (
+                      <div key={mode} className="space-y-2">
+                        <Label htmlFor={`quota-${mode}`}>
+                          {modeLabel(mode, t)}
+                          <span className="ml-1 text-xs text-muted">/ {limit}</span>
+                        </Label>
+                        <Input
+                          id={`quota-${mode}`}
+                          type="number"
+                          {...form.register(`quotas.${mode}`, { valueAsNumber: true })}
+                          placeholder="0"
+                        />
+                      </div>
+                    )
+                  })}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="image_quota">{t.tokens.imageQuota}</Label>
-                  <Input id="image_quota" type="number" {...form.register('image_quota', { valueAsNumber: true })} placeholder="20" />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="video_quota">{t.tokens.videoQuota}</Label>
-                  <Input id="video_quota" type="number" {...form.register('video_quota', { valueAsNumber: true })} placeholder="5" />
-                </div>
-              </div>
+              )}
 
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="nsfw_enabled">NSFW {t.tokens.nsfwEnabled}</Label>

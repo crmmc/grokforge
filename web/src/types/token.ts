@@ -5,15 +5,11 @@ export interface Token {
   token: string
   pool: string
   status: TokenStatus
+  display_status: string // active | disabled | expired | exhausted
   status_reason?: string
-  chat_quota: number
-  total_chat_quota: number
-  image_quota: number
-  total_image_quota: number
-  video_quota: number
-  total_video_quota: number
+  quotas: Record<string, number>       // mode -> remaining
+  limit_quotas: Record<string, number> // mode -> upper limit
   fail_count: number
-  cool_until: string | null
   last_used: string | null
   priority: number
   remark?: string
@@ -22,14 +18,12 @@ export interface Token {
   updated_at: string
 }
 
-export type TokenStatus = 'active' | 'disabled' | 'expired' | 'cooling'
+export type TokenStatus = 'active' | 'disabled' | 'expired' | 'exhausted'
 
 export interface TokenUpdateRequest {
   status?: TokenStatus
   pool?: string
-  chat_quota?: number
-  image_quota?: number
-  video_quota?: number
+  quotas?: Record<string, number>
   remark?: string
   nsfw_enabled?: boolean
 }

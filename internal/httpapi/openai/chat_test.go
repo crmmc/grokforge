@@ -218,37 +218,33 @@ func newTestImageFlow(mock *mockImagineClient) *flow.ImageFlow {
 // chatMockTokenSvc is a minimal TokenServicer for httpapi chat tests.
 type chatMockTokenSvc struct{}
 
-func (m *chatMockTokenSvc) Pick(pool string, _ tkn.QuotaCategory) (*store.Token, error) {
+func (m *chatMockTokenSvc) Pick(pool string, mode string) (*store.Token, error) {
 	return &store.Token{ID: 1, Token: "tok-test", Pool: pool}, nil
 }
-func (m *chatMockTokenSvc) PickExcluding(pool string, _ tkn.QuotaCategory, _ map[uint]struct{}) (*store.Token, error) {
-	return m.Pick(pool, tkn.CategoryChat)
+func (m *chatMockTokenSvc) PickExcluding(pool string, mode string, _ map[uint]struct{}) (*store.Token, error) {
+	return m.Pick(pool, mode)
 }
-func (m *chatMockTokenSvc) Consume(tokenID uint, _ tkn.QuotaCategory, _ int) (int, error) {
-	return 99, nil
-}
-func (m *chatMockTokenSvc) ReportSuccess(id uint)                  {}
-func (m *chatMockTokenSvc) ReportRateLimit(id uint, reason string) {}
-func (m *chatMockTokenSvc) ReportError(id uint, reason string)     {}
-func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)     {}
+func (m *chatMockTokenSvc) RefundQuota(id uint, mode string)                              {}
+func (m *chatMockTokenSvc) ReportSuccess(id uint)                                         {}
+func (m *chatMockTokenSvc) ReportRateLimit(id uint, mode string, reason string)            {}
+func (m *chatMockTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {}
+func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)                             {}
 
 type chatUnavailableTokenSvc struct {
 	err error
 }
 
-func (m *chatUnavailableTokenSvc) Pick(pool string, _ tkn.QuotaCategory) (*store.Token, error) {
+func (m *chatUnavailableTokenSvc) Pick(pool string, mode string) (*store.Token, error) {
 	return nil, m.err
 }
-func (m *chatUnavailableTokenSvc) PickExcluding(pool string, _ tkn.QuotaCategory, _ map[uint]struct{}) (*store.Token, error) {
+func (m *chatUnavailableTokenSvc) PickExcluding(pool string, mode string, _ map[uint]struct{}) (*store.Token, error) {
 	return nil, m.err
 }
-func (m *chatUnavailableTokenSvc) Consume(tokenID uint, _ tkn.QuotaCategory, _ int) (int, error) {
-	return 0, m.err
-}
-func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                  {}
-func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, reason string) {}
-func (m *chatUnavailableTokenSvc) ReportError(id uint, reason string)     {}
-func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string)     {}
+func (m *chatUnavailableTokenSvc) RefundQuota(id uint, mode string)                              {}
+func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                                         {}
+func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, mode string, reason string)            {}
+func (m *chatUnavailableTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {}
+func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string)                             {}
 
 type chatMockAPIKeyStore struct{}
 
@@ -332,11 +328,11 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 // image/video/image_edit models used in routing tests.
 func testMediaRegistry() *registry.ModelRegistry {
 	return registry.NewTestRegistry([]modelconfig.ModelSpec{
-		{ID: "grok-imagine-image", Type: modelconfig.TypeImageWS, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, PublicType: "image_ws"},
-		{ID: "grok-imagine-image-lite", Type: modelconfig.TypeImageLite, Enabled: true, PoolFloor: modelconfig.PoolBasic, QuotaMode: modelconfig.QuotaAuto, PublicType: "image"},
-		{ID: "grok-imagine-image-edit", Type: modelconfig.TypeImageEdit, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST", PublicType: "image_edit"},
-		{ID: "grok-imagine-video", Type: modelconfig.TypeVideo, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaMode: modelconfig.QuotaAuto, UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST", PublicType: "video"},
-	})
+		{ID: "grok-imagine-image", Type: modelconfig.TypeImageWS, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", PublicType: "image_ws"},
+		{ID: "grok-imagine-image-lite", Type: modelconfig.TypeImageLite, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", PublicType: "image"},
+		{ID: "grok-imagine-image-edit", Type: modelconfig.TypeImageEdit, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST", PublicType: "image_edit"},
+		{ID: "grok-imagine-video", Type: modelconfig.TypeVideo, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST", PublicType: "video"},
+	}, nil)
 }
 
 func TestHandleChat_ImageModelRoute(t *testing.T) {

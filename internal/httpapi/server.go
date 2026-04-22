@@ -43,7 +43,6 @@ type Server struct {
 	cfg             *config.Config
 	runtime         *config.Runtime
 	tokenStore      TokenStoreInterface
-	tokenRefresher  TokenRefresher
 	tokenPoolSyncer TokenPoolSyncer
 	usageLogStore   UsageLogStoreInterface
 	apiKeyStore     APIKeyStoreInterface
@@ -60,7 +59,6 @@ type ServerConfig struct {
 	Runtime         *config.Runtime
 	ChatProvider    ChatProvider
 	TokenStore      TokenStoreInterface
-	TokenRefresher  TokenRefresher
 	TokenPoolSyncer TokenPoolSyncer
 	UsageLogStore   UsageLogStoreInterface
 	APIKeyStore     APIKeyStoreInterface
@@ -87,7 +85,6 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg:             cfg.Config,
 		runtime:         cfg.Runtime,
 		tokenStore:      cfg.TokenStore,
-		tokenRefresher:  cfg.TokenRefresher,
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
 		usageLogStore:   cfg.UsageLogStore,
 		apiKeyStore:     cfg.APIKeyStore,
@@ -218,32 +215,14 @@ func (s *Server) setupRoutes() {
 							return nil
 						}
 						return &current.Token
-					}))
+					}, s.modelRegistry))
 				} else {
-					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.cfg))
-				}
-
-				if s.tokenRefresher != nil {
-					r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenRefresher))
+					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.cfg, s.modelRegistry))
 				}
 
 				// Stats endpoints (token-based)
 				r.Get("/stats/tokens", handleTokenStats(s.tokenStore))
-				if s.runtime != nil {
-					r.Get("/stats/quota", handleQuotaStatsFromProvider(s.tokenStore, func() *config.TokenConfig {
-						current := s.runtime.Get()
-						if current == nil {
-							return nil
-						}
-						return &current.Token
-					}))
-				} else {
-					var tokenCfg *config.TokenConfig
-					if s.cfg != nil {
-						tokenCfg = &s.cfg.Token
-					}
-					r.Get("/stats/quota", handleQuotaStats(s.tokenStore, tokenCfg))
-				}
+				r.Get("/stats/quota", handleQuotaStats(s.tokenStore))
 			}
 
 			// Stats endpoints (usage-based)

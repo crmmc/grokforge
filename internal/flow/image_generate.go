@@ -8,7 +8,6 @@ import (
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
-	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -20,9 +19,8 @@ const (
 var errImageGenerationBlocked = errors.New("content blocked by safety filter")
 
 type imageGenerationResult struct {
-	data     *ImageData
-	token    *store.Token
-	consumed bool // true if quota was already consumed (e.g. by blocked recovery)
+	data  *ImageData
+	token *store.Token
 }
 
 type imageAttemptResult struct {
@@ -34,6 +32,7 @@ type imageAttemptResult struct {
 func (f *ImageFlow) generateWithRecovery(
 	ctx context.Context,
 	model string,
+	mode string,
 	token *store.Token,
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
@@ -48,7 +47,7 @@ func (f *ImageFlow) generateWithRecovery(
 	if !blockedParallelEnabled(f.imageConfig()) {
 		return nil, err
 	}
-	return f.generateBlockedRecovery(ctx, model, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
+	return f.generateBlockedRecovery(ctx, model, mode, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 func (f *ImageFlow) generateSingle(
@@ -89,6 +88,7 @@ func (f *ImageFlow) generateSingle(
 func (f *ImageFlow) generateBlockedRecovery(
 	ctx context.Context,
 	model string,
+	mode string,
 	initialTokenID uint,
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
@@ -97,7 +97,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 	if attempts == 0 {
 		return nil, errImageGenerationBlocked
 	}
-	recoveryTokens := f.selectRecoveryTokens(model, initialTokenID, attempts)
+	recoveryTokens := f.selectRecoveryTokens(model, mode, initialTokenID, attempts)
 	if len(recoveryTokens) == 0 {
 		return nil, errImageGenerationBlocked
 	}
@@ -121,13 +121,6 @@ func (f *ImageFlow) generateBlockedRecovery(
 				enableNSFW,
 				enablePro,
 			)
-			if result.err == nil {
-				// Consume quota only on success
-				if _, consumeErr := f.tokenSvc.Consume(tok.ID, tkn.CategoryImage, 1); consumeErr != nil {
-					result.err = fmt.Errorf("token quota exhausted: %w", consumeErr)
-					result.data = nil
-				}
-			}
 			select {
 			case resultCh <- result:
 			case <-retryCtx.Done():
@@ -140,14 +133,14 @@ func (f *ImageFlow) generateBlockedRecovery(
 		close(resultCh)
 	})
 
-	return selectImageRecoveryResult(resultCh, cancel, f.tokenSvc)
+	return selectImageRecoveryResult(resultCh, cancel, mode, f.tokenSvc)
 }
 
-func (f *ImageFlow) selectRecoveryTokens(model string, initialTokenID uint, attempts int) []*store.Token {
+func (f *ImageFlow) selectRecoveryTokens(model, mode string, initialTokenID uint, attempts int) []*store.Token {
 	exclude := map[uint]struct{}{initialTokenID: {}}
 	tokens := make([]*store.Token, 0, attempts)
 	for i := 0; i < attempts; i++ {
-		tok, err := f.pickTokenForModelExcluding(model, exclude)
+		tok, err := f.pickTokenForModelExcluding(model, mode, exclude)
 		if err != nil {
 			break
 		}
@@ -157,21 +150,21 @@ func (f *ImageFlow) selectRecoveryTokens(model string, initialTokenID uint, atte
 	return tokens
 }
 
-func selectImageRecoveryResult(resultCh <-chan imageAttemptResult, cancel context.CancelFunc, tokenSvc TokenServicer) (*imageGenerationResult, error) {
+func selectImageRecoveryResult(resultCh <-chan imageAttemptResult, cancel context.CancelFunc, mode string, tokenSvc TokenServicer) (*imageGenerationResult, error) {
 	var firstErr error
 	var winner *imageGenerationResult
 	for result := range resultCh {
 		if result.err == nil && winner == nil {
 			cancel()
 			winner = &imageGenerationResult{
-				data:     result.data,
-				token:    result.token,
-				consumed: true,
+				data:  result.data,
+				token: result.token,
 			}
 			tokenSvc.ReportSuccess(result.token.ID)
 		} else if result.err != nil {
-			if !errors.Is(result.err, errImageGenerationBlocked) && !isTransportError(result.err) {
-				tokenSvc.ReportError(result.token.ID, result.err.Error())
+			if !errors.Is(result.err, errImageGenerationBlocked) {
+				recoverable := isTransportError(result.err) || isServerError(result.err)
+				tokenSvc.ReportError(result.token.ID, mode, recoverable, truncateReason(result.err.Error()))
 			}
 			if firstErr == nil && !errors.Is(result.err, errImageGenerationBlocked) {
 				firstErr = result.err

@@ -153,7 +153,7 @@ func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 			flowReq.UpstreamModel = rm.UpstreamModel
 			flowReq.UpstreamMode = rm.UpstreamMode
 			flowReq.ForceThinking = rm.ForceThinking
-			flowReq.QuotaMode = rm.QuotaMode
+			flowReq.Mode = rm.Mode
 		}
 	}
 

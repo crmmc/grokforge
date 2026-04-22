@@ -49,20 +49,17 @@ type mockTokenService struct {
 	tokens         []*store.Token
 	pickIndex      int
 	pickErr        error
-	consumeCalls   []uint
-	consumeErr     error
 	successCalls   []uint
 	rateLimitCalls []uint
 	errorCalls     []uint
-	disabledCalls  []uint
 	expiredCalls   []uint
 }
 
-func (m *mockTokenService) Pick(pool string, _ tkn.QuotaCategory) (*store.Token, error) {
-	return m.PickExcluding(pool, tkn.CategoryChat, nil)
+func (m *mockTokenService) Pick(pool string, mode string) (*store.Token, error) {
+	return m.PickExcluding(pool, mode, nil)
 }
 
-func (m *mockTokenService) PickExcluding(pool string, _ tkn.QuotaCategory, exclude map[uint]struct{}) (*store.Token, error) {
+func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[uint]struct{}) (*store.Token, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.pickErr != nil {
@@ -79,15 +76,7 @@ func (m *mockTokenService) PickExcluding(pool string, _ tkn.QuotaCategory, exclu
 	return nil, errors.New("no tokens available")
 }
 
-func (m *mockTokenService) Consume(tokenID uint, _ tkn.QuotaCategory, _ int) (int, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.consumeCalls = append(m.consumeCalls, tokenID)
-	if m.consumeErr != nil {
-		return 0, m.consumeErr
-	}
-	return 99, nil
-}
+func (m *mockTokenService) RefundQuota(id uint, mode string) {}
 
 func (m *mockTokenService) ReportSuccess(id uint) {
 	m.mu.Lock()
@@ -95,22 +84,16 @@ func (m *mockTokenService) ReportSuccess(id uint) {
 	m.successCalls = append(m.successCalls, id)
 }
 
-func (m *mockTokenService) ReportRateLimit(id uint, reason string) {
+func (m *mockTokenService) ReportRateLimit(id uint, mode string, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rateLimitCalls = append(m.rateLimitCalls, id)
 }
 
-func (m *mockTokenService) ReportError(id uint, reason string) {
+func (m *mockTokenService) ReportError(id uint, mode string, recoverable bool, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.errorCalls = append(m.errorCalls, id)
-}
-
-func (m *mockTokenService) MarkDisabled(id uint, reason string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.disabledCalls = append(m.disabledCalls, id)
 }
 
 func (m *mockTokenService) MarkExpired(id uint, reason string) {
@@ -381,7 +364,7 @@ func TestChatFlow_HandleError_CFChallenge_NoTokenPenalty(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, xai.ErrCFChallenge, cfg)
+	flow.handleError(1, "auto", xai.ErrCFChallenge, cfg)
 
 	if len(tokenSvc.rateLimitCalls) != 0 {
 		t.Errorf("CF challenge should not rate limit, got %v", tokenSvc.rateLimitCalls)
@@ -399,7 +382,7 @@ func TestChatFlow_HandleError_Forbidden_MarksExpired(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, xai.ErrForbidden, cfg)
+	flow.handleError(1, "auto", xai.ErrForbidden, cfg)
 
 	if len(tokenSvc.expiredCalls) != 1 || tokenSvc.expiredCalls[0] != 1 {
 		t.Errorf("token-level 403 should mark expired, got %v", tokenSvc.expiredCalls)
@@ -414,14 +397,15 @@ func TestChatFlow_HandleError_TransportSkipsPenalty(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, xai.ErrNetwork, cfg)
-	flow.handleError(1, errors.New("503 Service Unavailable"), cfg)
+	flow.handleError(1, "auto", xai.ErrNetwork, cfg)
+	flow.handleError(1, "auto", errors.New("503 Service Unavailable"), cfg)
 
 	if len(tokenSvc.rateLimitCalls) != 0 {
 		t.Errorf("expected no rate limit calls, got %v", tokenSvc.rateLimitCalls)
 	}
-	if len(tokenSvc.errorCalls) != 0 {
-		t.Errorf("expected no error calls, got %v", tokenSvc.errorCalls)
+	// Transport errors now report as recoverable errors (quota refunded)
+	if len(tokenSvc.errorCalls) != 2 {
+		t.Errorf("expected 2 error calls (transport), got %v", tokenSvc.errorCalls)
 	}
 }
 

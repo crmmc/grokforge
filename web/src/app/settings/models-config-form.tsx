@@ -44,7 +44,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
     onSubmit({
       token: {
         ...data,
-        quota_recovery_mode: 'auto',
       },
       image: { nsfw: imageNsfw } as ConfigResponse['image'],
       app: {
@@ -61,25 +60,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
 
   return (
     <form onSubmit={handleSubmit(doSubmit)} className="space-y-6">
-      {/* Quota Defaults */}
-      <ConfigSection title={t.config.modelGroups} description={t.config.modelGroupsDesc}>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="default_chat_quota">{t.config.defaultChatQuota}</Label>
-            <Input id="default_chat_quota" type="number" className="max-w-[200px]" min="0" {...register('default_chat_quota', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="default_image_quota">{t.config.defaultImageQuota}</Label>
-            <Input id="default_image_quota" type="number" className="max-w-[200px]" min="0" {...register('default_image_quota', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="default_video_quota">{t.config.defaultVideoQuota}</Label>
-            <Input id="default_video_quota" type="number" className="max-w-[200px]" min="0" {...register('default_video_quota', { valueAsNumber: true })} />
-          </div>
-        </div>
-        <p className="text-sm text-muted">{t.config.defaultQuotaDesc}</p>
-      </ConfigSection>
-
       {/* Token Management */}
       <ConfigSection title={t.config.tokenManagement} description={t.config.tokenManagementDesc}>
         <div className="grid gap-4 sm:grid-cols-2">
