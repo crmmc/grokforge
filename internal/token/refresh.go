@@ -6,57 +6,75 @@ import (
 	"sync"
 	"time"
 
-	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 )
 
 const (
-	// defaultRefreshInterval is the unified interval for quota recovery scanning.
-	defaultRefreshInterval = 2 * time.Hour
-	// maxConcurrentRefresh limits concurrent API calls.
-	maxConcurrentRefresh = 5
+	defaultScanInterval   = 1 * time.Minute
+	maxConcurrentPerToken = 5
+	maxConcurrentGlobal   = 20
 )
 
-// RecoveryModeAuto restores configured default quotas when cooldown expires.
-const (
-	RecoveryModeAuto     = "auto"
-	RecoveryModeUpstream = "upstream"
-)
-
-// Scheduler periodically scans cooling tokens and restores quotas when the
-// cooldown window has expired.
+// Scheduler periodically scans tokens and refreshes mode quotas
+// based on first_used_at + observed_window timing.
 type Scheduler struct {
-	manager    *TokenManager
-	cfg        *config.TokenConfig
-	configFunc func() *config.TokenConfig
-	baseURL    string
-	interval   time.Duration
-	sem        chan struct{}
-	wg         sync.WaitGroup
-	stopOnce   sync.Once
-	stopped    chan struct{}
+	manager *TokenManager
+	modes   []modelconfig.ModeSpec
+	baseURL string
+
+	// firstUsedAt[token_id][mode_id] = timestamp of first use after last refresh
+	firstUsedAt map[uint]map[string]time.Time
+	// observedWindow[mode_id] = upstream-reported window in seconds
+	observedWindow map[string]int
+
+	mu        sync.Mutex // protects firstUsedAt and observedWindow
+	globalSem chan struct{}
+	wg        sync.WaitGroup
+	stopOnce  sync.Once
+	stopped   chan struct{}
 }
 
-// NewScheduler creates a new quota recovery scheduler.
-func NewScheduler(manager *TokenManager, cfg *config.TokenConfig, baseURL string) *Scheduler {
+// NewScheduler creates a new mode-based quota refresh scheduler.
+func NewScheduler(manager *TokenManager, modes []modelconfig.ModeSpec, baseURL string) *Scheduler {
 	return &Scheduler{
-		manager:  manager,
-		cfg:      cfg,
-		baseURL:  baseURL,
-		interval: defaultRefreshInterval,
-		sem:      make(chan struct{}, maxConcurrentRefresh),
-		stopped:  make(chan struct{}),
+		manager:        manager,
+		modes:          modes,
+		baseURL:        baseURL,
+		firstUsedAt:    make(map[uint]map[string]time.Time),
+		observedWindow: make(map[string]int),
+		globalSem:      make(chan struct{}, maxConcurrentGlobal),
+		stopped:        make(chan struct{}),
 	}
 }
 
-// SetConfigProvider sets a dynamic token config provider.
-func (s *Scheduler) SetConfigProvider(fn func() *config.TokenConfig) {
-	s.configFunc = fn
+// RecordFirstUsed records the first use timestamp for a token+mode.
+// Only sets if not already present (first use after last refresh).
+func (s *Scheduler) RecordFirstUsed(tokenID uint, mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.firstUsedAt[tokenID]; !ok {
+		s.firstUsedAt[tokenID] = make(map[string]time.Time)
+	}
+	if _, exists := s.firstUsedAt[tokenID][mode]; !exists {
+		s.firstUsedAt[tokenID][mode] = time.Now()
+	}
 }
 
-// Start begins the periodic refresh loop.
+// SetFirstUsedAt explicitly sets first_used_at for a token+mode.
+// Used by startup normalization for exhausted modes.
+func (s *Scheduler) SetFirstUsedAt(tokenID uint, mode string, t time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.firstUsedAt[tokenID]; !ok {
+		s.firstUsedAt[tokenID] = make(map[string]time.Time)
+	}
+	s.firstUsedAt[tokenID][mode] = t
+}
+
+// Start begins the periodic scan loop.
 func (s *Scheduler) Start(ctx context.Context) {
 	s.wg.Add(1)
-	safeGo("token_refresh_scheduler", func() {
+	safeGo("quota_refresh_scheduler", func() {
 		s.run(ctx)
 	})
 }
@@ -69,14 +87,10 @@ func (s *Scheduler) Stop() {
 	s.wg.Wait()
 }
 
-// run is the main refresh loop.
 func (s *Scheduler) run(ctx context.Context) {
 	defer s.wg.Done()
 
-	// Run immediately on start
-	s.refreshExpiredCooling(ctx)
-
-	ticker := time.NewTicker(s.interval)
+	ticker := time.NewTicker(defaultScanInterval)
 	defer ticker.Stop()
 
 	for {
@@ -86,107 +100,160 @@ func (s *Scheduler) run(ctx context.Context) {
 		case <-s.stopped:
 			return
 		case <-ticker.C:
-			s.refreshExpiredCooling(ctx)
+			s.scan(ctx)
 		}
 	}
 }
 
-// refreshExpiredCooling scans cooling tokens with expired CoolUntil and
-// restores them to configured defaults.
-func (s *Scheduler) refreshExpiredCooling(ctx context.Context) {
-	tokens := s.manager.GetCoolingTokens()
+func (s *Scheduler) scan(ctx context.Context) {
+	s.mu.Lock()
+	// Build a snapshot of what needs refreshing
+	type refreshTask struct {
+		tokenID   uint
+		authToken string
+		mode      modelconfig.ModeSpec
+	}
+	var tasks []refreshTask
 	now := time.Now()
 
-	var toRefresh []TokenSnapshot
-	for _, t := range tokens {
-		if t.CoolUntil != nil && t.CoolUntil.Before(now) {
-			toRefresh = append(toRefresh, t)
+	// Build mode lookup
+	modeByID := make(map[string]modelconfig.ModeSpec, len(s.modes))
+	for _, m := range s.modes {
+		modeByID[m.ID] = m
+	}
+
+	for tokenID, modeMap := range s.firstUsedAt {
+		token := s.manager.GetToken(tokenID)
+		if token == nil || Status(token.Status) != StatusActive {
+			continue
 		}
-	}
+		poolShort := poolToShort(token.Pool)
 
-	if len(toRefresh) == 0 {
-		return
-	}
-	slog.Debug("refreshing expired cooling tokens", "count", len(toRefresh))
-
-	var wg sync.WaitGroup
-	for _, token := range toRefresh {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopped:
-			return
-		case s.sem <- struct{}{}:
-			tokenSnapshot := token
-			wg.Add(1)
-			safeGo("token_refresh_token", func() {
-				defer wg.Done()
-				defer func() { <-s.sem }()
-				s.restoreToken(ctx, tokenSnapshot)
+		for modeID, firstUsed := range modeMap {
+			mode, ok := modeByID[modeID]
+			if !ok {
+				continue
+			}
+			// Skip modes not supported by this pool
+			if mode.DefaultQuota[poolShort] <= 0 {
+				continue
+			}
+			// Calculate deadline
+			windowSec := mode.WindowSeconds
+			if observed, ok := s.observedWindow[modeID]; ok {
+				windowSec = observed
+			}
+			deadline := firstUsed.Add(time.Duration(windowSec) * time.Second)
+			if now.Before(deadline) {
+				continue
+			}
+			tasks = append(tasks, refreshTask{
+				tokenID:   tokenID,
+				authToken: token.Token,
+				mode:      mode,
 			})
 		}
+	}
+	s.mu.Unlock()
+
+	if len(tasks) == 0 {
+		return
+	}
+
+	slog.Debug("refresh scheduler: scanning", "tasks", len(tasks))
+
+	// Execute tasks with concurrency control
+	var wg sync.WaitGroup
+	// Group by token for per-token concurrency limit
+	byToken := make(map[uint][]refreshTask)
+	for _, t := range tasks {
+		byToken[t.tokenID] = append(byToken[t.tokenID], t)
+	}
+
+	for tokenID, tokenTasks := range byToken {
+		tokenID := tokenID
+		tokenTasks := tokenTasks
+		wg.Add(1)
+		safeGo("refresh_token", func() {
+			defer wg.Done()
+			sem := make(chan struct{}, maxConcurrentPerToken)
+			var innerWg sync.WaitGroup
+			for _, task := range tokenTasks {
+				select {
+				case <-ctx.Done():
+					return
+				case <-s.stopped:
+					return
+				case s.globalSem <- struct{}{}:
+					sem <- struct{}{}
+					task := task
+					innerWg.Add(1)
+					safeGo("refresh_mode", func() {
+						defer innerWg.Done()
+						defer func() { <-s.globalSem; <-sem }()
+						s.refreshMode(ctx, tokenID, task.authToken, task.mode)
+					})
+				}
+			}
+			innerWg.Wait()
+		})
 	}
 	wg.Wait()
 }
 
-func (s *Scheduler) restoreToken(ctx context.Context, t TokenSnapshot) {
-	cfg := s.currentConfig()
-	mode := RecoveryModeAuto
-	if cfg != nil && cfg.QuotaRecoveryMode != "" {
-		mode = cfg.QuotaRecoveryMode
-	}
-	if mode == RecoveryModeUpstream {
-		s.syncTokenFromUpstream(ctx, t.ID)
+func (s *Scheduler) refreshMode(ctx context.Context, tokenID uint, authToken string, mode modelconfig.ModeSpec) {
+	resp, err := s.manager.SyncModeQuota(ctx, tokenID, authToken, s.baseURL, mode.UpstreamName)
+	if err != nil {
+		slog.Warn("refresh: mode quota sync failed",
+			"token_id", tokenID, "mode", mode.ID,
+			"upstream_name", mode.UpstreamName, "error", err)
+		// Failure: keep current values, don't clear first_used_at
 		return
 	}
-	s.autoRestoreToken(t)
+
+	// Success: update quotas
+	remaining := resp.RemainingQueries
+	limit := resp.TotalQueries
+	if limit <= 0 {
+		limit = remaining // fallback if upstream doesn't report total
+	}
+	// Clamp: remaining <= limit
+	if remaining > limit {
+		remaining = limit
+	}
+
+	s.manager.UpdateModeQuota(tokenID, mode.ID, remaining, limit)
+
+	// Learn observed window from upstream
+	s.mu.Lock()
+	if resp.WindowSizeSeconds > 0 {
+		s.observedWindow[mode.ID] = resp.WindowSizeSeconds
+	}
+	// Clear first_used_at for this token+mode (successful refresh)
+	if modeMap, ok := s.firstUsedAt[tokenID]; ok {
+		delete(modeMap, mode.ID)
+		if len(modeMap) == 0 {
+			delete(s.firstUsedAt, tokenID)
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Debug("refresh: mode quota updated",
+		"token_id", tokenID, "mode", mode.ID,
+		"remaining", remaining, "limit", limit,
+		"observed_window", resp.WindowSizeSeconds)
 }
 
-// autoRestoreToken restores a single token to configured default quotas.
-func (s *Scheduler) autoRestoreToken(t TokenSnapshot) {
-	cfg := s.currentConfig()
-	if cfg == nil {
-		cfg = &config.TokenConfig{}
+// poolToShort converts canonical pool name to short form for catalog lookup.
+func poolToShort(pool string) string {
+	switch pool {
+	case PoolBasic:
+		return "basic"
+	case PoolSuper:
+		return "super"
+	case PoolHeavy:
+		return "heavy"
+	default:
+		return pool
 	}
-	chatQ := cfg.DefaultChatQuota
-	imageQ := cfg.DefaultImageQuota
-	videoQ := cfg.DefaultVideoQuota
-	grok43Q := cfg.DefaultGrok43Quota
-	if chatQ <= 0 {
-		chatQ = 50
-	}
-	if imageQ <= 0 {
-		imageQ = 20
-	}
-	if videoQ <= 0 {
-		videoQ = 10
-	}
-	if grok43Q <= 0 {
-		grok43Q = 25
-	}
-
-	s.manager.RestoreToken(t.ID, chatQ, imageQ, videoQ, grok43Q)
-	slog.Debug("auto-restored token quota",
-		"token_id", t.ID, "chat", chatQ, "image", imageQ, "video", videoQ, "grok43", grok43Q)
-}
-
-func (s *Scheduler) syncTokenFromUpstream(ctx context.Context, id uint) {
-	token := s.manager.GetToken(id)
-	if token == nil {
-		return
-	}
-	authToken := token.Token // string copy, safe to use outside lock
-	if err := s.manager.SyncQuota(ctx, id, authToken, s.baseURL); err != nil {
-		slog.Warn("token: upstream quota sync failed",
-			"token_id", id, "error", err)
-		return
-	}
-	slog.Debug("token: upstream quota restored", "token_id", id)
-}
-
-func (s *Scheduler) currentConfig() *config.TokenConfig {
-	if s.configFunc != nil {
-		return s.configFunc()
-	}
-	return s.cfg
 }

@@ -42,7 +42,7 @@ export function TokenActionsBar({ selectedIds, batchPending, onBatchOperation, o
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-52">
           <DropdownMenuItem onClick={() => onSelectByStatus('active')}>{t.tokens.selectAllActive}</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => onSelectByStatus('cooling')}>{t.tokens.selectAllCooling}</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => onSelectByStatus('exhausted')}>{t.tokens.selectAllExhausted}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onSelectByStatus('expired')}>{t.tokens.selectAllExpired}</DropdownMenuItem>
           <DropdownMenuItem onClick={() => onSelectByStatus('disabled')}>{t.tokens.selectAllDisabled}</DropdownMenuItem>
           <DropdownMenuSeparator />

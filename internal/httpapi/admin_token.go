@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/crmmc/grokforge/internal/store"
-	tokenpkg "github.com/crmmc/grokforge/internal/token"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -26,11 +25,6 @@ type TokenStoreInterface interface {
 	BatchUpdateTokens(ctx context.Context, req store.BatchUpdateRequest) (int, error)
 }
 
-// TokenRefresher defines the interface for refreshing token quota.
-type TokenRefresher interface {
-	RefreshToken(ctx context.Context, id uint) (*store.Token, error)
-}
-
 // TokenPoolSyncer syncs admin token changes to in-memory pools.
 type TokenPoolSyncer interface {
 	AddToPool(token *store.Token) error
@@ -40,56 +34,66 @@ type TokenPoolSyncer interface {
 
 // TokenResponse is the API response for a token (with masked sensitive data).
 type TokenResponse struct {
-	ID              uint       `json:"id"`
-	Token           string     `json:"token"`
-	Pool            string     `json:"pool"`
-	Status          string     `json:"status"`
-	StatusReason    string     `json:"status_reason,omitempty"`
-	ChatQuota       int        `json:"chat_quota"`
-	TotalChatQuota  int        `json:"total_chat_quota"`
-	ImageQuota      int        `json:"image_quota"`
-	TotalImageQuota int        `json:"total_image_quota"`
-	VideoQuota      int        `json:"video_quota"`
-	TotalVideoQuota int        `json:"total_video_quota"`
-	Grok43Quota      int        `json:"grok43_quota"`
-	TotalGrok43Quota int        `json:"total_grok43_quota"`
-	FailCount       int        `json:"fail_count"`
-	CoolUntil       *time.Time `json:"cool_until,omitempty"`
-	LastUsed        *time.Time `json:"last_used,omitempty"`
-	Remark          string     `json:"remark,omitempty"`
-	NsfwEnabled     bool       `json:"nsfw_enabled"`
-	Priority        int        `json:"priority"`
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID            uint         `json:"id"`
+	Token         string       `json:"token"`
+	Pool          string       `json:"pool"`
+	Status        string       `json:"status"`
+	DisplayStatus string       `json:"display_status"`
+	Quotas        store.IntMap `json:"quotas"`
+	LimitQuotas   store.IntMap `json:"limit_quotas"`
+	FailCount     int          `json:"fail_count"`
+	LastUsed      *time.Time   `json:"last_used,omitempty"`
+	Remark        string       `json:"remark,omitempty"`
+	NsfwEnabled   bool         `json:"nsfw_enabled"`
+	StatusReason  string       `json:"status_reason,omitempty"`
+	Priority      int          `json:"priority"`
+	CreatedAt     time.Time    `json:"created_at"`
+	UpdatedAt     time.Time    `json:"updated_at"`
 }
 
 // tokenToResponse converts a store.Token to TokenResponse with masked token.
 func tokenToResponse(t *store.Token) TokenResponse {
-	totalChat, totalImage, totalVideo, totalGrok43 := resolveTokenQuotaTotals(t, nil)
-
 	return TokenResponse{
-		ID:               t.ID,
-		Token:            maskSecret(t.Token),
-		Pool:             t.Pool,
-		Status:           t.Status,
-		StatusReason:     t.StatusReason,
-		ChatQuota:        t.ChatQuota,
-		TotalChatQuota:   totalChat,
-		ImageQuota:       t.ImageQuota,
-		TotalImageQuota:  totalImage,
-		VideoQuota:       t.VideoQuota,
-		TotalVideoQuota:  totalVideo,
-		Grok43Quota:      t.Grok43Quota,
-		TotalGrok43Quota: totalGrok43,
-		FailCount:       t.FailCount,
-		CoolUntil:       t.CoolUntil,
-		LastUsed:        t.LastUsed,
-		Remark:          t.Remark,
-		NsfwEnabled:     t.NsfwEnabled,
-		Priority:        t.Priority,
-		CreatedAt:       t.CreatedAt,
-		UpdatedAt:       t.UpdatedAt,
+		ID:            t.ID,
+		Token:         maskSecret(t.Token),
+		Pool:          t.Pool,
+		Status:        t.Status,
+		DisplayStatus: deriveDisplayStatus(t),
+		Quotas:        t.Quotas,
+		LimitQuotas:   t.LimitQuotas,
+		FailCount:     t.FailCount,
+		LastUsed:      t.LastUsed,
+		Remark:        t.Remark,
+		NsfwEnabled:   t.NsfwEnabled,
+		StatusReason:  t.StatusReason,
+		Priority:      t.Priority,
+		CreatedAt:     t.CreatedAt,
+		UpdatedAt:     t.UpdatedAt,
 	}
+}
+
+// deriveDisplayStatus computes the display status from persisted state.
+func deriveDisplayStatus(t *store.Token) string {
+	switch t.Status {
+	case store.TokenStatusDisabled:
+		return "disabled"
+	case store.TokenStatusExpired:
+		return "expired"
+	}
+	// Check exhausted: all quota-tracked modes have 0 remaining
+	if len(t.Quotas) > 0 {
+		allExhausted := true
+		for _, v := range t.Quotas {
+			if v > 0 {
+				allExhausted = false
+				break
+			}
+		}
+		if allExhausted {
+			return "exhausted"
+		}
+	}
+	return "active"
 }
 
 // PaginatedTokenResponse wraps tokens with pagination metadata.
@@ -107,8 +111,17 @@ func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
 		filter := store.TokenFilter{}
 
 		// Parse status filter
+		// "exhausted" is a derived display_status, not a DB status.
+		// We fetch active tokens and filter in-memory.
+		var filterExhausted bool
 		if status := r.URL.Query().Get("status"); status != "" {
-			filter.Status = &status
+			if status == "exhausted" {
+				filterExhausted = true
+				active := store.TokenStatusActive
+				filter.Status = &active
+			} else {
+				filter.Status = &status
+			}
 		}
 
 		// Parse nsfw filter
@@ -148,6 +161,17 @@ func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
 			WriteError(w, 500, "server_error", "list_failed",
 				"Failed to list tokens")
 			return
+		}
+
+		// Post-filter for derived display_status
+		if filterExhausted {
+			filtered := tokens[:0]
+			for _, t := range tokens {
+				if deriveDisplayStatus(t) == "exhausted" {
+					filtered = append(filtered, t)
+				}
+			}
+			tokens = filtered
 		}
 
 		total := len(tokens)
@@ -216,14 +240,11 @@ func handleGetToken(ts TokenStoreInterface) http.HandlerFunc {
 
 // TokenUpdateRequest is the request body for updating a token.
 type TokenUpdateRequest struct {
-	Status      *string `json:"status,omitempty"`
-	Pool        *string `json:"pool,omitempty"`
-	ChatQuota   *int    `json:"chat_quota,omitempty"`
-	ImageQuota  *int    `json:"image_quota,omitempty"`
-	VideoQuota  *int    `json:"video_quota,omitempty"`
-	Grok43Quota *int    `json:"grok43_quota,omitempty"`
-	Remark      *string `json:"remark,omitempty"`
-	NsfwEnabled *bool   `json:"nsfw_enabled,omitempty"`
+	Status      *string      `json:"status,omitempty"`
+	Quotas      store.IntMap `json:"quotas,omitempty"`
+	Remark      *string      `json:"remark,omitempty"`
+	NsfwEnabled *bool        `json:"nsfw_enabled,omitempty"`
+	Priority    *int         `json:"priority,omitempty"`
 }
 
 // handleUpdateToken returns a handler that updates an existing token.
@@ -270,28 +291,34 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 				store.TokenStatusActive:   true,
 				store.TokenStatusDisabled: true,
 				store.TokenStatusExpired:  true,
-				store.TokenStatusCooling:  true,
 			}
 			if !validStatuses[*req.Status] {
 				WriteError(w, 400, "invalid_request", "invalid_status",
-					"Invalid status. Must be: active, disabled, expired, or cooling")
+					"Invalid status. Must be: active, disabled, or expired")
 				return
 			}
 		}
-		if req.Pool != nil {
-			pool, err := tokenpkg.NormalizePoolName(*req.Pool)
-			if err != nil {
-				WriteError(w, 400, "invalid_request", "invalid_pool",
-					"Invalid pool. Must be one of: ssoBasic, ssoSuper, ssoHeavy, basic, super, heavy")
-				return
+
+		// Validate quotas: keys must exist in LimitQuotas, values must not exceed limits
+		if len(req.Quotas) > 0 {
+			for mode, val := range req.Quotas {
+				limit, ok := token.LimitQuotas[mode]
+				if !ok {
+					WriteError(w, 400, "invalid_request", "unknown_mode",
+						"Unknown quota mode: "+mode)
+					return
+				}
+				if val > limit {
+					WriteError(w, 400, "invalid_request", "quota_exceeds_limit",
+						"Quota for mode "+mode+" exceeds limit")
+					return
+				}
 			}
-			req.Pool = &pool
 		}
 
 		// Apply updates
 		if req.Status != nil {
 			token.Status = *req.Status
-			// Record status reason for manual changes
 			switch *req.Status {
 			case store.TokenStatusDisabled:
 				token.StatusReason = "manual disable"
@@ -299,30 +326,22 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 				token.StatusReason = ""
 			}
 		}
-		if req.Pool != nil {
-			token.Pool = *req.Pool
-		}
-		if req.ChatQuota != nil {
-			token.ChatQuota = *req.ChatQuota
-			token.InitialChatQuota = *req.ChatQuota
-		}
-		if req.ImageQuota != nil {
-			token.ImageQuota = *req.ImageQuota
-			token.InitialImageQuota = *req.ImageQuota
-		}
-		if req.VideoQuota != nil {
-			token.VideoQuota = *req.VideoQuota
-			token.InitialVideoQuota = *req.VideoQuota
-		}
-		if req.Grok43Quota != nil {
-			token.Grok43Quota = *req.Grok43Quota
-			token.InitialGrok43Quota = *req.Grok43Quota
+		if len(req.Quotas) > 0 {
+			if token.Quotas == nil {
+				token.Quotas = make(store.IntMap)
+			}
+			for mode, val := range req.Quotas {
+				token.Quotas[mode] = val
+			}
 		}
 		if req.Remark != nil {
 			token.Remark = *req.Remark
 		}
 		if req.NsfwEnabled != nil {
 			token.NsfwEnabled = *req.NsfwEnabled
+		}
+		if req.Priority != nil {
+			token.Priority = *req.Priority
 		}
 
 		if err := ts.UpdateToken(r.Context(), token); err != nil {

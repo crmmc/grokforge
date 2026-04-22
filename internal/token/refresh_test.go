@@ -9,107 +9,13 @@ import (
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
-func TestScheduler_StartRestoresExpiredCoolingTokens(t *testing.T) {
-	cfg := &config.TokenConfig{
-		FailThreshold:     3,
-		DefaultChatQuota:  50,
-		DefaultImageQuota: 20,
-		DefaultVideoQuota: 10,
-	}
-	manager := NewTokenManager(cfg)
-
-	coolUntil := time.Now().Add(-1 * time.Minute)
-	token := &store.Token{
-		ID:         1,
-		Token:      "test-token",
-		Pool:       PoolBasic,
-		Status:     string(StatusCooling),
-		ChatQuota:  0,
-		ImageQuota: 0,
-		VideoQuota: 0,
-		CoolUntil:  &coolUntil,
-	}
-	manager.AddToken(token)
-
-	scheduler := NewScheduler(manager, cfg, "https://example.com")
-	ctx, cancel := context.WithCancel(context.Background())
-	scheduler.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-	scheduler.Stop()
-
-	if token.Status != string(StatusActive) {
-		t.Fatalf("expected token status=active, got %s", token.Status)
-	}
-	if token.ChatQuota != 50 || token.ImageQuota != 20 || token.VideoQuota != 10 {
-		t.Fatalf("unexpected restored quotas: chat=%d image=%d video=%d", token.ChatQuota, token.ImageQuota, token.VideoQuota)
-	}
-}
-
-func TestScheduler_OnlyRestoresExpiredCoolingTokens(t *testing.T) {
-	cfg := &config.TokenConfig{
-		FailThreshold:     3,
-		DefaultChatQuota:  50,
-		DefaultImageQuota: 20,
-		DefaultVideoQuota: 10,
-	}
-	manager := NewTokenManager(cfg)
-
-	active := &store.Token{
-		ID:        1,
-		Token:     "active-token",
-		Pool:      PoolBasic,
-		Status:    string(StatusActive),
-		ChatQuota: 7,
-	}
-	manager.AddToken(active)
-
-	futureCoolUntil := time.Now().Add(10 * time.Minute)
-	futureCooling := &store.Token{
-		ID:        2,
-		Token:     "future-cooling",
-		Pool:      PoolBasic,
-		Status:    string(StatusCooling),
-		ChatQuota: 0,
-		CoolUntil: &futureCoolUntil,
-	}
-	manager.AddToken(futureCooling)
-
-	expiredCoolUntil := time.Now().Add(-1 * time.Minute)
-	expiredCooling := &store.Token{
-		ID:        3,
-		Token:     "expired-cooling",
-		Pool:      PoolBasic,
-		Status:    string(StatusCooling),
-		ChatQuota: 0,
-		CoolUntil: &expiredCoolUntil,
-	}
-	manager.AddToken(expiredCooling)
-
-	scheduler := NewScheduler(manager, cfg, "https://example.com")
-	ctx, cancel := context.WithCancel(context.Background())
-	scheduler.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-	scheduler.Stop()
-
-	if active.Status != string(StatusActive) || active.ChatQuota != 7 {
-		t.Fatalf("active token should remain unchanged, got status=%s quota=%d", active.Status, active.ChatQuota)
-	}
-	if futureCooling.Status != string(StatusCooling) || futureCooling.ChatQuota != 0 {
-		t.Fatalf("future cooling token should remain cooling, got status=%s quota=%d", futureCooling.Status, futureCooling.ChatQuota)
-	}
-	if expiredCooling.Status != string(StatusActive) || expiredCooling.ChatQuota != 50 {
-		t.Fatalf("expired cooling token should be restored, got status=%s quota=%d", expiredCooling.Status, expiredCooling.ChatQuota)
-	}
-}
-
 func TestScheduler_Stop(t *testing.T) {
 	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
-	scheduler := NewScheduler(manager, &config.TokenConfig{FailThreshold: 3}, "https://example.com")
+	scheduler := NewScheduler(manager, nil, "https://example.com")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	scheduler.Start(ctx)
@@ -129,54 +35,86 @@ func TestScheduler_Stop(t *testing.T) {
 	}
 }
 
-func TestScheduler_StartSyncsExpiredCoolingTokensInUpstreamMode(t *testing.T) {
-	cfg := &config.TokenConfig{
-		FailThreshold:     3,
-		QuotaRecoveryMode: RecoveryModeUpstream,
-		DefaultImageQuota: 20,
-		DefaultVideoQuota: 10,
-		DefaultChatQuota:  50,
+func TestScheduler_RecordFirstUsed(t *testing.T) {
+	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
+	scheduler := NewScheduler(manager, nil, "https://example.com")
+
+	scheduler.RecordFirstUsed(1, "auto")
+
+	// Record again — should not overwrite
+	scheduler.RecordFirstUsed(1, "auto")
+
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	if _, ok := scheduler.firstUsedAt[1]; !ok {
+		t.Fatal("expected firstUsedAt[1] to exist")
 	}
+	if _, ok := scheduler.firstUsedAt[1]["auto"]; !ok {
+		t.Fatal("expected firstUsedAt[1][auto] to exist")
+	}
+}
+
+func TestScheduler_SetFirstUsedAt(t *testing.T) {
+	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
+	scheduler := NewScheduler(manager, nil, "https://example.com")
+
+	ts := time.Now().Add(-1 * time.Hour)
+	scheduler.SetFirstUsedAt(1, "auto", ts)
+
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	got := scheduler.firstUsedAt[1]["auto"]
+	if !got.Equal(ts) {
+		t.Errorf("expected firstUsedAt = %v, got %v", ts, got)
+	}
+}
+
+func TestScheduler_RefreshesExpiredMode(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3}
 	manager := NewTokenManager(cfg)
 
-	coolUntil := time.Now().Add(-1 * time.Minute)
-	token := &store.Token{
-		ID:         1,
-		Token:      "test-token",
-		Pool:       PoolBasic,
-		Status:     string(StatusCooling),
-		ChatQuota:  0,
-		ImageQuota: 0,
-		VideoQuota: 0,
-		CoolUntil:  &coolUntil,
+	tok := &store.Token{
+		ID:     1,
+		Token:  "test-token",
+		Pool:   PoolBasic,
+		Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 0},
 	}
-	manager.AddToken(token)
+	manager.AddToken(tok)
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := RateLimitsResponse{
 			RemainingQueries:  42,
+			TotalQueries:      80,
 			WindowSizeSeconds: 7200,
 		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Fatalf("encode response: %v", err)
-		}
+		json.NewEncoder(w).Encode(resp)
 	}))
 	defer server.Close()
 
-	scheduler := NewScheduler(manager, cfg, server.URL)
-	ctx, cancel := context.WithCancel(context.Background())
-	scheduler.Start(ctx)
-	time.Sleep(100 * time.Millisecond)
-	cancel()
-	scheduler.Stop()
+	modes := []modelconfig.ModeSpec{
+		{
+			ID:            "auto",
+			UpstreamName:  "auto",
+			WindowSeconds: 1, // 1 second window so it expires immediately
+			DefaultQuota:  map[string]int{"basic": 50},
+		},
+	}
 
-	if token.Status != string(StatusActive) {
-		t.Fatalf("expected token status=active, got %s", token.Status)
+	scheduler := NewScheduler(manager, modes, server.URL)
+
+	// Set first_used_at to the past so the window is expired
+	scheduler.SetFirstUsedAt(1, "auto", time.Now().Add(-10*time.Second))
+
+	// Directly trigger a scan instead of waiting for the ticker
+	scheduler.scan(context.Background())
+
+	// Verify quota was updated
+	updated := manager.GetToken(1)
+	if updated.Quotas["auto"] != 42 {
+		t.Errorf("expected Quotas[auto]=42, got %d", updated.Quotas["auto"])
 	}
-	if token.ChatQuota != 42 {
-		t.Fatalf("expected upstream chat quota 42, got %d", token.ChatQuota)
-	}
-	if token.ImageQuota != 20 || token.VideoQuota != 10 {
-		t.Fatalf("unexpected restored media quotas: image=%d video=%d", token.ImageQuota, token.VideoQuota)
+	if updated.LimitQuotas["auto"] != 80 {
+		t.Errorf("expected LimitQuotas[auto]=80, got %d", updated.LimitQuotas["auto"])
 	}
 }

@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,11 +51,11 @@ func (m *mockUsageLogStore) TodayTokenTotals(ctx context.Context) (*store.TokenT
 
 func TestHandleTokenStats(t *testing.T) {
 	ms := newMockTokenStore()
-	// 3 active, 1 cooling, 1 expired
+	// 3 active, 1 disabled, 1 expired
 	ms.CreateToken(context.Background(), &store.Token{Token: "a1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive})
 	ms.CreateToken(context.Background(), &store.Token{Token: "a2_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive})
 	ms.CreateToken(context.Background(), &store.Token{Token: "a3_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusActive})
-	ms.CreateToken(context.Background(), &store.Token{Token: "c1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusCooling})
+	ms.CreateToken(context.Background(), &store.Token{Token: "d1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusDisabled})
 	ms.CreateToken(context.Background(), &store.Token{Token: "e1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusExpired})
 
 	handler := handleTokenStats(ms)
@@ -70,19 +69,18 @@ func TestHandleTokenStats(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, 5, resp.Total)
 	assert.Equal(t, 3, resp.Active)
-	assert.Equal(t, 1, resp.Cooling)
 	assert.Equal(t, 1, resp.Expired)
-	assert.Equal(t, 0, resp.Disabled)
+	assert.Equal(t, 1, resp.Disabled)
 }
 
 func TestHandleQuotaStats(t *testing.T) {
 	ms := newMockTokenStore()
-	ms.CreateToken(context.Background(), &store.Token{Token: "q1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive, ChatQuota: 60, InitialChatQuota: 100, ImageQuota: 12, InitialImageQuota: 20, VideoQuota: 4, InitialVideoQuota: 5})
-	ms.CreateToken(context.Background(), &store.Token{Token: "q2_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive, ChatQuota: 50, InitialChatQuota: 80, ImageQuota: 10, InitialImageQuota: 20, VideoQuota: 3, InitialVideoQuota: 5})
-	ms.CreateToken(context.Background(), &store.Token{Token: "q3_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusActive, ChatQuota: 180, InitialChatQuota: 200, ImageQuota: 15, InitialImageQuota: 20, VideoQuota: 9, InitialVideoQuota: 10})
-	ms.CreateToken(context.Background(), &store.Token{Token: "q4_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusDisabled, ChatQuota: 100}) // disabled, excluded
+	ms.CreateToken(context.Background(), &store.Token{Token: "q1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive, Quotas: store.IntMap{"auto": 60}, LimitQuotas: store.IntMap{"auto": 100}})
+	ms.CreateToken(context.Background(), &store.Token{Token: "q2_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive, Quotas: store.IntMap{"auto": 50}, LimitQuotas: store.IntMap{"auto": 80}})
+	ms.CreateToken(context.Background(), &store.Token{Token: "q3_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusActive, Quotas: store.IntMap{"auto": 180}, LimitQuotas: store.IntMap{"auto": 200}})
+	ms.CreateToken(context.Background(), &store.Token{Token: "q4_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusDisabled, Quotas: store.IntMap{"auto": 100}}) // disabled, excluded from quota aggregation
 
-	handler := handleQuotaStats(ms, &config.TokenConfig{})
+	handler := handleQuotaStats(ms)
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -99,23 +97,15 @@ func TestHandleQuotaStats(t *testing.T) {
 	}
 
 	basic := poolMap["ssoBasic"]
-	assert.Equal(t, 180, basic.TotalChatQuota)
-	assert.Equal(t, 110, basic.RemainingChatQuota)
-	assert.Equal(t, 40, basic.TotalImageQuota)
-	assert.Equal(t, 22, basic.RemainingImageQuota)
-	assert.Equal(t, 10, basic.TotalVideoQuota)
-	assert.Equal(t, 7, basic.RemainingVideoQuota)
+	assert.Equal(t, 110, basic.ModeQuotas["auto"].TotalRemaining)
+	assert.Equal(t, 180, basic.ModeQuotas["auto"].TotalLimit)
 
 	super := poolMap["ssoSuper"]
-	assert.Equal(t, 200, super.TotalChatQuota)
-	assert.Equal(t, 180, super.RemainingChatQuota)
-	assert.Equal(t, 20, super.TotalImageQuota)
-	assert.Equal(t, 15, super.RemainingImageQuota)
-	assert.Equal(t, 10, super.TotalVideoQuota)
-	assert.Equal(t, 9, super.RemainingVideoQuota)
+	assert.Equal(t, 180, super.ModeQuotas["auto"].TotalRemaining)
+	assert.Equal(t, 200, super.ModeQuotas["auto"].TotalLimit)
 }
 
-func TestHandleQuotaStatsFromProvider_UsesLatestConfig(t *testing.T) {
+func TestHandleQuotaStats_EmptyQuotas(t *testing.T) {
 	ms := newMockTokenStore()
 	ms.CreateToken(context.Background(), &store.Token{
 		Token:  "q1_xxxxxxxxxxxxxxxxxxxx",
@@ -123,10 +113,7 @@ func TestHandleQuotaStatsFromProvider_UsesLatestConfig(t *testing.T) {
 		Status: store.TokenStatusActive,
 	})
 
-	current := &config.TokenConfig{DefaultChatQuota: 50, DefaultImageQuota: 20, DefaultVideoQuota: 10}
-	handler := handleQuotaStatsFromProvider(ms, func() *config.TokenConfig { return current })
-
-	current = &config.TokenConfig{DefaultChatQuota: 80, DefaultImageQuota: 30, DefaultVideoQuota: 15}
+	handler := handleQuotaStats(ms)
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -136,9 +123,7 @@ func TestHandleQuotaStatsFromProvider_UsesLatestConfig(t *testing.T) {
 	var resp QuotaStatsResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	require.Len(t, resp.Pools, 1)
-	assert.Equal(t, 80, resp.Pools[0].TotalChatQuota)
-	assert.Equal(t, 30, resp.Pools[0].TotalImageQuota)
-	assert.Equal(t, 15, resp.Pools[0].TotalVideoQuota)
+	assert.Equal(t, 1, resp.Pools[0].ActiveCount)
 }
 
 func TestHandleUsageStats(t *testing.T) {

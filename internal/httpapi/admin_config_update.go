@@ -182,27 +182,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.HeavyCoolDurationMin != nil {
 				cfg.Token.HeavyCoolDurationMin = *req.Token.HeavyCoolDurationMin
 			}
-			if req.Token.DefaultChatQuota != nil {
-				cfg.Token.DefaultChatQuota = *req.Token.DefaultChatQuota
-			}
-			if req.Token.DefaultImageQuota != nil {
-				cfg.Token.DefaultImageQuota = *req.Token.DefaultImageQuota
-			}
-			if req.Token.DefaultVideoQuota != nil {
-				cfg.Token.DefaultVideoQuota = *req.Token.DefaultVideoQuota
-			}
-			if req.Token.DefaultGrok43Quota != nil {
-				cfg.Token.DefaultGrok43Quota = *req.Token.DefaultGrok43Quota
-			}
-			if req.Token.QuotaRecoveryMode != nil {
-				mode := *req.Token.QuotaRecoveryMode
-				if mode != "auto" && mode != "upstream" {
-					WriteError(w, 400, "invalid_request", "invalid_quota_recovery_mode",
-						"Invalid quota recovery mode. Must be one of: auto, upstream")
-					return
-				}
-				cfg.Token.QuotaRecoveryMode = mode
-			}
 			if req.Token.SelectionAlgorithm != nil {
 				if !token.ValidAlgorithm(*req.Token.SelectionAlgorithm) {
 					WriteError(w, 400, "invalid_request", "invalid_algorithm",
@@ -369,21 +348,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.Token.HeavyCoolDurationMin != nil {
 				dbUpdates["token.heavy_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.HeavyCoolDurationMin)
-			}
-			if req.Token.DefaultChatQuota != nil {
-				dbUpdates["token.default_chat_quota"] = fmt.Sprintf("%d", *req.Token.DefaultChatQuota)
-			}
-			if req.Token.DefaultImageQuota != nil {
-				dbUpdates["token.default_image_quota"] = fmt.Sprintf("%d", *req.Token.DefaultImageQuota)
-			}
-			if req.Token.DefaultVideoQuota != nil {
-				dbUpdates["token.default_video_quota"] = fmt.Sprintf("%d", *req.Token.DefaultVideoQuota)
-			}
-			if req.Token.DefaultGrok43Quota != nil {
-				dbUpdates["token.default_grok43_quota"] = fmt.Sprintf("%d", *req.Token.DefaultGrok43Quota)
-			}
-			if req.Token.QuotaRecoveryMode != nil {
-				dbUpdates["token.quota_recovery_mode"] = *req.Token.QuotaRecoveryMode
 			}
 			if req.Token.SelectionAlgorithm != nil {
 				dbUpdates["token.selection_algorithm"] = *req.Token.SelectionAlgorithm

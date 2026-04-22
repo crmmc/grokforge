@@ -85,7 +85,7 @@ func main() {
 	if cfg.App.ModelsFile != "" {
 		modelsFile = filepath.Join(configDir, cfg.App.ModelsFile)
 	}
-	modelSpecs, err := modelconfig.Load(modelconfig.EmbeddedFS, modelsFile)
+	modelSpecs, modeSpecs, err := modelconfig.Load(modelconfig.EmbeddedFS, modelsFile)
 	if err != nil {
 		logging.Error("failed to load model catalog", "error", err)
 		os.Exit(1)
@@ -94,7 +94,7 @@ func main() {
 	if modelsFile != "" {
 		catalogSource = modelsFile
 	}
-	reg := registry.NewModelRegistry(modelSpecs)
+	reg := registry.NewModelRegistry(modelSpecs, modeSpecs)
 	logging.Info("model catalog loaded", "source", catalogSource, "models", reg.Count())
 
 	// Load DB config overrides (DB > config file > defaults)
@@ -125,16 +125,12 @@ func main() {
 		logging.Error("failed to load tokens", "error", err)
 		os.Exit(1)
 	}
-	tokenSvc.StartTicker(rootCtx)
 	logging.Info("token service ready", "stats", tokenSvc.Stats())
 
-	// Start quota recovery scheduler (auto-replenish or upstream sync)
-	scheduler := token.NewScheduler(tokenSvc.Manager(), &cfg.Token, "https://grok.com")
-	scheduler.SetConfigProvider(func() *config.TokenConfig {
-		return &runtimeCfg.Get().Token
-	})
+	// Start quota refresh scheduler (mode-based, first_used_at driven)
+	scheduler := token.NewScheduler(tokenSvc.Manager(), modeSpecs, "https://grok.com")
 	scheduler.Start(rootCtx)
-	logging.Info("token quota recovery scheduler started")
+	logging.Info("token quota refresh scheduler started")
 
 	// Start token state persistence loop
 	tokenPersister := token.NewPersister(tokenSvc.Manager(), db)
@@ -284,7 +280,6 @@ func main() {
 		Runtime:         runtimeCfg,
 		ChatProvider:    openaiHandler,
 		TokenStore:      tokenStore,
-		TokenRefresher:  tokenSvc,
 		TokenPoolSyncer: tokenSvc,
 		UsageLogStore:   usageLogStore,
 		APIKeyStore:     apiKeyStore,

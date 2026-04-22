@@ -13,7 +13,6 @@ const (
 	TokenStatusActive   = "active"
 	TokenStatusDisabled = "disabled"
 	TokenStatusExpired  = "expired"
-	TokenStatusCooling  = "cooling"
 )
 
 // TokenFilter holds filter criteria for listing tokens.
@@ -100,18 +99,13 @@ func (s *TokenStore) BatchUpdateTokens(ctx context.Context, req BatchUpdateReque
 // TokenSnapshotData holds the mutable fields of a token for batch updates.
 // This mirrors token.TokenSnapshot to avoid circular imports.
 type TokenSnapshotData struct {
-	ID                uint
-	Status            string
-	StatusReason      string
-	ChatQuota         int
-	InitialChatQuota  int
-	ImageQuota        int
-	InitialImageQuota int
-	VideoQuota        int
-	InitialVideoQuota int
-	FailCount         int
-	CoolUntil         *time.Time
-	LastUsed          *time.Time
+	ID           uint
+	Status       string
+	StatusReason string
+	Quotas       IntMap
+	LimitQuotas  IntMap
+	FailCount    int
+	LastUsed     *time.Time
 }
 
 // UpdateTokenSnapshots batch updates token snapshots.
@@ -119,17 +113,12 @@ func (s *TokenStore) UpdateTokenSnapshots(ctx context.Context, snapshots []Token
 	return s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		for _, snap := range snapshots {
 			updates := map[string]any{
-				"status":              snap.Status,
-				"status_reason":       snap.StatusReason,
-				"chat_quota":          snap.ChatQuota,
-				"initial_chat_quota":  snap.InitialChatQuota,
-				"image_quota":         snap.ImageQuota,
-				"initial_image_quota": snap.InitialImageQuota,
-				"video_quota":         snap.VideoQuota,
-				"initial_video_quota": snap.InitialVideoQuota,
-				"fail_count":          snap.FailCount,
-				"cool_until":          snap.CoolUntil,
-				"last_used":           snap.LastUsed,
+				"status":        snap.Status,
+				"status_reason": snap.StatusReason,
+				"quotas":        snap.Quotas,
+				"limit_quotas":  snap.LimitQuotas,
+				"fail_count":    snap.FailCount,
+				"last_used":     snap.LastUsed,
 			}
 			if err := tx.Model(&Token{}).Where("id = ?", snap.ID).Updates(updates).Error; err != nil {
 				return err

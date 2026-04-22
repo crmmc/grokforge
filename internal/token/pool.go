@@ -73,16 +73,16 @@ func (p *TokenPool) Get(id uint) *store.Token {
 // Tokens are grouped by priority (descending), and the algorithm is applied within each tier.
 // Falls through to lower priority tiers when higher tiers have no active tokens.
 // Returns nil if no active tokens are available.
-func (p *TokenPool) Select(algorithm string, cat QuotaCategory) *store.Token {
-	return p.selectWithExclude(algorithm, cat, nil)
+func (p *TokenPool) Select(algorithm string, mode string) *store.Token {
+	return p.selectWithExclude(algorithm, mode, nil)
 }
 
 // SelectExcluding returns an active token while skipping excluded token IDs.
-func (p *TokenPool) SelectExcluding(algorithm string, cat QuotaCategory, exclude map[uint]struct{}) *store.Token {
-	return p.selectWithExclude(algorithm, cat, exclude)
+func (p *TokenPool) SelectExcluding(algorithm string, mode string, exclude map[uint]struct{}) *store.Token {
+	return p.selectWithExclude(algorithm, mode, exclude)
 }
 
-func (p *TokenPool) selectWithExclude(algorithm string, cat QuotaCategory, exclude map[uint]struct{}) *store.Token {
+func (p *TokenPool) selectWithExclude(algorithm string, mode string, exclude map[uint]struct{}) *store.Token {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -95,7 +95,8 @@ func (p *TokenPool) selectWithExclude(algorithm string, cat QuotaCategory, exclu
 		if Status(t.Status) != StatusActive {
 			continue
 		}
-		if GetQuota(t, cat) <= 0 {
+		// 检查 mode quota
+		if t.Quotas == nil || t.Quotas[mode] <= 0 {
 			continue
 		}
 		tiers[t.Priority] = append(tiers[t.Priority], t)
@@ -110,11 +111,11 @@ func (p *TokenPool) selectWithExclude(algorithm string, cat QuotaCategory, exclu
 	// Try each tier in priority order
 	for _, pri := range priorities {
 		candidates := tiers[pri]
-		if selected := p.selectByAlgorithm(algorithm, cat, candidates); selected != nil {
+		if selected := p.selectByAlgorithm(algorithm, mode, candidates); selected != nil {
 			slog.Debug("token: selected from pool",
 				"pool", p.name, "token_id", selected.ID,
-				"priority", pri, "quota", GetQuota(selected, cat),
-				"category", string(cat), "algo", algorithm, "candidates", len(candidates))
+				"priority", pri, "quota", selected.Quotas[mode],
+				"mode", mode, "algo", algorithm, "candidates", len(candidates))
 			return selected
 		}
 	}
@@ -124,7 +125,7 @@ func (p *TokenPool) selectWithExclude(algorithm string, cat QuotaCategory, exclu
 }
 
 // Count returns the count of tokens by status.
-func (p *TokenPool) Count() (active, cooling, disabled, expired int) {
+func (p *TokenPool) Count() (active, disabled, expired int) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -132,8 +133,6 @@ func (p *TokenPool) Count() (active, cooling, disabled, expired int) {
 		switch Status(t.Status) {
 		case StatusActive:
 			active++
-		case StatusCooling:
-			cooling++
 		case StatusDisabled:
 			disabled++
 		case StatusExpired:
@@ -156,7 +155,7 @@ func (p *TokenPool) All() []*store.Token {
 }
 
 // selectByAlgorithm applies the specified algorithm to select a token from candidates.
-func (p *TokenPool) selectByAlgorithm(algo string, cat QuotaCategory, candidates []*store.Token) *store.Token {
+func (p *TokenPool) selectByAlgorithm(algo string, mode string, candidates []*store.Token) *store.Token {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -174,13 +173,13 @@ func (p *TokenPool) selectByAlgorithm(algo string, cat QuotaCategory, candidates
 		return candidates[idx%uint64(len(candidates))]
 
 	default: // AlgoHighQuotaFirst and unknown algorithms
-		return selectHighQuotaFirst(candidates, cat)
+		return selectHighQuotaFirst(candidates, mode)
 	}
 }
 
-// selectHighQuotaFirst selects the token with the highest quota for the given category.
+// selectHighQuotaFirst selects the token with the highest quota for the given mode.
 // If multiple tokens have the same quota, one is selected randomly.
-func selectHighQuotaFirst(candidates []*store.Token, cat QuotaCategory) *store.Token {
+func selectHighQuotaFirst(candidates []*store.Token, mode string) *store.Token {
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -189,7 +188,10 @@ func selectHighQuotaFirst(candidates []*store.Token, cat QuotaCategory) *store.T
 	maxQuota := -1
 
 	for _, t := range candidates {
-		q := GetQuota(t, cat)
+		q := 0
+		if t.Quotas != nil {
+			q = t.Quotas[mode]
+		}
 		if q > maxQuota {
 			maxQuota = q
 			best = []*store.Token{t}

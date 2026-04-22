@@ -43,11 +43,13 @@ function progressColor(remainPct: number): string {
 }
 
 function totalPoolQuota(pool: PoolQuota): number {
-  return pool.total_chat_quota + pool.total_image_quota + pool.total_video_quota
+  if (!pool.mode_quotas) return 0
+  return Object.values(pool.mode_quotas).reduce((sum, mq) => sum + mq.total_limit, 0)
 }
 
 function remainingPoolQuota(pool: PoolQuota): number {
-  return pool.remaining_chat_quota + pool.remaining_image_quota + pool.remaining_video_quota
+  if (!pool.mode_quotas) return 0
+  return Object.values(pool.mode_quotas).reduce((sum, mq) => sum + mq.total_remaining, 0)
 }
 
 function remainingPercent(pool: PoolQuota): number {
@@ -127,10 +129,10 @@ export default function DashboardPage() {
                         <span>{remainPct.toFixed(0)}%</span>
                       </div>
                       <Progress value={remainPct} className={`mt-2 h-2 ${progressColor(remainPct)}`} />
-                      <div className="mt-3 grid grid-cols-3 gap-3 text-xs text-muted sm:text-sm">
-                        <span>{t.dashboard.chat}: {pool.remaining_chat_quota} / {pool.total_chat_quota}</span>
-                        <span>{t.dashboard.image}: {pool.remaining_image_quota} / {pool.total_image_quota}</span>
-                        <span>{t.dashboard.video}: {pool.remaining_video_quota} / {pool.total_video_quota}</span>
+                      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted sm:text-sm">
+                        {Object.entries(pool.mode_quotas ?? {}).map(([mode, mq]) => (
+                          <span key={mode}>{modeLabel(mode, t)}: {mq.total_remaining} / {mq.total_limit}</span>
+                        ))}
                       </div>
                     </div>
                   )
@@ -161,7 +163,7 @@ export default function DashboardPage() {
               <div className="flex flex-col gap-3">
                 <StatusRow label={t.tokens.active} value={tokenStats?.active ?? 0} dotClass="bg-emerald-500" />
                 <StatusRow label={t.dashboard.disabled} value={tokenStats?.disabled ?? 0} dotClass="bg-zinc-400" />
-                <StatusRow label={t.dashboard.cooling} value={tokenStats?.cooling ?? 0} dotClass="bg-amber-500" />
+                <StatusRow label={t.dashboard.exhausted} value={tokenStats?.exhausted ?? 0} dotClass="bg-amber-500" />
                 <StatusRow label={t.dashboard.expired} value={tokenStats?.expired ?? 0} dotClass="bg-rose-500" />
               </div>
             )}
@@ -194,6 +196,15 @@ function poolLabel(pool: string, t: ReturnType<typeof useTranslation>['t']): str
   if (pool.toLowerCase().includes('basic')) return t.dashboard.basicPool
   if (pool.toLowerCase().includes('super')) return t.dashboard.superPool
   return pool
+}
+
+function modeLabel(mode: string, t: ReturnType<typeof useTranslation>['t']): string {
+  switch (mode) {
+    case 'chat': return t.dashboard.chat
+    case 'image': return t.dashboard.image
+    case 'video': return t.dashboard.video
+    default: return mode
+  }
 }
 
 function StatusRow({ label, value, dotClass }: { label: string; value: number; dotClass: string }) {

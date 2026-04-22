@@ -14,7 +14,7 @@ export function TokenFilterTabs({ activeTab, onTabChange }: TokenFilterTabsProps
   const statusTabs = [
     { key: 'all', label: t.tokens.filterAll },
     { key: 'active', label: t.tokens.filterActive, color: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-    { key: 'cooling', label: t.tokens.filterCooling, color: 'bg-amber-50 text-amber-700 border-amber-200' },
+    { key: 'exhausted', label: t.tokens.filterExhausted, color: 'bg-amber-50 text-amber-700 border-amber-200' },
     { key: 'expired', label: t.tokens.filterExpired, color: 'bg-rose-50 text-rose-700 border-rose-200' },
   ] as const
 

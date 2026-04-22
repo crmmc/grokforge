@@ -107,7 +107,7 @@ func TestTokenModel_AutoMigratePreservesData(t *testing.T) {
 		Token:       "test_token_migrate",
 		Pool:        "ssoSuper",
 		Status:      TokenStatusActive,
-		ChatQuota:   100,
+		Quotas:      IntMap{"auto": 100},
 		FailCount:   2,
 		Remark:      "Original remark",
 		NsfwEnabled: true,
@@ -149,7 +149,7 @@ func TestTokenStore_CreateWithRemarkAndNsfw(t *testing.T) {
 		Token:       "test_token_create_full",
 		Pool:        "ssoBasic",
 		Status:      TokenStatusActive,
-		ChatQuota:   50,
+		Quotas:      IntMap{"auto": 50},
 		Remark:      "Test remark for creation",
 		NsfwEnabled: true,
 	}

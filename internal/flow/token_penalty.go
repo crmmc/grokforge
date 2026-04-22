@@ -28,3 +28,15 @@ func isTransportError(err error) bool {
 	}
 	return statusCode >= httpStatusServerErrorMin && statusCode <= httpStatusServerErrorMax
 }
+
+// isServerError returns true if the error is a 5xx server error.
+func isServerError(err error) bool {
+	if err == nil {
+		return false
+	}
+	statusCode, ok := extractStatusCode(err)
+	if !ok {
+		return false
+	}
+	return statusCode >= httpStatusServerErrorMin && statusCode <= httpStatusServerErrorMax
+}

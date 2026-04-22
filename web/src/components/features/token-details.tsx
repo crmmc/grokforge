@@ -16,11 +16,12 @@ function formatTokenDate(value: string | null): string {
 
 export function TokenDetails({ token }: { token: Token }) {
   const { t } = useTranslation()
-  const quotaMetrics = buildTokenQuotaMetrics(token, {
+  const modeLabels: Record<string, string> = {
     chat: t.tokens.chatQuota,
     image: t.tokens.imageQuota,
     video: t.tokens.videoQuota,
-  })
+  }
+  const quotaMetrics = buildTokenQuotaMetrics(token, modeLabels)
 
   return (
     <div className="space-y-4">
@@ -45,10 +46,6 @@ export function TokenDetails({ token }: { token: Token }) {
         <div>
           <span className="text-muted">{t.tokens.lastUsed}</span>
           <span className="ml-2 font-medium">{formatTokenDate(token.last_used)}</span>
-        </div>
-        <div>
-          <span className="text-muted">{t.tokens.coolUntil}</span>
-          <span className="ml-2 font-medium">{formatTokenDate(token.cool_until)}</span>
         </div>
         <div>
           <span className="text-muted">{t.tokens.nsfw}:</span>

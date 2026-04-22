@@ -14,7 +14,7 @@ type modelCatalogEntry struct {
 	Type          string `json:"type"`
 	PublicType    string `json:"public_type"`
 	PoolFloor     string `json:"pool_floor"`
-	QuotaMode     string `json:"quota_mode"`
+	Mode          string `json:"mode"`
 	UpstreamModel string `json:"upstream_model,omitempty"`
 	UpstreamMode  string `json:"upstream_mode,omitempty"`
 	ForceThinking bool   `json:"force_thinking,omitempty"`
@@ -34,7 +34,7 @@ func handleListModels(reg *registry.ModelRegistry) http.HandlerFunc {
 				Type:          rm.Type,
 				PublicType:    rm.PublicType,
 				PoolFloor:     rm.PoolFloor,
-				QuotaMode:     rm.QuotaMode,
+				Mode:          rm.Mode,
 				UpstreamModel: rm.UpstreamModel,
 				UpstreamMode:  rm.UpstreamMode,
 				ForceThinking: rm.ForceThinking,

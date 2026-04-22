@@ -73,10 +73,6 @@ export interface TokenConfigResponse {
   basic_cool_duration_min: number;
   super_cool_duration_min: number;
   heavy_cool_duration_min: number;
-  default_chat_quota: number;
-  default_image_quota: number;
-  default_video_quota: number;
-  quota_recovery_mode: string;
   selection_algorithm: string;
 }
 

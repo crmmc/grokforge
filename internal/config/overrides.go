@@ -6,11 +6,6 @@ import (
 	"strings"
 )
 
-var validQuotaRecoveryModes = map[string]struct{}{
-	"auto":     {},
-	"upstream": {},
-}
-
 var validSelectionAlgorithms = map[string]struct{}{
 	"high_quota_first": {},
 	"random":           {},
@@ -254,35 +249,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Token.HeavyCoolDurationMin = parsed
-		case "token.default_chat_quota":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.DefaultChatQuota = parsed
-		case "token.default_image_quota":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.DefaultImageQuota = parsed
-		case "token.default_video_quota":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.DefaultVideoQuota = parsed
-		case "token.default_grok43_quota":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.DefaultGrok43Quota = parsed
-		case "token.quota_recovery_mode":
-			if _, ok := validQuotaRecoveryModes[v]; !ok {
-				return fmt.Errorf("config: invalid value %q for %s", v, k)
-			}
-			c.Token.QuotaRecoveryMode = v
 		case "token.selection_algorithm":
 			if _, ok := validSelectionAlgorithms[v]; !ok {
 				return fmt.Errorf("config: invalid value %q for %s", v, k)

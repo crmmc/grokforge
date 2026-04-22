@@ -3,7 +3,6 @@ package token
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
@@ -19,8 +18,8 @@ type TokenStore interface {
 // PoolStats holds statistics for a token pool.
 type PoolStats struct {
 	Active   int
-	Cooling  int
 	Disabled int
+	Expired  int
 }
 
 // TokenService provides the high-level API for token management.
@@ -28,24 +27,15 @@ type TokenService struct {
 	cfg     *config.TokenConfig
 	store   TokenStore
 	manager *TokenManager
-	ticker  *CooldownTicker
 	baseURL string
 }
 
 // NewTokenService creates a new token service.
 func NewTokenService(cfg *config.TokenConfig, store TokenStore, baseURL string) *TokenService {
-	mgr := NewTokenManager(cfg)
-
-	interval := time.Duration(cfg.CoolCheckIntervalSec) * time.Second
-	if interval == 0 {
-		interval = 30 * time.Second // default
-	}
-
 	return &TokenService{
 		cfg:     cfg,
 		store:   store,
-		manager: mgr,
-		ticker:  NewCooldownTicker(mgr, interval),
+		manager: NewTokenManager(cfg),
 		baseURL: baseURL,
 	}
 }
@@ -76,31 +66,13 @@ func (s *TokenService) LoadTokens(ctx context.Context) error {
 }
 
 // Pick selects a token from the specified pool.
-func (s *TokenService) Pick(pool string, cat QuotaCategory) (*store.Token, error) {
-	return s.manager.Pick(pool, cat)
+func (s *TokenService) Pick(pool string, mode string) (*store.Token, error) {
+	return s.manager.Pick(pool, mode)
 }
 
 // PickExcluding selects a token from the specified pool while skipping excluded IDs.
-func (s *TokenService) PickExcluding(pool string, cat QuotaCategory, exclude map[uint]struct{}) (*store.Token, error) {
-	return s.manager.PickExcluding(pool, cat, exclude)
-}
-
-// Consume deducts quota from the token for the given category.
-func (s *TokenService) Consume(tokenID uint, cat QuotaCategory, cost int) (int, error) {
-	return s.manager.Consume(tokenID, cat, cost)
-}
-
-// RefreshToken refreshes a token's quota by syncing with upstream API.
-func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token, error) {
-	token := s.manager.GetToken(id)
-	if token == nil {
-		return nil, ErrTokenNotFound
-	}
-	authToken := token.Token // string copy, safe to use outside lock
-	if err := s.manager.SyncQuota(ctx, id, authToken, s.baseURL); err != nil {
-		return nil, err
-	}
-	return s.manager.GetToken(id), nil // return fresh state
+func (s *TokenService) PickExcluding(pool string, mode string, exclude map[uint]struct{}) (*store.Token, error) {
+	return s.manager.PickExcluding(pool, mode, exclude)
 }
 
 // ReportSuccess marks a token as successfully used.
@@ -108,28 +80,17 @@ func (s *TokenService) ReportSuccess(id uint) {
 	s.manager.MarkSuccess(id)
 }
 
-// ReportRateLimit marks a token as rate limited (cooling).
-// Uses per-group cooldown duration based on the token's pool.
-func (s *TokenService) ReportRateLimit(id uint, reason string) {
-	pool := s.manager.GetTokenPool(id)
-	var durationMin int
-	switch pool {
-	case PoolSuper:
-		durationMin = s.cfg.SuperCoolDurationMin
-	case PoolHeavy:
-		durationMin = s.cfg.HeavyCoolDurationMin
-	default:
-		durationMin = s.cfg.BasicCoolDurationMin
-	}
-	duration := time.Duration(durationMin) * time.Minute
-	if duration == 0 {
-		duration = DefaultCoolDuration
-	}
-	s.manager.MarkCooling(id, duration, reason)
+// ReportRateLimit clears quota for the given mode on a token (429 response).
+func (s *TokenService) ReportRateLimit(id uint, mode string, reason string) {
+	s.manager.ClearModeQuota(id, mode)
 }
 
-// ReportError marks a token as having an error.
-func (s *TokenService) ReportError(id uint, reason string) {
+// ReportError handles an error for a token.
+// If recoverable is true, refunds the pre-deducted quota for the mode.
+func (s *TokenService) ReportError(id uint, mode string, recoverable bool, reason string) {
+	if recoverable {
+		s.manager.RefundQuota(id, mode)
+	}
 	s.manager.MarkFailed(id, reason)
 }
 
@@ -143,30 +104,29 @@ func (s *TokenService) MarkExpired(id uint, reason string) {
 	s.manager.MarkExpired(id, reason)
 }
 
+// RefundQuota restores one unit of quota for the given mode.
+func (s *TokenService) RefundQuota(id uint, mode string) {
+	s.manager.RefundQuota(id, mode)
+}
+
 // FlushDirty persists all dirty tokens to the store.
 func (s *TokenService) FlushDirty(ctx context.Context) error {
 	dirty := s.manager.GetDirtyTokens()
 	if len(dirty) == 0 {
 		return nil
 	}
-	// Convert to store.TokenSnapshotData
 	snapshots := make([]store.TokenSnapshotData, len(dirty))
 	ids := make([]uint, len(dirty))
 	for i, d := range dirty {
 		ids[i] = d.ID
 		snapshots[i] = store.TokenSnapshotData{
-			ID:                d.ID,
-			Status:            d.Status,
-			StatusReason:      d.StatusReason,
-			ChatQuota:         d.ChatQuota,
-			InitialChatQuota:  d.InitialChatQuota,
-			ImageQuota:        d.ImageQuota,
-			InitialImageQuota: d.InitialImageQuota,
-			VideoQuota:        d.VideoQuota,
-			InitialVideoQuota: d.InitialVideoQuota,
-			FailCount:         d.FailCount,
-			CoolUntil:         d.CoolUntil,
-			LastUsed:          d.LastUsed,
+			ID:           d.ID,
+			Status:       d.Status,
+			StatusReason: d.StatusReason,
+			Quotas:       d.Quotas,
+			LimitQuotas:  d.LimitQuotas,
+			FailCount:    d.FailCount,
+			LastUsed:     d.LastUsed,
 		}
 	}
 	if err := s.store.UpdateTokenSnapshots(ctx, snapshots); err != nil {
@@ -185,22 +145,20 @@ func (s *TokenService) Stats() map[string]PoolStats {
 	defer s.manager.mu.RUnlock()
 
 	for name, pool := range s.manager.pools {
-		active, cooling, disabled, expired := pool.Count()
+		active, disabled, expired := pool.Count()
 		result[name] = PoolStats{
 			Active:   active,
-			Cooling:  cooling,
-			Disabled: disabled + expired,
+			Disabled: disabled,
+			Expired:  expired,
 		}
 	}
 
 	return result
 }
 
-// StartTicker starts the cooldown ticker in a goroutine.
-func (s *TokenService) StartTicker(ctx context.Context) {
-	safeGo("token_cooldown_ticker", func() {
-		s.ticker.Start(ctx)
-	})
+// BaseURL returns the configured upstream base URL.
+func (s *TokenService) BaseURL() string {
+	return s.baseURL
 }
 
 // Manager returns the underlying token manager.

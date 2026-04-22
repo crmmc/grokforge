@@ -1,7 +1,6 @@
 package modelconfig
 
 import (
-	"embed"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,32 +11,37 @@ import (
 // catalogFile is the top-level TOML structure.
 type catalogFile struct {
 	Version int         `toml:"version"`
+	Modes   []ModeSpec  `toml:"mode"`
 	Models  []ModelSpec `toml:"model"`
 }
 
+// IsQuotaTracked reports whether the model participates in mode quota tracking.
+// Default is true (QuotaSync nil); only explicit quota_sync = false opts out.
+func (m *ModelSpec) IsQuotaTracked() bool {
+	return m.QuotaSync == nil || *m.QuotaSync
+}
+
 // Load loads the model catalog from the embedded FS or an external file.
-// If externalPath is non-empty, it loads from that file (resolved as-is by the caller).
-// If externalPath is empty, it loads from the embedded FS.
-// Returns validated specs with PublicType derived, or an error.
-func Load(embeddedFS embed.FS, externalPath string) ([]ModelSpec, error) {
+// Returns validated model specs (with PublicType derived), mode specs, or an error.
+func Load(embeddedFS fs.FS, externalPath string) ([]ModelSpec, []ModeSpec, error) {
 	data, err := readCatalog(embeddedFS, externalPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	var cat catalogFile
 	md, err := toml.Decode(string(data), &cat)
 	if err != nil {
-		return nil, fmt.Errorf("modelconfig: parse TOML: %w", err)
+		return nil, nil, fmt.Errorf("modelconfig: parse TOML: %w", err)
 	}
 
 	// Reject unknown fields.
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
-		return nil, fmt.Errorf("modelconfig: unknown field %q", undecoded[0])
+		return nil, nil, fmt.Errorf("modelconfig: unknown field %q", undecoded[0])
 	}
 
-	if err := validate(cat.Version, cat.Models); err != nil {
-		return nil, err
+	if err := validate(cat.Version, cat.Modes, cat.Models); err != nil {
+		return nil, nil, err
 	}
 
 	// Derive PublicType for each model.
@@ -45,11 +49,11 @@ func Load(embeddedFS embed.FS, externalPath string) ([]ModelSpec, error) {
 		cat.Models[i].PublicType = DerivePublicType(cat.Models[i].Type)
 	}
 
-	return cat.Models, nil
+	return cat.Models, cat.Modes, nil
 }
 
 // readCatalog reads raw bytes from the appropriate source.
-func readCatalog(embeddedFS embed.FS, externalPath string) ([]byte, error) {
+func readCatalog(embeddedFS fs.FS, externalPath string) ([]byte, error) {
 	if externalPath != "" {
 		data, err := os.ReadFile(externalPath)
 		if err != nil {
@@ -75,16 +79,49 @@ var validPoolFloors = map[string]bool{
 	PoolBasic: true, PoolSuper: true, PoolHeavy: true,
 }
 
-// validQuotaModes is the set of allowed quota_mode values.
-var validQuotaModes = map[string]bool{
-	QuotaAuto: true, QuotaFast: true, QuotaExpert: true, QuotaHeavy: true, QuotaGrok43: true,
-}
+// requiredPools is the set of pool keys that every mode must define in default_quota.
+var requiredPools = []string{PoolBasic, PoolSuper, PoolHeavy}
 
 // validate checks all semantic rules on the parsed catalog.
-func validate(version int, models []ModelSpec) error {
+func validate(version int, modes []ModeSpec, models []ModelSpec) error {
 	if version != 1 {
 		return fmt.Errorf("modelconfig: unsupported version %d (expected 1)", version)
 	}
+
+	// --- Mode validation ---
+	if len(modes) == 0 {
+		return fmt.Errorf("modelconfig: catalog must contain at least one mode")
+	}
+
+	modeIDs := make(map[string]bool, len(modes))
+	upstreamNames := make(map[string]bool, len(modes))
+
+	for _, mode := range modes {
+		if modeIDs[mode.ID] {
+			return fmt.Errorf("mode %q: duplicate id", mode.ID)
+		}
+		modeIDs[mode.ID] = true
+
+		if mode.UpstreamName == "" {
+			return fmt.Errorf("mode %q: upstream_name is required", mode.ID)
+		}
+		if upstreamNames[mode.UpstreamName] {
+			return fmt.Errorf("mode %q: duplicate upstream_name %q", mode.ID, mode.UpstreamName)
+		}
+		upstreamNames[mode.UpstreamName] = true
+
+		if mode.WindowSeconds <= 0 {
+			return fmt.Errorf("mode %q: window_seconds must be > 0", mode.ID)
+		}
+
+		for _, pool := range requiredPools {
+			if _, ok := mode.DefaultQuota[pool]; !ok {
+				return fmt.Errorf("mode %q: default_quota missing pool %q", mode.ID, pool)
+			}
+		}
+	}
+
+	// --- Model validation ---
 	if len(models) == 0 {
 		return fmt.Errorf("modelconfig: catalog must contain at least one model")
 	}
@@ -106,14 +143,25 @@ func validate(version int, models []ModelSpec) error {
 		if !validPoolFloors[m.PoolFloor] {
 			return fmt.Errorf("model %q: invalid pool_floor %q", m.ID, m.PoolFloor)
 		}
-		if !validQuotaModes[m.QuotaMode] {
-			return fmt.Errorf("model %q: invalid quota_mode %q", m.ID, m.QuotaMode)
-		}
 
-		// Quota / pool compatibility.
-		// quota_mode "expert" has no pool_floor restriction (tokens are picked from the floor up).
-		if m.QuotaMode == QuotaHeavy && m.PoolFloor != PoolHeavy {
-			return fmt.Errorf("model %q: quota_mode %q requires pool_floor %q", m.ID, QuotaHeavy, PoolHeavy)
+		// Quota tracking rules.
+		if m.IsQuotaTracked() {
+			if m.Mode == "" {
+				return fmt.Errorf("model %q: mode is required for quota-tracked models", m.ID)
+			}
+			if !modeIDs[m.Mode] {
+				return fmt.Errorf("model %q: mode %q does not match any defined mode", m.ID, m.Mode)
+			}
+			if m.CooldownSeconds != 0 {
+				return fmt.Errorf("model %q: cooldown_seconds is forbidden for quota-tracked models", m.ID)
+			}
+		} else {
+			if m.Mode != "" {
+				return fmt.Errorf("model %q: mode is forbidden when quota_sync = false", m.ID)
+			}
+			if m.CooldownSeconds <= 0 {
+				return fmt.Errorf("model %q: cooldown_seconds must be > 0 when quota_sync = false", m.ID)
+			}
 		}
 
 		// Upstream field rules per type.

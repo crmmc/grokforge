@@ -115,7 +115,7 @@ export function ModelCatalogTable() {
                 <TableCell>{m.display_name}</TableCell>
                 <TableCell><TypeBadge type={m.type} /></TableCell>
                 <TableCell><PoolBadge pool={m.pool_floor} /></TableCell>
-                <TableCell>{m.quota_mode}</TableCell>
+                <TableCell>{m.mode || <span className="text-muted">-</span>}</TableCell>
                 <TableCell className="font-mono text-xs">
                   {m.upstream_model || <span className="text-muted">-</span>}
                 </TableCell>

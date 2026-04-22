@@ -42,6 +42,39 @@ func (s *StringSlice) Scan(src any) error {
 	return json.Unmarshal(bytes, s)
 }
 
+// IntMap is a custom type for JSON-encoded map[string]int in SQLite/PostgreSQL.
+type IntMap map[string]int
+
+// Value implements driver.Valuer for database storage.
+func (m IntMap) Value() (driver.Value, error) {
+	if m == nil {
+		return "{}", nil
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
+}
+
+// Scan implements sql.Scanner for reading from database.
+func (m *IntMap) Scan(src any) error {
+	if src == nil {
+		*m = nil
+		return nil
+	}
+	var bytes []byte
+	switch v := src.(type) {
+	case string:
+		bytes = []byte(v)
+	case []byte:
+		bytes = v
+	default:
+		return fmt.Errorf("IntMap.Scan: unsupported type %T", src)
+	}
+	return json.Unmarshal(bytes, m)
+}
+
 // APIKey represents an API key for authenticating /v1/* requests.
 type APIKey struct {
 	ID             uint           `gorm:"primaryKey" json:"id"`
@@ -62,28 +95,21 @@ type APIKey struct {
 
 // Token represents a Grok authentication token.
 type Token struct {
-	ID                uint           `gorm:"primaryKey" json:"id"`
-	Token             string         `gorm:"uniqueIndex;size:512" json:"token"`
-	Pool              string         `gorm:"index;size:32" json:"pool"`   // canonical: ssoBasic, ssoSuper, ssoHeavy
-	Status            string         `gorm:"index;size:32" json:"status"` // active, disabled, expired, cooling
-	ChatQuota         int            `json:"chat_quota"`
-	InitialChatQuota  int            `gorm:"default:0" json:"-"`
-	ImageQuota        int            `json:"image_quota"`
-	InitialImageQuota int            `gorm:"default:0" json:"-"`
-	VideoQuota        int            `json:"video_quota"`
-	InitialVideoQuota int            `gorm:"default:0" json:"-"`
-	Grok43Quota        int            `json:"grok43_quota"`
-	InitialGrok43Quota int            `gorm:"default:0" json:"-"`
-	FailCount         int            `json:"fail_count"`
-	CoolUntil         *time.Time     `json:"cool_until,omitempty"`
-	LastUsed          *time.Time     `json:"last_used,omitempty"`
-	Remark            string         `gorm:"type:text" json:"remark,omitempty"`
-	NsfwEnabled       bool           `gorm:"default:false;index" json:"nsfw_enabled"`
-	StatusReason      string         `gorm:"size:256" json:"status_reason,omitempty"`
-	Priority          int            `gorm:"default:0;index" json:"priority"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+	ID           uint           `gorm:"primaryKey" json:"id"`
+	Token        string         `gorm:"uniqueIndex;size:512" json:"token"`
+	Pool         string         `gorm:"index;size:32" json:"pool"`   // canonical: ssoBasic, ssoSuper, ssoHeavy
+	Status       string         `gorm:"index;size:32" json:"status"` // active, disabled, expired
+	Quotas       IntMap         `gorm:"type:text" json:"quotas"`       // mode -> remaining quota
+	LimitQuotas  IntMap         `gorm:"type:text" json:"limit_quotas"` // mode -> upper limit
+	FailCount    int            `json:"fail_count"`
+	LastUsed     *time.Time     `json:"last_used,omitempty"`
+	Remark       string         `gorm:"type:text" json:"remark,omitempty"`
+	NsfwEnabled  bool           `gorm:"default:false;index" json:"nsfw_enabled"`
+	StatusReason string         `gorm:"size:256" json:"status_reason,omitempty"`
+	Priority     int            `gorm:"default:0;index" json:"priority"`
+	CreatedAt    time.Time      `json:"created_at"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // ConfigEntry stores configuration key-value pairs in database.
@@ -125,5 +151,10 @@ func AllModels() []any {
 
 // AutoMigrate creates the current schema.
 func AutoMigrate(db *gorm.DB) error {
-	return db.AutoMigrate(AllModels()...)
+	if err := db.AutoMigrate(AllModels()...); err != nil {
+		return err
+	}
+	// Migrate cooling tokens to active (cooling is no longer a persisted status).
+	db.Exec("UPDATE tokens SET status = ? WHERE status = ?", TokenStatusActive, "cooling")
+	return nil
 }

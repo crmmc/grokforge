@@ -20,6 +20,7 @@ type ImageLiteRequest struct {
 	N              int
 	UpstreamMode   string // "fast"
 	ResponseFormat string
+	Mode           string // mode from registry for quota tracking
 }
 
 // Validate validates the lite image request.
@@ -55,10 +56,16 @@ func (f *ImageFlow) GenerateLite(ctx context.Context, req *ImageLiteRequest) (*I
 	ctx, cancel := context.WithTimeout(ctx, imageGenerationTimeout)
 	defer cancel()
 
+	// Resolve mode from request or model registry
+	mode := req.Mode
+	if mode == "" {
+		mode = f.resolveMode(req.Model)
+	}
+
 	start := time.Now()
 	apiKeyID := FlowAPIKeyIDFromContext(ctx)
 
-	tok, err := f.pickTokenForModel(req.Model)
+	tok, err := f.pickTokenForModel(req.Model, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +79,8 @@ func (f *ImageFlow) GenerateLite(ctx context.Context, req *ImageLiteRequest) (*I
 	for i := 0; i < req.N; i++ {
 		data, err := f.generateLiteSingle(ctx, client, req)
 		if err != nil {
-			f.tokenSvc.ReportError(tok.ID, err.Error())
+			recoverable := isTransportError(err) || isServerError(err)
+			f.tokenSvc.ReportError(tok.ID, mode, recoverable, truncateReason(err.Error()))
 			f.recordLiteUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 			return nil, err
 		}

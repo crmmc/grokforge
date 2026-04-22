@@ -58,10 +58,6 @@ export const tokenConfigSchema = z.object({
   basic_cool_duration_min: z.number().int().min(0),
   super_cool_duration_min: z.number().int().min(0),
   heavy_cool_duration_min: z.number().int().min(0),
-  default_chat_quota: z.number().int().min(0),
-  default_image_quota: z.number().int().min(0),
-  default_video_quota: z.number().int().min(0),
-  quota_recovery_mode: z.enum(["auto", "upstream"]),
   selection_algorithm: z.enum(["high_quota_first", "random", "round_robin"]),
 });
 

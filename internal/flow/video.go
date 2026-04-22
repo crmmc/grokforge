@@ -37,6 +37,7 @@ type VideoRequest struct {
 	Model          string
 	UpstreamModel  string
 	UpstreamMode   string
+	Mode           string // mode from registry for quota tracking
 	Size           string
 	AspectRatio    string // e.g. "16:9", "3:2" — passed directly to xAI
 	Seconds        int
@@ -53,6 +54,7 @@ type VideoFlow struct {
 	usageLog      UsageRecorder
 	cacheSvc      *cache.Service
 	appConfigFn   func() *config.AppConfig
+	modeResolver  ModeResolver
 }
 
 // NewVideoFlow creates a new VideoFlow.
@@ -94,6 +96,20 @@ func (f *VideoFlow) SetAppConfigProvider(fn func() *config.AppConfig) {
 	f.appConfigFn = fn
 }
 
+// SetModeResolver sets the mode resolver for quota tracking.
+func (f *VideoFlow) SetModeResolver(resolver ModeResolver) {
+	f.modeResolver = resolver
+}
+
+// resolveMode returns the quota mode for a model, or empty string if unknown.
+func (f *VideoFlow) resolveMode(model string) string {
+	if f.modeResolver == nil {
+		return ""
+	}
+	mode, _ := f.modeResolver.ResolveMode(model)
+	return mode
+}
+
 func (f *VideoFlow) appConfig() *config.AppConfig {
 	if f.appConfigFn == nil {
 		return nil
@@ -106,8 +122,15 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 	if err := validateMediaUpstream(req.UpstreamModel, req.UpstreamMode); err != nil {
 		return "", err
 	}
+
+	// Resolve mode from request or model registry
+	mode := req.Mode
+	if mode == "" {
+		mode = f.resolveMode(req.Model)
+	}
+
 	apiKeyID := FlowAPIKeyIDFromContext(ctx)
-	tok, err := f.pickTokenForModel(req.Model)
+	tok, err := f.pickTokenForModel(req.Model, mode)
 	if err != nil {
 		return "", err
 	}
@@ -118,29 +141,29 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 
 	videoURL, err := f.generateVideoViaChat(timeoutCtx, tok, req)
 	if err != nil {
-		f.reportTokenError(tok.ID, err)
+		f.reportTokenError(tok.ID, mode, err)
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 		return "", err
 	}
 
-	if _, err := f.tokenSvc.Consume(tok.ID, tkn.CategoryVideo, 1); err != nil {
-		return "", err
-	}
 	f.tokenSvc.ReportSuccess(tok.ID)
 	f.recordUsage(apiKeyID, tok.ID, req.Model, 200, time.Since(start))
 	return videoURL, nil
 }
 
 // reportTokenError reports the appropriate token error based on error type.
-func (f *VideoFlow) reportTokenError(tokenID uint, err error) {
+func (f *VideoFlow) reportTokenError(tokenID uint, mode string, err error) {
+	reason := truncateReason(err.Error())
 	if isTransportError(err) {
+		// Transport/5xx — recoverable, refund quota
+		f.tokenSvc.ReportError(tokenID, mode, true, reason)
 		return
 	}
-	reason := truncateReason(err.Error())
 	if ShouldCoolToken(err, nil) {
-		f.tokenSvc.ReportRateLimit(tokenID, reason)
+		f.tokenSvc.ReportRateLimit(tokenID, mode, reason)
 	} else {
-		f.tokenSvc.ReportError(tokenID, reason)
+		recoverable := isServerError(err)
+		f.tokenSvc.ReportError(tokenID, mode, recoverable, reason)
 	}
 }
 
@@ -162,7 +185,7 @@ func (f *VideoFlow) recordUsage(apiKeyID, tokenID uint, model string, status int
 	})
 }
 
-func (f *VideoFlow) pickTokenForModel(model string) (*store.Token, error) {
+func (f *VideoFlow) pickTokenForModel(model, mode string) (*store.Token, error) {
 	cfg := f.cfg
 	if cfg == nil || cfg.ModelResolver == nil {
 		return nil, tkn.ErrModelNotFound
@@ -173,7 +196,7 @@ func (f *VideoFlow) pickTokenForModel(model string) (*store.Token, error) {
 	}
 	var lastErr error
 	for _, pool := range pools {
-		tok, err := f.tokenSvc.Pick(pool, tkn.CategoryVideo)
+		tok, err := f.tokenSvc.Pick(pool, mode)
 		if err == nil {
 			return tok, nil
 		}

@@ -117,16 +117,11 @@ func (p *Persister) FlushDirty(ctx context.Context) (int, error) {
 // updateToken updates a single token in the database.
 func (p *Persister) updateToken(tx *gorm.DB, snapshot TokenSnapshot) error {
 	return tx.Model(&store.Token{}).Where("id = ?", snapshot.ID).Updates(map[string]interface{}{
-		"status":              snapshot.Status,
-		"status_reason":       snapshot.StatusReason,
-		"chat_quota":          snapshot.ChatQuota,
-		"initial_chat_quota":  snapshot.InitialChatQuota,
-		"image_quota":         snapshot.ImageQuota,
-		"initial_image_quota": snapshot.InitialImageQuota,
-		"video_quota":         snapshot.VideoQuota,
-		"initial_video_quota": snapshot.InitialVideoQuota,
-		"fail_count":          snapshot.FailCount,
-		"cool_until":          snapshot.CoolUntil,
-		"last_used":           snapshot.LastUsed,
+		"status":        snapshot.Status,
+		"status_reason": snapshot.StatusReason,
+		"quotas":        snapshot.Quotas,
+		"limit_quotas":  snapshot.LimitQuotas,
+		"fail_count":    snapshot.FailCount,
+		"last_used":     snapshot.LastUsed,
 	}).Error
 }

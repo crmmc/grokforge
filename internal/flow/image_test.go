@@ -677,7 +677,7 @@ func TestImageFlow_Generate_NoConsumeOnFailure(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	assert.Empty(t, tokenSvc.consumeCalls, "Consume should not be called on failure")
+	// Consume removed: quota pre-deducted in Pick
 }
 
 func TestImageFlow_Generate_ConsumeOnSuccess(t *testing.T) {
@@ -703,10 +703,9 @@ func TestImageFlow_Generate_ConsumeOnSuccess(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	assert.Len(t, tokenSvc.consumeCalls, 2, "Consume should be called once per successful image")
-	for _, id := range tokenSvc.consumeCalls {
-		assert.Equal(t, uint(42), id)
-	}
+	// ReportSuccess is called once per unique token ID (usedTokenIDs map deduplicates)
+	assert.Len(t, tokenSvc.successCalls, 1, "ReportSuccess should be called once per unique token")
+	assert.Equal(t, uint(42), tokenSvc.successCalls[0])
 }
 
 func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
@@ -751,9 +750,12 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	// Only the successful recovery token (tok-2) should have Consume called
-	assert.Len(t, tokenSvc.consumeCalls, 1, "Consume should only be called for the successful recovery token")
-	assert.Equal(t, uint(2), tokenSvc.consumeCalls[0])
+	// ReportSuccess is called twice for token 2: once in selectImageRecoveryResult
+	// and once in Generate's usedTokenIDs loop
+	assert.Len(t, tokenSvc.successCalls, 2, "ReportSuccess called in recovery + Generate loop")
+	for _, id := range tokenSvc.successCalls {
+		assert.Equal(t, uint(2), id, "Only the successful recovery token should be reported")
+	}
 }
 
 func TestImageFlow_Generate_Timeout(t *testing.T) {

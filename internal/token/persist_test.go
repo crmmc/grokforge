@@ -32,16 +32,19 @@ func TestPersister_FlushDirty(t *testing.T) {
 
 	// Create token in DB first
 	token := &store.Token{
-		Token:     "test-token",
-		Pool:      PoolBasic,
-		Status:    string(StatusActive),
-		ChatQuota: 100,
+		Token:  "test-token",
+		Pool:   PoolBasic,
+		Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 100},
 	}
 	db.Create(token)
 
-	// Add to manager and modify
+	// Add to manager and pick (optimistic deduction: 100 -> 99)
 	m.AddToken(token)
-	m.Consume(token.ID, CategoryChat, 1) // quota -> 99, marks dirty
+	_, err := m.Pick(PoolBasic, "auto")
+	if err != nil {
+		t.Fatalf("pick failed: %v", err)
+	}
 
 	persister := NewPersister(m, db)
 
@@ -57,8 +60,8 @@ func TestPersister_FlushDirty(t *testing.T) {
 		// Verify in DB
 		var dbToken store.Token
 		db.First(&dbToken, token.ID)
-		if dbToken.ChatQuota != 99 {
-			t.Errorf("expected DB ChatQuota=99, got %d", dbToken.ChatQuota)
+		if dbToken.Quotas["auto"] != 99 {
+			t.Errorf("expected DB Quotas[auto]=99, got %d", dbToken.Quotas["auto"])
 		}
 	})
 
@@ -80,10 +83,10 @@ func TestPersister_PeriodicFlush(t *testing.T) {
 	m := NewTokenManager(cfg)
 
 	token := &store.Token{
-		Token:     "test-token",
-		Pool:      PoolBasic,
-		Status:    string(StatusActive),
-		ChatQuota: 100,
+		Token:  "test-token",
+		Pool:   PoolBasic,
+		Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 100},
 	}
 	db.Create(token)
 	m.AddToken(token)
@@ -93,8 +96,11 @@ func TestPersister_PeriodicFlush(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	persister.Start(ctx, 50*time.Millisecond)
 
-	// Modify token
-	m.Consume(token.ID, CategoryChat, 1)
+	// Pick token (optimistic deduction: 100 -> 99)
+	_, err := m.Pick(PoolBasic, "auto")
+	if err != nil {
+		t.Fatalf("pick failed: %v", err)
+	}
 
 	// Wait for periodic flush
 	time.Sleep(100 * time.Millisecond)
@@ -105,8 +111,8 @@ func TestPersister_PeriodicFlush(t *testing.T) {
 	// Verify persisted
 	var dbToken store.Token
 	db.First(&dbToken, token.ID)
-	if dbToken.ChatQuota != 99 {
-		t.Errorf("expected DB ChatQuota=99, got %d", dbToken.ChatQuota)
+	if dbToken.Quotas["auto"] != 99 {
+		t.Errorf("expected DB Quotas[auto]=99, got %d", dbToken.Quotas["auto"])
 	}
 }
 
@@ -118,14 +124,18 @@ func TestPersister_BatchUpdate(t *testing.T) {
 	// Create multiple tokens
 	for i := 0; i < 10; i++ {
 		token := &store.Token{
-			Token:     "token-" + string(rune('a'+i)),
-			Pool:      PoolBasic,
-			Status:    string(StatusActive),
-			ChatQuota: 100,
+			Token:  "token-" + string(rune('a'+i)),
+			Pool:   PoolBasic,
+			Status: string(StatusActive),
+			Quotas: store.IntMap{"auto": 100},
 		}
 		db.Create(token)
 		m.AddToken(token)
-		m.Consume(token.ID, CategoryChat, 1) // mark dirty
+		// Pick each token to mark dirty (optimistic deduction: 100 -> 99)
+		_, err := m.Pick(PoolBasic, "auto")
+		if err != nil {
+			t.Fatalf("pick token %d failed: %v", token.ID, err)
+		}
 	}
 
 	persister := NewPersister(m, db)
@@ -142,8 +152,8 @@ func TestPersister_BatchUpdate(t *testing.T) {
 	var tokens []store.Token
 	db.Find(&tokens)
 	for _, tok := range tokens {
-		if tok.ChatQuota != 99 {
-			t.Errorf("token %d: expected ChatQuota=99, got %d", tok.ID, tok.ChatQuota)
+		if tok.Quotas["auto"] != 99 {
+			t.Errorf("token %d: expected Quotas[auto]=99, got %d", tok.ID, tok.Quotas["auto"])
 		}
 	}
 }
