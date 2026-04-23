@@ -165,12 +165,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Retry.ResetSessionStatusCodes = parsed
-		case "retry.cooling_status_codes":
-			parsed, err := parseIntListOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Retry.CoolingStatusCodes = parsed
 		case "retry.retry_backoff_base":
 			parsed, err := parseFloatOverride(k, v)
 			if err != nil {
@@ -219,36 +213,12 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Token.FailThreshold = parsed
-		case "token.cool_check_interval_sec":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.CoolCheckIntervalSec = parsed
 		case "token.usage_flush_interval_sec":
 			parsed, err := parseIntOverride(k, v)
 			if err != nil {
 				return err
 			}
 			c.Token.UsageFlushIntervalSec = parsed
-		case "token.basic_cool_duration_min":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.BasicCoolDurationMin = parsed
-		case "token.super_cool_duration_min":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.SuperCoolDurationMin = parsed
-		case "token.heavy_cool_duration_min":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.HeavyCoolDurationMin = parsed
 		case "token.selection_algorithm":
 			if _, ok := validSelectionAlgorithms[v]; !ok {
 				return fmt.Errorf("config: invalid value %q for %s", v, k)

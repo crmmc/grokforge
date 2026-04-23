@@ -1,10 +1,20 @@
 'use client'
 
-import { Progress } from '@/components/ui'
+import { AlertCircle } from 'lucide-react'
+import { Alert, AlertDescription, AlertTitle, Badge, Progress } from '@/components/ui'
 import { cn } from '@/lib/utils'
 import { useTranslation } from '@/lib/i18n/context'
+import type { QuotaPresentationGroup, QuotaPresentationIssue } from '@/lib/quota-presentation'
+import { formatQuotaPresentationIssues, quotaProgressColor, quotaSurfaceColor, quotaTextColor } from '@/lib/quota-presentation'
 import type { Token } from '@/types'
-import { buildTokenQuotaMetrics, quotaProgressColor, quotaSurfaceColor, quotaTextColor } from './token-quota-utils'
+
+interface TokenDetailsProps {
+  catalogError?: Error | null
+  catalogLoading: boolean
+  groups: QuotaPresentationGroup[]
+  issues: QuotaPresentationIssue[]
+  token: Token
+}
 
 function formatTokenDate(value: string | null): string {
   if (!value) return '-'
@@ -14,29 +24,46 @@ function formatTokenDate(value: string | null): string {
   }).format(new Date(value))
 }
 
-export function TokenDetails({ token }: { token: Token }) {
+export function TokenDetails({ catalogError, catalogLoading, groups, issues, token }: TokenDetailsProps) {
   const { t } = useTranslation()
-  const modeLabels: Record<string, string> = {
-    chat: t.tokens.chatQuota,
-    image: t.tokens.imageQuota,
-    video: t.tokens.videoQuota,
-  }
-  const quotaMetrics = buildTokenQuotaMetrics(token, modeLabels)
+  const issueMessages = formatQuotaPresentationIssues(issues, t)
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-3">
-        {quotaMetrics.map((metric) => (
-          <div key={metric.key} className={cn('rounded-lg border p-3', quotaSurfaceColor(metric.percent))}>
-            <div className="flex items-start justify-between gap-3">
-              <span className="text-sm text-muted">{metric.label}</span>
-              <span className={cn('text-xs font-semibold', quotaTextColor(metric.percent))}>{metric.percent.toFixed(0)}%</span>
+      {catalogError ? (
+        <QuotaAlert title={t.common.humanReadableQuotaUnavailable} message={catalogError.message || t.common.unknownError} />
+      ) : catalogLoading ? (
+        <p className="text-sm text-muted">{t.common.loading}</p>
+      ) : issues.length > 0 ? (
+        <QuotaAlert title={t.common.humanReadableQuotaUnavailable} message={issueMessages.join(' / ')} />
+      ) : null}
+
+      {groups.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {groups.map((group) => (
+            <div key={group.key} className={cn('rounded-lg border p-3', quotaSurfaceColor(group.percent))}>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold">{group.title}</div>
+                  <div className="mt-1 text-xs text-muted">{t.common.modelsSharingSameQuota}</div>
+                </div>
+                <span className={cn('text-xs font-semibold', quotaTextColor(group.percent))}>{group.percent.toFixed(0)}%</span>
+              </div>
+              <div className="mt-2 text-base font-semibold">{group.remaining} / {group.total}</div>
+              <Progress value={group.percent} className={cn('mt-3 h-2', quotaProgressColor(group.percent))} />
+              <div className="mt-3 flex flex-wrap gap-2">
+                {group.models.map((model) => (
+                  <Badge key={model.id} variant="secondary" className="normal-case tracking-normal">
+                    {model.displayName}
+                  </Badge>
+                ))}
+              </div>
             </div>
-            <div className="mt-1 text-base font-semibold">{metric.remaining} / {metric.total}</div>
-            <Progress value={metric.percent} className={cn('mt-3 h-2', quotaProgressColor(metric.percent))} />
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : !catalogError && !catalogLoading ? (
+        <p className="text-sm text-muted">{t.dashboard.noData}</p>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
         <div>
@@ -63,5 +90,15 @@ export function TokenDetails({ token }: { token: Token }) {
         </div>
       </div>
     </div>
+  )
+}
+
+function QuotaAlert({ title, message }: { title: string; message: string }) {
+  return (
+    <Alert variant="warning">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   )
 }

@@ -60,9 +60,6 @@ func main() {
 		MaxBackups: cfg.App.LogMaxBackups,
 	})
 	logging.Info("starting grokforge", "version", version, "config", *configPath)
-	if cfg.App.AppKey == "grokforge" {
-		logging.Warn("default admin app key is in use; change app.app_key before exposing the service")
-	}
 
 	// Open database
 	db, err := store.Open(cfg)
@@ -109,6 +106,16 @@ func main() {
 		}
 		logging.Info("applied database config overrides", "count", len(dbOverrides))
 	}
+	bootstrapAppKey, bootstrapGenerated, err := config.EnsureAdminAppKey(cfg, nil)
+	if err != nil {
+		logging.Error("failed to prepare admin app key", "error", err)
+		os.Exit(1)
+	}
+	if bootstrapGenerated {
+		logTemporaryBootstrapAdminPassword(bootstrapAppKey)
+	} else if cfg.App.AppKey == "grokforge" {
+		logging.Warn("default admin app key is in use; change app.app_key before exposing the service")
+	}
 	runtimeCfg := config.NewRuntime(cfg)
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
@@ -120,15 +127,21 @@ func main() {
 
 	// Create token service
 	tokenStore := store.NewTokenStore(db)
-	tokenSvc := token.NewTokenService(&cfg.Token, tokenStore, "https://grok.com")
+	tokenSvc := token.NewTokenService(&cfg.Token, tokenStore, modeSpecs, "https://grok.com")
+	scheduler := token.NewScheduler(tokenSvc.Manager(), modeSpecs, "https://grok.com")
+	tokenSvc.SetFirstUseTracker(scheduler)
+	tokenSvc.SetManualRefresher(scheduler)
 	if err := tokenSvc.LoadTokens(rootCtx); err != nil {
 		logging.Error("failed to load tokens", "error", err)
+		os.Exit(1)
+	}
+	if err := tokenSvc.FlushDirty(rootCtx); err != nil {
+		logging.Error("failed to persist normalized tokens", "error", err)
 		os.Exit(1)
 	}
 	logging.Info("token service ready", "stats", tokenSvc.Stats())
 
 	// Start quota refresh scheduler (mode-based, first_used_at driven)
-	scheduler := token.NewScheduler(tokenSvc.Manager(), modeSpecs, "https://grok.com")
 	scheduler.Start(rootCtx)
 	logging.Info("token quota refresh scheduler started")
 
@@ -157,6 +170,7 @@ func main() {
 	videoFlow.SetAppConfigProvider(func() *config.AppConfig {
 		return &runtimeCfg.Get().App
 	})
+	videoFlow.SetModeResolver(reg)
 	logging.Info("video flow ready")
 
 	// Create ChatFlow
@@ -183,7 +197,6 @@ func main() {
 					JitterFactor:            0.25,
 					BackoffFactor:           retry.RetryBackoffFactor,
 					ResetSessionStatusCodes: append([]int(nil), retry.ResetSessionStatusCodes...),
-					CoolingStatusCodes:      append([]int(nil), retry.CoolingStatusCodes...),
 					RetryBudget:             time.Duration(retry.RetryBudget * float64(time.Second)),
 				}
 			},
@@ -245,6 +258,7 @@ func main() {
 		return &runtimeCfg.Get().Image
 	})
 	imageFlow.SetModelResolver(reg)
+	imageFlow.SetModeResolver(reg)
 	imageFlow.SetEnableProResolver(func(model string) bool {
 		rm, ok := reg.Resolve(model)
 		if !ok {
@@ -280,6 +294,7 @@ func main() {
 		Runtime:         runtimeCfg,
 		ChatProvider:    openaiHandler,
 		TokenStore:      tokenStore,
+		TokenRefresher:  tokenSvc,
 		TokenPoolSyncer: tokenSvc,
 		UsageLogStore:   usageLogStore,
 		APIKeyStore:     apiKeyStore,

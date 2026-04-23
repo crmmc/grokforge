@@ -101,9 +101,6 @@ max_tokens = 5
 per_token_retries = 2
 # HTTP status codes that trigger session reset
 reset_session_status_codes = [403]
-# HTTP status codes that trigger token cooling (rate limit marking)
-# Note: 403 is NOT included — CF challenges and token-level 403 are handled separately
-cooling_status_codes = [429]
 # Backoff base delay (seconds)
 retry_backoff_base = 0.5
 # Backoff multiplier
@@ -115,17 +112,9 @@ retry_budget = 60.0
 
 # ==================== Token Pool Management ====================
 [token]
-# Token consecutive failure threshold (marks expired)
+# Token consecutive failure threshold (marks disabled)
 fail_threshold = 5
 # Usage write minimum interval (seconds)
 usage_flush_interval_sec = 30
-# Cooling check interval (seconds)
-cool_check_interval_sec = 30
-# Basic pool cooling duration (minutes)
-basic_cool_duration_min = 240
-# Super pool cooling duration (minutes)
-super_cool_duration_min = 120
-# Heavy pool cooling duration (minutes)
-heavy_cool_duration_min = 60
 # Token selection algorithm: high_quota_first / random / round_robin
 selection_algorithm = "high_quota_first"

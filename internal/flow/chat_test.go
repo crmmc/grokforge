@@ -39,7 +39,24 @@ func (r *testResolver) ResolvePoolFloor(requestName string) (floor string, ok bo
 	return "", false
 }
 
+func (r *testResolver) ResolveMode(requestName string) (mode string, ok bool) {
+	switch requestName {
+	case "grok-2", "grok-2-mini", "grok-2-imageGen", "grok-2-vision", "grok-imagine-image-lite", "grok-imagine-video":
+		return "auto", true
+	case "grok-imagine-image", "grok-imagine-image-edit":
+		return "", false
+	case "grok-3", "grok-3-mini", "grok-3-reasoning", "grok-3-deepsearch", "grok-4":
+		return "auto", true
+	default:
+		return "", false
+	}
+}
+
 func testModelResolver() tkn.ModelResolver {
+	return &testResolver{}
+}
+
+func testModeResolver() ModeResolver {
 	return &testResolver{}
 }
 
@@ -50,6 +67,8 @@ type mockTokenService struct {
 	pickIndex      int
 	pickErr        error
 	successCalls   []uint
+	firstUseCalls  []uint
+	firstUseModes  []string
 	rateLimitCalls []uint
 	errorCalls     []uint
 	expiredCalls   []uint
@@ -74,6 +93,17 @@ func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[u
 		return t, nil
 	}
 	return nil, errors.New("no tokens available")
+}
+
+func (m *mockTokenService) PickAnyExcluding(pool string, exclude map[uint]struct{}) (*store.Token, error) {
+	return m.PickExcluding(pool, "", exclude)
+}
+
+func (m *mockTokenService) RecordFirstUse(id uint, mode string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.firstUseCalls = append(m.firstUseCalls, id)
+	m.firstUseModes = append(m.firstUseModes, mode)
 }
 
 func (m *mockTokenService) RefundQuota(id uint, mode string) {}
@@ -377,18 +407,21 @@ func TestChatFlow_HandleError_CFChallenge_NoTokenPenalty(t *testing.T) {
 	}
 }
 
-func TestChatFlow_HandleError_Forbidden_MarksExpired(t *testing.T) {
+func TestChatFlow_HandleError_Forbidden_NoTokenPenalty(t *testing.T) {
 	tokenSvc := &mockTokenService{}
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
 	flow.handleError(1, "auto", xai.ErrForbidden, cfg)
 
-	if len(tokenSvc.expiredCalls) != 1 || tokenSvc.expiredCalls[0] != 1 {
-		t.Errorf("token-level 403 should mark expired, got %v", tokenSvc.expiredCalls)
+	if len(tokenSvc.expiredCalls) != 0 {
+		t.Errorf("403 should not expire token, got %v", tokenSvc.expiredCalls)
 	}
 	if len(tokenSvc.rateLimitCalls) != 0 {
-		t.Errorf("token-level 403 should not rate limit, got %v", tokenSvc.rateLimitCalls)
+		t.Errorf("403 should not rate limit, got %v", tokenSvc.rateLimitCalls)
+	}
+	if len(tokenSvc.errorCalls) != 0 {
+		t.Errorf("403 should not report error, got %v", tokenSvc.errorCalls)
 	}
 }
 

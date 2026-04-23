@@ -77,10 +77,9 @@ func (f *ImageFlow) GenerateLite(ctx context.Context, req *ImageLiteRequest) (*I
 
 	images := make([]ImageData, 0, req.N)
 	for i := 0; i < req.N; i++ {
-		data, err := f.generateLiteSingle(ctx, client, req)
+		data, err := f.generateLiteSingle(ctx, tok.ID, mode, client, req)
 		if err != nil {
-			recoverable := isTransportError(err) || isServerError(err)
-			f.tokenSvc.ReportError(tok.ID, mode, recoverable, truncateReason(err.Error()))
+			reportTrackedTokenError(f.tokenSvc, tok.ID, mode, err)
 			f.recordLiteUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 			return nil, err
 		}
@@ -95,7 +94,13 @@ func (f *ImageFlow) GenerateLite(ctx context.Context, req *ImageLiteRequest) (*I
 	}, nil
 }
 
-func (f *ImageFlow) generateLiteSingle(ctx context.Context, client ImageEditClient, req *ImageLiteRequest) (*ImageData, error) {
+func (f *ImageFlow) generateLiteSingle(
+	ctx context.Context,
+	tokenID uint,
+	mode string,
+	client ImageEditClient,
+	req *ImageLiteRequest,
+) (*ImageData, error) {
 	chatReq := &xai.ChatRequest{
 		Messages: []xai.Message{
 			{Role: "user", Content: "Drawing: " + req.Prompt},
@@ -114,6 +119,7 @@ func (f *ImageFlow) generateLiteSingle(ctx context.Context, client ImageEditClie
 	if err != nil {
 		return nil, fmt.Errorf("lite image chat: %w", err)
 	}
+	f.tokenSvc.RecordFirstUse(tokenID, mode)
 
 	// Collect image URLs from SSE stream
 	var imageURLs []string

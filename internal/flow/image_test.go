@@ -190,6 +190,32 @@ func TestImageFlow_Generate_Success(t *testing.T) {
 	assert.Equal(t, finalData, resp.Data[0].B64JSON)
 }
 
+func TestImageFlow_GenerateLite_RecordsResolvedMode(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	editor := &mockImageEditClient{
+		imageURLs:    []string{"https://example.com/image.png"},
+		downloadBody: []byte("image-bytes"),
+	}
+
+	flow := NewImageFlow(tokenSvc, nil)
+	flow.SetModelResolver(testModelResolver())
+	flow.SetModeResolver(testModeResolver())
+	flow.SetEditClientFactory(func(token string) ImageEditClient { return editor })
+
+	resp, err := flow.GenerateLite(context.Background(), &ImageLiteRequest{
+		Model:          "grok-imagine-image-lite",
+		Prompt:         "draw a lighthouse",
+		N:              1,
+		UpstreamMode:   "MODEL_MODE_FAST",
+		ResponseFormat: "b64_json",
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Data, 1)
+	require.Equal(t, []string{"auto"}, tokenSvc.firstUseModes)
+}
+
 func TestImageFlow_Generate_Blocked(t *testing.T) {
 	mock := &mockImagineClient{
 		events: []xai.ImageEvent{
@@ -750,9 +776,7 @@ func TestImageFlow_BlockedRecovery_ConsumeOnlyOnSuccess(t *testing.T) {
 
 	tokenSvc.mu.Lock()
 	defer tokenSvc.mu.Unlock()
-	// ReportSuccess is called twice for token 2: once in selectImageRecoveryResult
-	// and once in Generate's usedTokenIDs loop
-	assert.Len(t, tokenSvc.successCalls, 2, "ReportSuccess called in recovery + Generate loop")
+	assert.Len(t, tokenSvc.successCalls, 1, "Only final successful token should be marked successful once")
 	for _, id := range tokenSvc.successCalls {
 		assert.Equal(t, uint(2), id, "Only the successful recovery token should be reported")
 	}
@@ -788,4 +812,51 @@ func TestImageFlow_Generate_Timeout(t *testing.T) {
 	if time.Since(start) < 10*time.Millisecond {
 		t.Fatalf("timeout returned too early, likely not using internal timeout")
 	}
+}
+
+func TestImageFlow_GenerateWS_CooldownSkipsBusyToken(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{
+			{ID: 1, Token: "tok-1", Pool: "basic"},
+			{ID: 2, Token: "tok-2", Pool: "basic"},
+		},
+	}
+
+	flow := NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
+		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
+			ch := make(chan xai.ImageEvent, 1)
+			if token == "tok-1" {
+				ch <- xai.ImageEvent{Type: xai.ImageEventError, Error: errors.New("upstream busy")}
+			} else {
+				ch <- xai.ImageEvent{Type: xai.ImageEventFinal, ImageData: "final-image"}
+			}
+			close(ch)
+			return ch, nil
+		})
+	})
+	flow.SetModelResolver(testModelResolver())
+
+	_, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:           "grok-imagine-image",
+		Prompt:          "first attempt fails",
+		N:               1,
+		Size:            "1024x1024",
+		CooldownSeconds: 60,
+	})
+	require.Error(t, err)
+
+	tokenSvc.mu.Lock()
+	tokenSvc.pickIndex = 0
+	tokenSvc.mu.Unlock()
+
+	resp, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:           "grok-imagine-image",
+		Prompt:          "second attempt should skip cooled token",
+		N:               1,
+		Size:            "1024x1024",
+		CooldownSeconds: 60,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Data, 1)
+	assert.Equal(t, "final-image", resp.Data[0].B64JSON)
 }

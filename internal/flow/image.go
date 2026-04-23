@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
@@ -21,16 +22,17 @@ type ImagineGenerator interface {
 
 // ImageRequest represents an OpenAI-compatible image generation request.
 type ImageRequest struct {
-	Model          string `json:"model,omitempty"`
-	Prompt         string `json:"prompt"`
-	N              int    `json:"n,omitempty"`
-	Size           string `json:"size,omitempty"`
-	Quality        string `json:"quality,omitempty"`
-	ResponseFormat string `json:"response_format,omitempty"`
-	Style          string `json:"style,omitempty"`
-	User           string `json:"user,omitempty"`
-	EnableNSFW     *bool  `json:"enable_nsfw,omitempty"`
-	Mode           string `json:"-"` // mode from registry for quota tracking
+	Model           string `json:"model,omitempty"`
+	Prompt          string `json:"prompt"`
+	N               int    `json:"n,omitempty"`
+	Size            string `json:"size,omitempty"`
+	Quality         string `json:"quality,omitempty"`
+	ResponseFormat  string `json:"response_format,omitempty"`
+	Style           string `json:"style,omitempty"`
+	User            string `json:"user,omitempty"`
+	EnableNSFW      *bool  `json:"enable_nsfw,omitempty"`
+	Mode            string `json:"-"` // mode from registry for quota tracking
+	CooldownSeconds int    `json:"-"`
 }
 
 // Validate validates the image request.
@@ -129,6 +131,8 @@ type ImageFlow struct {
 	modelResolver     tkn.ModelResolver
 	modeResolver      ModeResolver
 	enableProFn       func(model string) bool
+	cooldownMu        sync.Mutex
+	cooldownUntil     map[string]time.Time
 }
 
 // NewImageFlow creates a new image flow with per-request token selection.
@@ -136,6 +140,7 @@ func NewImageFlow(tokenSvc TokenServicer, clientFactory ImagineClientFactory) *I
 	return &ImageFlow{
 		tokenSvc:      tokenSvc,
 		clientFactory: clientFactory,
+		cooldownUntil: make(map[string]time.Time),
 	}
 }
 
@@ -201,52 +206,7 @@ func (f *ImageFlow) Generate(ctx context.Context, req *ImageRequest) (*ImageResp
 
 	ctx, cancel := context.WithTimeout(ctx, imageGenerationTimeout)
 	defer cancel()
-
-	// Resolve mode from request or model registry
-	mode := req.Mode
-	if mode == "" {
-		mode = f.resolveMode(req.Model)
-	}
-
-	start := time.Now()
-	aspectRatio := xai.ParseAspectRatio(req.Size)
-	apiKeyID := FlowAPIKeyIDFromContext(ctx)
-
-	// Pick token per request
-	tok, err := f.pickTokenForModel(req.Model, mode)
-	if err != nil {
-		return nil, err
-	}
-
-	// Generate N images (quota pre-deducted in Pick)
-	images := make([]ImageData, 0, req.N)
-	enableNSFW := resolveEnableNSFW(req.EnableNSFW, f.imageConfig())
-	enablePro := f.resolveEnablePro(req.Model)
-	usedTokenIDs := make(map[uint]struct{})
-	for i := 0; i < req.N; i++ {
-		result, err := f.generateWithRecovery(ctx, req.Model, mode, tok, req.Prompt, aspectRatio, enableNSFW, enablePro)
-		if err != nil {
-			if isTransportError(err) {
-				f.tokenSvc.ReportError(tok.ID, mode, true, truncateReason(err.Error()))
-			} else {
-				f.tokenSvc.ReportError(tok.ID, mode, false, truncateReason(err.Error()))
-			}
-			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
-			return nil, err
-		}
-		tok = result.token
-		images = append(images, *result.data)
-		usedTokenIDs[tok.ID] = struct{}{}
-	}
-
-	for tokenID := range usedTokenIDs {
-		f.tokenSvc.ReportSuccess(tokenID)
-	}
-	f.recordUsage(apiKeyID, tok.ID, req.Model, 200, time.Since(start))
-	return &ImageResponse{
-		Created: time.Now().Unix(),
-		Data:    images,
-	}, nil
+	return f.generateWS(ctx, req)
 }
 
 // recordUsage records an API usage log entry via the buffer (non-blocking).
@@ -281,7 +241,15 @@ func (f *ImageFlow) pickTokenForModelExcluding(model, mode string, exclude map[u
 	}
 	var lastErr error
 	for _, pool := range pools {
-		tok, err := f.tokenSvc.PickExcluding(pool, mode, exclude)
+		var (
+			tok *store.Token
+			err error
+		)
+		if mode == "" {
+			tok, err = f.tokenSvc.PickAnyExcluding(pool, exclude)
+		} else {
+			tok, err = f.tokenSvc.PickExcluding(pool, mode, exclude)
+		}
 		if err == nil {
 			return tok, nil
 		}

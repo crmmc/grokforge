@@ -59,7 +59,6 @@ export interface RetryConfigResponse {
   max_tokens: number;
   per_token_retries: number;
   reset_session_status_codes: number[];
-  cooling_status_codes: number[];
   retry_backoff_base: number;
   retry_backoff_factor: number;
   retry_backoff_max: number;
@@ -69,10 +68,6 @@ export interface RetryConfigResponse {
 export interface TokenConfigResponse {
   fail_threshold: number;
   usage_flush_interval_sec: number;
-  cool_check_interval_sec: number;
-  basic_cool_duration_min: number;
-  super_cool_duration_min: number;
-  heavy_cool_duration_min: number;
   selection_algorithm: string;
 }
 

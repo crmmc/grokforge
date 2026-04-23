@@ -224,11 +224,15 @@ func (m *chatMockTokenSvc) Pick(pool string, mode string) (*store.Token, error) 
 func (m *chatMockTokenSvc) PickExcluding(pool string, mode string, _ map[uint]struct{}) (*store.Token, error) {
 	return m.Pick(pool, mode)
 }
-func (m *chatMockTokenSvc) RefundQuota(id uint, mode string)                              {}
-func (m *chatMockTokenSvc) ReportSuccess(id uint)                                         {}
-func (m *chatMockTokenSvc) ReportRateLimit(id uint, mode string, reason string)            {}
+func (m *chatMockTokenSvc) PickAnyExcluding(pool string, _ map[uint]struct{}) (*store.Token, error) {
+	return m.Pick(pool, "")
+}
+func (m *chatMockTokenSvc) RecordFirstUse(id uint, mode string)                               {}
+func (m *chatMockTokenSvc) RefundQuota(id uint, mode string)                                  {}
+func (m *chatMockTokenSvc) ReportSuccess(id uint)                                             {}
+func (m *chatMockTokenSvc) ReportRateLimit(id uint, mode string, reason string)               {}
 func (m *chatMockTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {}
-func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)                             {}
+func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)                                {}
 
 type chatUnavailableTokenSvc struct {
 	err error
@@ -240,11 +244,16 @@ func (m *chatUnavailableTokenSvc) Pick(pool string, mode string) (*store.Token, 
 func (m *chatUnavailableTokenSvc) PickExcluding(pool string, mode string, _ map[uint]struct{}) (*store.Token, error) {
 	return nil, m.err
 }
-func (m *chatUnavailableTokenSvc) RefundQuota(id uint, mode string)                              {}
-func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                                         {}
-func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, mode string, reason string)            {}
-func (m *chatUnavailableTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {}
-func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string)                             {}
+func (m *chatUnavailableTokenSvc) PickAnyExcluding(pool string, _ map[uint]struct{}) (*store.Token, error) {
+	return nil, m.err
+}
+func (m *chatUnavailableTokenSvc) RecordFirstUse(id uint, mode string)                 {}
+func (m *chatUnavailableTokenSvc) RefundQuota(id uint, mode string)                    {}
+func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                               {}
+func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, mode string, reason string) {}
+func (m *chatUnavailableTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {
+}
+func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string) {}
 
 type chatMockAPIKeyStore struct{}
 
@@ -327,8 +336,9 @@ func (r *chatUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 // testMediaRegistry returns a ModelRegistry pre-populated with the standard
 // image/video/image_edit models used in routing tests.
 func testMediaRegistry() *registry.ModelRegistry {
+	quotaSyncFalse := false
 	return registry.NewTestRegistry([]modelconfig.ModelSpec{
-		{ID: "grok-imagine-image", Type: modelconfig.TypeImageWS, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", PublicType: "image_ws"},
+		{ID: "grok-imagine-image", Type: modelconfig.TypeImageWS, Enabled: true, PoolFloor: modelconfig.PoolSuper, QuotaSync: &quotaSyncFalse, CooldownSeconds: 300, PublicType: "image_ws"},
 		{ID: "grok-imagine-image-lite", Type: modelconfig.TypeImageLite, Enabled: true, PoolFloor: modelconfig.PoolBasic, Mode: "auto", PublicType: "image"},
 		{ID: "grok-imagine-image-edit", Type: modelconfig.TypeImageEdit, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", UpstreamModel: "imagine-image-edit", UpstreamMode: "MODEL_MODE_FAST", PublicType: "image_edit"},
 		{ID: "grok-imagine-video", Type: modelconfig.TypeVideo, Enabled: true, PoolFloor: modelconfig.PoolSuper, Mode: "auto", UpstreamModel: "grok-3", UpstreamMode: "MODEL_MODE_FAST", PublicType: "video"},

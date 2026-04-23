@@ -1,13 +1,12 @@
 import { cn } from '@/lib/utils'
 import { Tooltip, TooltipTrigger, TooltipContent } from './tooltip'
 
-type StatusColor = 'active' | 'expired' | 'exhausted' | 'cooling' | 'rate_limited' | string
+type StatusColor = 'active' | 'expired' | 'exhausted' | 'rate_limited' | string
 
 const colorMap: Record<string, { bg: string; text: string; border: string; dot: string }> = {
   active: { bg: 'bg-emerald-500/10', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-500/20', dot: 'bg-emerald-500' },
   expired: { bg: 'bg-rose-500/10', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-500/20', dot: 'bg-rose-500' },
   exhausted: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-500' },
-  cooling: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-500' },
   rate_limited: { bg: 'bg-amber-500/10', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-500/20', dot: 'bg-amber-500' },
 }
 

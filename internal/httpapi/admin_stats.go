@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -25,10 +26,11 @@ type UsageLogStoreInterface interface {
 
 // TokenStatsResponse is the response for token stats endpoint.
 type TokenStatsResponse struct {
-	Total    int `json:"total"`
-	Active   int `json:"active"`
-	Expired  int `json:"expired"`
-	Disabled int `json:"disabled"`
+	Total     int `json:"total"`
+	Active    int `json:"active"`
+	Exhausted int `json:"exhausted"`
+	Expired   int `json:"expired"`
+	Disabled  int `json:"disabled"`
 }
 
 // QuotaStatsResponse is the response for quota stats endpoint.
@@ -62,7 +64,7 @@ type UsageStatsResponse struct {
 }
 
 // handleTokenStats returns a handler that aggregates token counts by status.
-func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
+func handleTokenStats(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokens, err := ts.ListTokens(r.Context())
 		if err != nil {
@@ -72,12 +74,14 @@ func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
 
 		resp := TokenStatsResponse{Total: len(tokens)}
 		for _, t := range tokens {
-			switch t.Status {
-			case store.TokenStatusActive:
+			switch deriveDisplayStatus(t, reg) {
+			case "active":
 				resp.Active++
-			case store.TokenStatusExpired:
+			case "exhausted":
+				resp.Exhausted++
+			case "expired":
 				resp.Expired++
-			case store.TokenStatusDisabled:
+			case "disabled":
 				resp.Disabled++
 			}
 		}
@@ -87,7 +91,7 @@ func handleTokenStats(ts TokenStoreInterface) http.HandlerFunc {
 }
 
 // handleQuotaStats returns a handler that aggregates quota totals and remaining quota by pool for active tokens.
-func handleQuotaStats(ts TokenStoreInterface) http.HandlerFunc {
+func handleQuotaStats(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tokens, err := ts.ListTokens(r.Context())
 		if err != nil {
@@ -119,7 +123,13 @@ func handleQuotaStats(ts TokenStoreInterface) http.HandlerFunc {
 			if t.Status != store.TokenStatusActive {
 				continue
 			}
+			supported := supportedModeSet(reg, t.Pool)
 			for mode, remaining := range t.Quotas {
+				if len(supported) > 0 {
+					if _, ok := supported[mode]; !ok {
+						continue
+					}
+				}
 				ms := pq.ModeQuotas[mode]
 				ms.TotalRemaining += remaining
 				if limit, ok := t.LimitQuotas[mode]; ok {
@@ -139,6 +149,18 @@ func handleQuotaStats(ts TokenStoreInterface) http.HandlerFunc {
 
 		WriteJSON(w, http.StatusOK, QuotaStatsResponse{Pools: pools})
 	}
+}
+
+func supportedModeSet(reg *registry.ModelRegistry, pool string) map[string]struct{} {
+	if reg == nil {
+		return nil
+	}
+	modes := supportedModesForPool(reg, pool)
+	set := make(map[string]struct{}, len(modes))
+	for _, mode := range modes {
+		set[mode] = struct{}{}
+	}
+	return set
 }
 
 // handleUsageStats returns a handler that returns today's usage with hourly breakdown and delta.

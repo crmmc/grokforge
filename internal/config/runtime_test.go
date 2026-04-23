@@ -14,7 +14,6 @@ func TestRuntimeCloneIsolation(t *testing.T) {
 		},
 		Retry: RetryConfig{
 			ResetSessionStatusCodes: []int{401},
-			CoolingStatusCodes:      []int{429},
 		},
 		Image: ImageConfig{
 			BlockedParallelEnabled: &enabled,

@@ -139,7 +139,7 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 	timeoutCtx, cancel := context.WithTimeout(ctx, time.Duration(f.cfg.TimeoutSeconds)*time.Second)
 	defer cancel()
 
-	videoURL, err := f.generateVideoViaChat(timeoutCtx, tok, req)
+	videoURL, err := f.generateVideoViaChat(timeoutCtx, tok, req, mode)
 	if err != nil {
 		f.reportTokenError(tok.ID, mode, err)
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
@@ -153,18 +153,7 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 
 // reportTokenError reports the appropriate token error based on error type.
 func (f *VideoFlow) reportTokenError(tokenID uint, mode string, err error) {
-	reason := truncateReason(err.Error())
-	if isTransportError(err) {
-		// Transport/5xx — recoverable, refund quota
-		f.tokenSvc.ReportError(tokenID, mode, true, reason)
-		return
-	}
-	if ShouldCoolToken(err, nil) {
-		f.tokenSvc.ReportRateLimit(tokenID, mode, reason)
-	} else {
-		recoverable := isServerError(err)
-		f.tokenSvc.ReportError(tokenID, mode, recoverable, reason)
-	}
+	reportTrackedTokenError(f.tokenSvc, tokenID, mode, err)
 }
 
 // recordUsage records a video API usage log entry via the buffer (non-blocking).

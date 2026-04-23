@@ -63,7 +63,6 @@ type RetryConfigResponse struct {
 	MaxTokens               int     `json:"max_tokens"`
 	PerTokenRetries         int     `json:"per_token_retries"`
 	ResetSessionStatusCodes []int   `json:"reset_session_status_codes"`
-	CoolingStatusCodes      []int   `json:"cooling_status_codes"`
 	RetryBackoffBase        float64 `json:"retry_backoff_base"`
 	RetryBackoffFactor      float64 `json:"retry_backoff_factor"`
 	RetryBackoffMax         float64 `json:"retry_backoff_max"`
@@ -74,10 +73,6 @@ type RetryConfigResponse struct {
 type TokenConfigResponse struct {
 	FailThreshold         int    `json:"fail_threshold"`
 	UsageFlushIntervalSec int    `json:"usage_flush_interval_sec"`
-	CoolCheckIntervalSec  int    `json:"cool_check_interval_sec"`
-	BasicCoolDurationMin  int    `json:"basic_cool_duration_min"`
-	SuperCoolDurationMin  int    `json:"super_cool_duration_min"`
-	HeavyCoolDurationMin  int    `json:"heavy_cool_duration_min"`
 	SelectionAlgorithm    string `json:"selection_algorithm"`
 }
 
@@ -137,7 +132,6 @@ type RetryConfigUpdate struct {
 	MaxTokens               *int     `json:"max_tokens,omitempty"`
 	PerTokenRetries         *int     `json:"per_token_retries,omitempty"`
 	ResetSessionStatusCodes *[]int   `json:"reset_session_status_codes,omitempty"`
-	CoolingStatusCodes      *[]int   `json:"cooling_status_codes,omitempty"`
 	RetryBackoffBase        *float64 `json:"retry_backoff_base,omitempty"`
 	RetryBackoffFactor      *float64 `json:"retry_backoff_factor,omitempty"`
 	RetryBackoffMax         *float64 `json:"retry_backoff_max,omitempty"`
@@ -147,10 +141,6 @@ type RetryConfigUpdate struct {
 // TokenConfigUpdate contains hot-reloadable token config fields.
 type TokenConfigUpdate struct {
 	FailThreshold         *int    `json:"fail_threshold,omitempty"`
-	CoolCheckIntervalSec  *int    `json:"cool_check_interval_sec,omitempty"`
 	UsageFlushIntervalSec *int    `json:"usage_flush_interval_sec,omitempty"`
-	BasicCoolDurationMin  *int    `json:"basic_cool_duration_min,omitempty"`
-	SuperCoolDurationMin  *int    `json:"super_cool_duration_min,omitempty"`
-	HeavyCoolDurationMin  *int    `json:"heavy_cool_duration_min,omitempty"`
 	SelectionAlgorithm    *string `json:"selection_algorithm,omitempty"`
 }

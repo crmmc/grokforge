@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -126,14 +127,14 @@ type ImagineRequestContent struct {
 
 // ImagineRequestProperties contains generation parameters.
 type ImagineRequestProperties struct {
-	SectionCount    int    `json:"section_count"`
-	IsKidsMode      bool   `json:"is_kids_mode"`
-	EnableNSFW      bool   `json:"enable_nsfw"`
-	SkipUpsampler   bool   `json:"skip_upsampler"`
-	IsInitial       bool   `json:"is_initial"`
-	AspectRatio     string `json:"aspect_ratio"`
-	EnableSideBySide bool  `json:"enable_side_by_side"`
-	EnablePro       bool   `json:"enable_pro"`
+	SectionCount     int    `json:"section_count"`
+	IsKidsMode       bool   `json:"is_kids_mode"`
+	EnableNSFW       bool   `json:"enable_nsfw"`
+	SkipUpsampler    bool   `json:"skip_upsampler"`
+	IsInitial        bool   `json:"is_initial"`
+	AspectRatio      string `json:"aspect_ratio"`
+	EnableSideBySide bool   `json:"enable_side_by_side"`
+	EnablePro        bool   `json:"enable_pro"`
 }
 
 // ImagineResponse is the WebSocket response message.
@@ -170,8 +171,14 @@ func (c *ImagineClient) doGenerate(
 		return nil, fmt.Errorf("build websocket dialer: %w", err)
 	}
 
-	conn, _, err := dialer.DialContext(ctx, c.wsURL, headers)
+	conn, resp, err := dialer.DialContext(ctx, c.wsURL, headers)
 	if err != nil {
+		if resp != nil {
+			mappedErr := mapWebsocketHandshakeError(resp)
+			if mappedErr != nil {
+				return nil, mappedErr
+			}
+		}
 		return nil, fmt.Errorf("websocket dial: %w", err)
 	}
 
@@ -183,6 +190,34 @@ func (c *ImagineClient) doGenerate(
 	})
 
 	return eventCh, nil
+}
+
+func mapWebsocketHandshakeError(resp *http.Response) error {
+	if resp == nil {
+		return nil
+	}
+	defer resp.Body.Close()
+
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
+	if err != nil {
+		return fmt.Errorf("read websocket handshake body: %w", err)
+	}
+	body := string(bodyBytes)
+	contentType := resp.Header.Get("Content-Type")
+
+	switch resp.StatusCode {
+	case http.StatusUnauthorized:
+		return ErrInvalidToken
+	case http.StatusTooManyRequests:
+		return ErrRateLimited
+	case http.StatusForbidden:
+		if isCFChallenge(contentType, body) {
+			return ErrCFChallenge
+		}
+		return ErrForbidden
+	default:
+		return fmt.Errorf("websocket bad handshake: %d %s", resp.StatusCode, truncateBody(body, 200))
+	}
 }
 
 func (c *ImagineClient) buildWSHeaders() http.Header {

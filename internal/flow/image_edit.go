@@ -69,8 +69,7 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 	}
 
 	handleErr := func(err error) (*ImageResponse, error) {
-		recoverable := isTransportError(err) || isServerError(err)
-		f.tokenSvc.ReportError(tok.ID, mode, recoverable, truncateReason(err.Error()))
+		reportTrackedTokenError(f.tokenSvc, tok.ID, mode, err)
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 		return nil, err
 	}
@@ -79,6 +78,7 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 	if err != nil {
 		return handleErr(err)
 	}
+	f.tokenSvc.RecordFirstUse(tok.ID, mode)
 
 	parentPostID, err := resolveImageEditParentPostID(ctx, client, uploadedURLs)
 	if err != nil {

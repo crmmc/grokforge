@@ -156,6 +156,9 @@ func validate(version int, modes []ModeSpec, models []ModelSpec) error {
 				return fmt.Errorf("model %q: cooldown_seconds is forbidden for quota-tracked models", m.ID)
 			}
 		} else {
+			if m.Type != TypeImageWS {
+				return fmt.Errorf("model %q: quota_sync = false is only valid for type %q", m.ID, TypeImageWS)
+			}
 			if m.Mode != "" {
 				return fmt.Errorf("model %q: mode is forbidden when quota_sync = false", m.ID)
 			}

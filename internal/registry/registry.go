@@ -89,6 +89,17 @@ func (r *ModelRegistry) Resolve(id string) (*ResolvedModel, bool) {
 	return rm, ok
 }
 
+// ResolveMode looks up a model ID and returns its quota mode.
+func (r *ModelRegistry) ResolveMode(requestName string) (string, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rm, ok := r.byID[requestName]
+	if !ok {
+		return "", false
+	}
+	return rm.Mode, true
+}
+
 // AllRequestNames returns all registered model IDs (sorted).
 // Retained for downstream compatibility.
 func (r *ModelRegistry) AllRequestNames() []string {

@@ -44,7 +44,6 @@ export const retryConfigSchema = z.object({
   max_tokens: z.number().int().min(1).max(20),
   per_token_retries: z.number().int().min(1).max(10),
   reset_session_status_codes: z.array(z.number().int().min(100).max(599)),
-  cooling_status_codes: z.array(z.number().int().min(100).max(599)),
   retry_backoff_base: z.number().min(0),
   retry_backoff_factor: z.number().min(1),
   retry_backoff_max: z.number().min(0),
@@ -54,10 +53,6 @@ export const retryConfigSchema = z.object({
 export const tokenConfigSchema = z.object({
   fail_threshold: z.number().int().min(1),
   usage_flush_interval_sec: z.number().int().min(1),
-  cool_check_interval_sec: z.number().int().min(1),
-  basic_cool_duration_min: z.number().int().min(0),
-  super_cool_duration_min: z.number().int().min(0),
-  heavy_cool_duration_min: z.number().int().min(0),
   selection_algorithm: z.enum(["high_quota_first", "random", "round_robin"]),
 });
 

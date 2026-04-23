@@ -240,39 +240,6 @@ func TestManager_UpdateModeQuota_InitializesNilMaps(t *testing.T) {
 	assert.Equal(t, 50, token.LimitQuotas["fast"])
 }
 
-func TestRestoreToken_RestoresQuotas(t *testing.T) {
-	cfg := &config.TokenConfig{FailThreshold: 3}
-	mgr := NewTokenManager(cfg)
-
-	mgr.AddToken(&store.Token{
-		ID: 1, Token: "t1", Pool: PoolBasic,
-		Status: string(StatusActive),
-		Quotas: store.IntMap{"auto": 0, "fast": 0},
-	})
-	mgr.AddToken(&store.Token{
-		ID: 2, Token: "t2", Pool: PoolBasic,
-		Status: string(StatusActive),
-		Quotas: store.IntMap{"auto": 5},
-	})
-
-	mgr.RestoreToken(1, store.IntMap{"auto": 80, "fast": 10}, store.IntMap{"auto": 80, "fast": 10})
-
-	// Restored token should have updated quotas
-	tok1 := mgr.GetToken(1)
-	require.NotNil(t, tok1)
-	assert.Equal(t, string(StatusActive), tok1.Status)
-	assert.Equal(t, 80, tok1.Quotas["auto"])
-	assert.Equal(t, 10, tok1.Quotas["fast"])
-	assert.Equal(t, 80, tok1.LimitQuotas["auto"])
-	assert.Equal(t, 10, tok1.LimitQuotas["fast"])
-
-	// Other token should be unchanged
-	tok2 := mgr.GetToken(2)
-	require.NotNil(t, tok2)
-	assert.Equal(t, string(StatusActive), tok2.Status)
-	assert.Equal(t, 5, tok2.Quotas["auto"])
-}
-
 func TestManager_MarkExpired(t *testing.T) {
 	cfg := &config.TokenConfig{FailThreshold: 3}
 	mgr := NewTokenManager(cfg)

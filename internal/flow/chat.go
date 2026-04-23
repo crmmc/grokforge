@@ -180,7 +180,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 				return
 			}
 
-			// Force swap token on cooling or ErrInvalidToken
+			// Force swap token on 429 quota exhaustion or ErrInvalidToken.
 			if errors.Is(err, xai.ErrInvalidToken) || ShouldSwapToken(err, cfg) {
 				slog.Debug("flow: forcing token swap", "token_id", currentToken.ID, "error", err)
 				currentToken = nil
@@ -210,6 +210,8 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 			continue
 		}
+
+		f.tokenSvc.RecordFirstUse(currentToken.ID, req.Mode)
 
 		// Stream events
 		success, usage, estimated, ttft, streamErr := f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
@@ -284,8 +286,7 @@ func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryC
 		return
 	}
 	if errors.Is(err, xai.ErrForbidden) {
-		slog.Debug("flow: marking token expired (403 token-level)", "token_id", tokenID)
-		f.tokenSvc.MarkExpired(tokenID, reason)
+		slog.Debug("flow: 403 without token penalty", "token_id", tokenID)
 		return
 	}
 	if errors.Is(err, xai.ErrCFChallenge) {

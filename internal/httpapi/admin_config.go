@@ -78,7 +78,6 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			MaxTokens:               cfg.Retry.MaxTokens,
 			PerTokenRetries:         cfg.Retry.PerTokenRetries,
 			ResetSessionStatusCodes: cfg.Retry.ResetSessionStatusCodes,
-			CoolingStatusCodes:      cfg.Retry.CoolingStatusCodes,
 			RetryBackoffBase:        cfg.Retry.RetryBackoffBase,
 			RetryBackoffFactor:      cfg.Retry.RetryBackoffFactor,
 			RetryBackoffMax:         cfg.Retry.RetryBackoffMax,
@@ -87,10 +86,6 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 		Token: TokenConfigResponse{
 			FailThreshold:         cfg.Token.FailThreshold,
 			UsageFlushIntervalSec: cfg.Token.UsageFlushIntervalSec,
-			CoolCheckIntervalSec:  cfg.Token.CoolCheckIntervalSec,
-			BasicCoolDurationMin:  cfg.Token.BasicCoolDurationMin,
-			SuperCoolDurationMin:  cfg.Token.SuperCoolDurationMin,
-			HeavyCoolDurationMin:  cfg.Token.HeavyCoolDurationMin,
 			SelectionAlgorithm:    cfg.Token.SelectionAlgorithm,
 		},
 	}

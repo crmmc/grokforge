@@ -146,9 +146,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Retry.ResetSessionStatusCodes != nil {
 				cfg.Retry.ResetSessionStatusCodes = *req.Retry.ResetSessionStatusCodes
 			}
-			if req.Retry.CoolingStatusCodes != nil {
-				cfg.Retry.CoolingStatusCodes = *req.Retry.CoolingStatusCodes
-			}
 			if req.Retry.RetryBackoffBase != nil {
 				cfg.Retry.RetryBackoffBase = *req.Retry.RetryBackoffBase
 			}
@@ -167,20 +164,8 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.FailThreshold != nil {
 				cfg.Token.FailThreshold = *req.Token.FailThreshold
 			}
-			if req.Token.CoolCheckIntervalSec != nil {
-				cfg.Token.CoolCheckIntervalSec = *req.Token.CoolCheckIntervalSec
-			}
 			if req.Token.UsageFlushIntervalSec != nil {
 				cfg.Token.UsageFlushIntervalSec = *req.Token.UsageFlushIntervalSec
-			}
-			if req.Token.BasicCoolDurationMin != nil {
-				cfg.Token.BasicCoolDurationMin = *req.Token.BasicCoolDurationMin
-			}
-			if req.Token.SuperCoolDurationMin != nil {
-				cfg.Token.SuperCoolDurationMin = *req.Token.SuperCoolDurationMin
-			}
-			if req.Token.HeavyCoolDurationMin != nil {
-				cfg.Token.HeavyCoolDurationMin = *req.Token.HeavyCoolDurationMin
 			}
 			if req.Token.SelectionAlgorithm != nil {
 				if !token.ValidAlgorithm(*req.Token.SelectionAlgorithm) {
@@ -310,13 +295,6 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				}
 				dbUpdates["retry.reset_session_status_codes"] = strings.Join(codes, ",")
 			}
-			if req.Retry.CoolingStatusCodes != nil {
-				codes := make([]string, len(*req.Retry.CoolingStatusCodes))
-				for i, c := range *req.Retry.CoolingStatusCodes {
-					codes[i] = strconv.Itoa(c)
-				}
-				dbUpdates["retry.cooling_status_codes"] = strings.Join(codes, ",")
-			}
 			if req.Retry.RetryBackoffBase != nil {
 				dbUpdates["retry.retry_backoff_base"] = fmt.Sprintf("%g", *req.Retry.RetryBackoffBase)
 			}
@@ -334,20 +312,8 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.FailThreshold != nil {
 				dbUpdates["token.fail_threshold"] = fmt.Sprintf("%d", *req.Token.FailThreshold)
 			}
-			if req.Token.CoolCheckIntervalSec != nil {
-				dbUpdates["token.cool_check_interval_sec"] = fmt.Sprintf("%d", *req.Token.CoolCheckIntervalSec)
-			}
 			if req.Token.UsageFlushIntervalSec != nil {
 				dbUpdates["token.usage_flush_interval_sec"] = fmt.Sprintf("%d", *req.Token.UsageFlushIntervalSec)
-			}
-			if req.Token.BasicCoolDurationMin != nil {
-				dbUpdates["token.basic_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.BasicCoolDurationMin)
-			}
-			if req.Token.SuperCoolDurationMin != nil {
-				dbUpdates["token.super_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.SuperCoolDurationMin)
-			}
-			if req.Token.HeavyCoolDurationMin != nil {
-				dbUpdates["token.heavy_cool_duration_min"] = fmt.Sprintf("%d", *req.Token.HeavyCoolDurationMin)
 			}
 			if req.Token.SelectionAlgorithm != nil {
 				dbUpdates["token.selection_algorithm"] = *req.Token.SelectionAlgorithm

@@ -79,7 +79,6 @@ type RetryConfig struct {
 	MaxTokens               int     `toml:"max_tokens"`
 	PerTokenRetries         int     `toml:"per_token_retries"`
 	ResetSessionStatusCodes []int   `toml:"reset_session_status_codes"`
-	CoolingStatusCodes      []int   `toml:"cooling_status_codes"`
 	RetryBackoffBase        float64 `toml:"retry_backoff_base"`
 	RetryBackoffFactor      float64 `toml:"retry_backoff_factor"`
 	RetryBackoffMax         float64 `toml:"retry_backoff_max"`
@@ -90,10 +89,6 @@ type RetryConfig struct {
 type TokenConfig struct {
 	FailThreshold         int    `toml:"fail_threshold"`
 	UsageFlushIntervalSec int    `toml:"usage_flush_interval_sec"`
-	CoolCheckIntervalSec  int    `toml:"cool_check_interval_sec"`
-	BasicCoolDurationMin  int    `toml:"basic_cool_duration_min"`
-	SuperCoolDurationMin  int    `toml:"super_cool_duration_min"`
-	HeavyCoolDurationMin  int    `toml:"heavy_cool_duration_min"`
 	SelectionAlgorithm    string `toml:"selection_algorithm" json:"selection_algorithm"`
 }
 

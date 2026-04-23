@@ -21,7 +21,7 @@ func TestRegistry_Basic(t *testing.T) {
 	specs := []modelconfig.ModelSpec{
 		{ID: "grok-4", DisplayName: "Grok 4", Type: "chat", Enabled: true, PoolFloor: "basic", Mode: "auto", UpstreamMode: "default", PublicType: "chat"},
 		{ID: "grok-4-heavy", DisplayName: "Grok 4 Heavy", Type: "chat", Enabled: true, PoolFloor: "heavy", Mode: "heavy", UpstreamMode: "heavy", PublicType: "chat"},
-		{ID: "flux-1", DisplayName: "Flux 1", Type: "image_ws", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "image_ws"},
+		{ID: "flux-1", DisplayName: "Flux 1", Type: "image_ws", Enabled: true, PoolFloor: "basic", PublicType: "image_ws"},
 	}
 	reg := NewModelRegistry(specs, testModes())
 
@@ -90,7 +90,7 @@ func TestRegistry_EnabledByType(t *testing.T) {
 	specs := []modelconfig.ModelSpec{
 		{ID: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "chat"},
 		{ID: "grok-4-heavy", Type: "chat", Enabled: true, PoolFloor: "heavy", Mode: "heavy", PublicType: "chat"},
-		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "image_ws"},
+		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", PublicType: "image_ws"},
 	}
 	reg := NewModelRegistry(specs, testModes())
 
@@ -119,7 +119,7 @@ func TestRegistry_EnabledByType_Empty(t *testing.T) {
 func TestRegistry_AllEnabled(t *testing.T) {
 	specs := []modelconfig.ModelSpec{
 		{ID: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "chat"},
-		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "image_ws"},
+		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", PublicType: "image_ws"},
 		{ID: "disabled", Type: "chat", Enabled: false, PoolFloor: "basic", Mode: "auto", PublicType: "chat"},
 	}
 	reg := NewModelRegistry(specs, testModes())
@@ -187,7 +187,7 @@ func TestRegistry_AllRequestNames(t *testing.T) {
 func TestRegistry_ConcurrentResolve(t *testing.T) {
 	specs := []modelconfig.ModelSpec{
 		{ID: "grok-4", Type: "chat", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "chat"},
-		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", Mode: "auto", PublicType: "image_ws"},
+		{ID: "flux-1", Type: "image_ws", Enabled: true, PoolFloor: "basic", PublicType: "image_ws"},
 	}
 	reg := NewModelRegistry(specs, testModes())
 
@@ -245,7 +245,7 @@ func TestRegistry_QuotaSyncAndCooldown(t *testing.T) {
 	quotaSyncFalse := false
 	specs := []modelconfig.ModelSpec{
 		{ID: "tracked", Type: "chat", Enabled: true, PoolFloor: "basic", Mode: "auto", UpstreamMode: "default", PublicType: "chat"},
-		{ID: "untracked", Type: "chat", Enabled: true, PoolFloor: "basic", QuotaSync: &quotaSyncFalse, CooldownSeconds: 120, UpstreamMode: "default", PublicType: "chat"},
+		{ID: "untracked", Type: "image_ws", Enabled: true, PoolFloor: "basic", QuotaSync: &quotaSyncFalse, CooldownSeconds: 120, PublicType: "image_ws"},
 	}
 	reg := NewModelRegistry(specs, testModes())
 

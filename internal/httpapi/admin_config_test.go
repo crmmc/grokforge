@@ -307,3 +307,33 @@ func TestAdminConfig_PutConfig_IgnoresMaskedProxySecrets(t *testing.T) {
 		t.Fatalf("cf_clearance should not be overwritten by masked placeholder, got %q", cfg.Proxy.CFClearance)
 	}
 }
+
+func TestAdminConfig_PutConfig_IgnoresMaskedAppKey(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			AppKey: "gf_bootstrap_example",
+		},
+		Retry: config.RetryConfig{
+			MaxTokens: 3,
+		},
+	}
+
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"app":{"app_key":"********"},"retry":{"max_tokens":5}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.App.AppKey != "gf_bootstrap_example" {
+		t.Fatalf("app_key should not be overwritten by masked placeholder, got %q", cfg.App.AppKey)
+	}
+	if cfg.Retry.MaxTokens != 5 {
+		t.Fatalf("retry.max_tokens = %d, want 5", cfg.Retry.MaxTokens)
+	}
+}
