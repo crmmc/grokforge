@@ -1,20 +1,20 @@
 'use client'
 
 import dynamic from 'next/dynamic'
-import { useSystemStatus, useAPIKeyStats, useDashboardTokenStats, useQuotaStats, useDashboardUsageStats } from '@/lib/hooks'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Progress, Alert, AlertDescription } from '@/components/ui'
+import { useAdminModels, useSystemStatus, useAPIKeyStats, useDashboardTokenStats, useQuotaStats, useDashboardUsageStats } from '@/lib/hooks'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Alert, AlertDescription } from '@/components/ui'
 import { AlertCircle } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/context'
 import { DashboardStatCards } from './dashboard-stat-cards'
-import type { PoolQuota } from '@/types'
+import { DashboardQuotaPanel } from '@/components/features/dashboard-quota-panel'
 
 const UsageChart = dynamic(
   () => import('@/components/features/usage-chart').then((mod) => mod.UsageChart),
   {
     loading: () => (
-      <Card>
-        <CardContent className="pt-6">
-          <Skeleton className="h-[300px] w-full" />
+      <Card className="flex flex-col">
+        <CardContent className="flex-1 pt-6">
+          <Skeleton className="h-full min-h-[200px] w-full" />
         </CardContent>
       </Card>
     ),
@@ -36,34 +36,13 @@ function computeOverallDelta(delta: Record<string, number | null> | undefined): 
   return vals.reduce((a, b) => a + b, 0) / vals.length
 }
 
-function progressColor(remainPct: number): string {
-  if (remainPct > 50) return '[&>div]:bg-emerald-500 bg-emerald-100'
-  if (remainPct > 20) return '[&>div]:bg-amber-500 bg-amber-100'
-  return '[&>div]:bg-rose-500 bg-rose-100'
-}
-
-function totalPoolQuota(pool: PoolQuota): number {
-  if (!pool.mode_quotas) return 0
-  return Object.values(pool.mode_quotas).reduce((sum, mq) => sum + mq.total_limit, 0)
-}
-
-function remainingPoolQuota(pool: PoolQuota): number {
-  if (!pool.mode_quotas) return 0
-  return Object.values(pool.mode_quotas).reduce((sum, mq) => sum + mq.total_remaining, 0)
-}
-
-function remainingPercent(pool: PoolQuota): number {
-  const total = totalPoolQuota(pool)
-  if (total <= 0) return 0
-  return (remainingPoolQuota(pool) / total) * 100
-}
-
 export default function DashboardPage() {
   const { data: status, isLoading: statusLoading, error: statusError } = useSystemStatus()
   const { data: tokenStats, isLoading: tokensLoading, error: tokensError } = useDashboardTokenStats()
   const { data: apiKeyStats, isLoading: apiKeysLoading, error: apiKeysError } = useAPIKeyStats()
   const { data: quotaStats, isLoading: quotaLoading, error: quotaError } = useQuotaStats()
   const { data: usageStats, isLoading: usageLoading, error: usageError } = useDashboardUsageStats()
+  const { data: catalog, isLoading: catalogLoading, error: catalogError } = useAdminModels()
   const { t } = useTranslation()
 
   const overallDelta = computeOverallDelta(usageStats?.delta)
@@ -100,47 +79,14 @@ export default function DashboardPage() {
 
       {/* Middle row: quota + chart */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t.dashboard.quota}</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {quotaLoading ? (
-              <Skeleton className="h-24" />
-            ) : !quotaStats?.pools?.length ? (
-              <p className="text-sm text-muted">{t.dashboard.noData}</p>
-            ) : (
-              <div className="flex flex-col gap-4">
-                {quotaStats.pools.map((pool) => {
-                  const totalQuota = totalPoolQuota(pool)
-                  const remainingQuota = remainingPoolQuota(pool)
-                  const remainPct = remainingPercent(pool)
-
-                  return (
-                    <div key={pool.pool} className="rounded-lg border border-[rgba(0,0,0,0.06)] bg-[rgba(255,255,255,0.55)] p-4">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="font-medium">{poolLabel(pool.pool, t)}</span>
-                        <span className="font-semibold">
-                          {remainingQuota} / {totalQuota}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between text-xs text-muted">
-                        <span>{t.dashboard.quotaRemaining}</span>
-                        <span>{remainPct.toFixed(0)}%</span>
-                      </div>
-                      <Progress value={remainPct} className={`mt-2 h-2 ${progressColor(remainPct)}`} />
-                      <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted sm:text-sm">
-                        {Object.entries(pool.mode_quotas ?? {}).map(([mode, mq]) => (
-                          <span key={mode}>{modeLabel(mode, t)}: {mq.total_remaining} / {mq.total_limit}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <DashboardQuotaPanel
+          catalog={catalog}
+          catalogError={catalogError}
+          catalogLoading={catalogLoading}
+          quotaStats={quotaStats}
+          quotaError={quotaError}
+          quotaLoading={quotaLoading}
+        />
 
         <UsageChart
           title={t.dashboard.hourlyUsage}
@@ -190,21 +136,6 @@ export default function DashboardPage() {
       </div>
     </div>
   )
-}
-
-function poolLabel(pool: string, t: ReturnType<typeof useTranslation>['t']): string {
-  if (pool.toLowerCase().includes('basic')) return t.dashboard.basicPool
-  if (pool.toLowerCase().includes('super')) return t.dashboard.superPool
-  return pool
-}
-
-function modeLabel(mode: string, t: ReturnType<typeof useTranslation>['t']): string {
-  switch (mode) {
-    case 'chat': return t.dashboard.chat
-    case 'image': return t.dashboard.image
-    case 'video': return t.dashboard.video
-    default: return mode
-  }
 }
 
 function StatusRow({ label, value, dotClass }: { label: string; value: number; dotClass: string }) {

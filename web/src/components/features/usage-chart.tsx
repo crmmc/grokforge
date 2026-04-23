@@ -31,20 +31,20 @@ export function UsageChart({ title, hourly, loading, labels }: UsageChartProps) 
   }, [hourly])
 
   return (
-    <Card>
+    <Card className="flex flex-col min-h-[360px]">
       <CardHeader>
         <CardTitle>{title}</CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="flex-1 min-h-0 pb-4">
         {loading ? (
-          <Skeleton className="h-[300px] w-full" />
+          <Skeleton className="h-full w-full" />
         ) : chartData.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-[300px] border-2 border-dashed border-border/60 rounded-lg text-muted">
+          <div className="flex flex-col items-center justify-center h-full border-2 border-dashed border-border/60 rounded-lg text-muted">
             <BarChart3 className="h-12 w-12 text-muted/30 mb-3" />
             <p className="text-sm font-medium">{labels.noData}</p>
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
               <XAxis dataKey="hour" tick={{ fontSize: 12 }} tickMargin={8} />
               <YAxis tick={{ fontSize: 12 }} tickMargin={8} />
