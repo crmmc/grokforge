@@ -43,7 +43,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
 - **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
 - **静态模型目录** — 模型定义嵌入二进制的 TOML 文件中，支持外部文件覆盖
-- **四类独立配额** — Chat / Image / Video / Grok 4.3 分别计量与恢复，互不影响
+- **按 mode 动态配额** — 配额窗口由模型目录驱动；`image_ws` 仅使用临时冷却
 - **SSE 心跳保活** — 2KB 初始填充 + 15s 心跳，防止反代/CDN 超时断连
 - **DeepSearch** — 透传 `deepsearch` 参数，启用 Grok 深度搜索能力
 - **配置热重载** — 管理面板修改即时生效，无需重启
@@ -89,7 +89,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **API Key 管理** — CRUD + 模型白名单 + 日限额 + 速率限制
 - [x] **指数退避重试** — Jitter + 预算控制 + Session 自动重置
 - [x] **Cloudflare 对抗** — FlareSolverr 集成，403 即时刷新 + 防抖
-- [x] **安全认证** — 常量时间比较，空 AppKey 拒绝访问
+- [x] **安全认证** — 常量时间比较；未设置 `app_key` 时自动生成临时启动密码（仅当前进程有效，启动时打印到日志）
 
 ### 管理面板
 
@@ -142,6 +142,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 ```bash
 # 1. 下载 & 启动
 ./grokforge -config config.toml
+# 如果未设置 app_key，启动日志中会打印临时管理密码
 
 # 2. 打开管理面板，添加你的 Grok Token
 #    http://localhost:8080
@@ -187,7 +188,7 @@ GrokForge 使用 TOML 格式配置文件，完整模板见 [`config.defaults.tom
 
 ```toml
 [app]
-app_key = "your-admin-password"   # 管理面板密码（必须设置，留空将拒绝所有管理请求）
+app_key = "your-admin-password"   # 管理面板密码（留空则启动时自动生成临时密码）
 port = 8080                        # 服务端口
 
 [proxy]
@@ -211,7 +212,7 @@ base_proxy_url = ""                # 可选：代理地址
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `app_key` | `""` | 管理面板密码（留空拒绝所有管理请求） |
+| `app_key` | `""` | 管理面板密码（留空时自动生成临时启动密码并打印到日志） |
 | `port` | `8080` | 服务端口 |
 | `host` | `"0.0.0.0"` | 监听地址 |
 | `db_driver` | `"sqlite"` | 数据库驱动：`sqlite` / `postgres` |

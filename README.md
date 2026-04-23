@@ -43,7 +43,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
 - **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
 - **Static model catalog** — Models defined in a TOML file embedded in the binary, overridable via external file
-- **Four independent quotas** — Chat / Image / Video / Grok 4.3 metered and recovered separately
+- **Mode-based dynamic quotas** — Quota windows driven by the model catalog; `image_ws` uses transient cooldown only
 - **SSE heartbeat** — 2KB initial padding + 15s ping keeps connections alive through proxies and CDNs
 - **DeepSearch** — Pass `deepsearch` parameter to enable Grok's deep search capability
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
@@ -89,7 +89,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **API Key management** — CRUD + model whitelist + daily limit + rate limit
 - [x] **Exponential backoff retry** — Jitter + budget control + session auto-reset
 - [x] **Cloudflare defense** — FlareSolverr integration, instant 403 refresh + debounce
-- [x] **Secure authentication** — Constant-time comparison, empty AppKey rejects access
+- [x] **Secure authentication** — Constant-time comparison; auto-generated bootstrap password when `app_key` is unset (process-local, logged on startup)
 
 ### Admin Panel
 
@@ -142,6 +142,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 ```bash
 # 1. Download & start
 ./grokforge -config config.toml
+# If app_key is not set, a temporary admin password is printed in the startup log.
 
 # 2. Open admin panel and add your Grok Token
 #    http://localhost:8080
@@ -187,7 +188,7 @@ GrokForge uses TOML configuration. See [`config.defaults.toml`](./config.default
 
 ```toml
 [app]
-app_key = "your-admin-password"   # Admin password (REQUIRED: empty value rejects all admin requests)
+app_key = "your-admin-password"   # Admin password (omit to auto-generate a temporary one on startup)
 port = 8080                        # Server port
 
 [proxy]
@@ -211,7 +212,7 @@ Admin panel changes take effect immediately without restart.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `app_key` | `""` | Admin password (empty rejects all admin requests) |
+| `app_key` | `""` | Admin password (if empty, a temporary bootstrap password is auto-generated and logged on startup) |
 | `port` | `8080` | Server port |
 | `host` | `"0.0.0.0"` | Listen address |
 | `db_driver` | `"sqlite"` | Database driver: `sqlite` / `postgres` |
