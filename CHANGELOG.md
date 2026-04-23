@@ -114,7 +114,7 @@ feea09c: fix: upgrade Go 1.24.1 → 1.25.8 to resolve 19 stdlib vulnerabilities
 
 ---
 
-## Unreleased
+## v0.3.0-beta
 
 更新内容:
 
@@ -130,6 +130,29 @@ f2729ec: docs: update all admin panel screenshots with demo data
 - SSE 心跳保活：2KB 初始填充 + 15s ping，防止反代/CDN 超时断连
 - DeepSearch 透传：请求体新增 `deepsearch` 参数，透传到上游 `deepsearchPreset`
 - 新增 Grok 4.3 Beta 模型（pool_floor=super, upstream=grok-420-computer-use-sa）
-- 新增 grok43 独立配额类别 + admin API 支持
+
+0765812: docs: update READMEs and CHANGELOG for heartbeat, deepsearch, grok-4.3-beta
+
+86588a1: feat: replace fixed quota fields with dynamic mode-based quota system
+- 移除固定四类配额（chat/image/video/grok43），改为 mode-based 动态配额
+- TokenService 接入 ModeSpec，normalizeTokenQuotas 对齐 mode
+- 引入 FirstUseTracker 驱动配额窗口刷新
+- 前端重写配额展示：quota-presentation.ts + dashboard-quota-panel
+
+8eea7ce: refactor: export PoolToShort and eliminate cross-package pool mapping duplication
+
+31db192: fix: make usage chart height responsive to quota panel in dashboard grid
+
+017f82e: refactor: replace token cooling state machine with mode-based dynamic quota system
+- 移除 cooling 状态机及相关配置（CoolingStatusCodes、cool_duration_min 系列）
+- ShouldCoolToken 硬编码为仅 429，403 不再触发 MarkExpired
+- ImageFlow.Generate 切换至 WebSocket 路径，新增 image_ws.go 及 token+model 级内存冷却
+- WebSocket 握手失败映射为语义化错误（401/403/429）
+- admin/models API 返回 mode_groups 元数据
+- 新增首次启动自动生成 admin bootstrap password（进程级临时密码）
+
+c61657e: chore: gitignore grokforge binary and PRD_Tracking directory
+
+c2bd3f6: docs: align READMEs with mode-based quota and bootstrap password changes
 
 ---
