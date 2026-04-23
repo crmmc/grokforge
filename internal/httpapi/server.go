@@ -43,12 +43,13 @@ type Server struct {
 	cfg             *config.Config
 	runtime         *config.Runtime
 	tokenStore      TokenStoreInterface
+	tokenRefresher  TokenRefresher
 	tokenPoolSyncer TokenPoolSyncer
 	usageLogStore   UsageLogStoreInterface
 	apiKeyStore     APIKeyStoreInterface
-	cacheService  *cache.Service
-	configStore   *store.ConfigStore
-	modelRegistry *registry.ModelRegistry
+	cacheService    *cache.Service
+	configStore     *store.ConfigStore
+	modelRegistry   *registry.ModelRegistry
 }
 
 // ServerConfig holds server configuration.
@@ -59,6 +60,7 @@ type ServerConfig struct {
 	Runtime         *config.Runtime
 	ChatProvider    ChatProvider
 	TokenStore      TokenStoreInterface
+	TokenRefresher  TokenRefresher
 	TokenPoolSyncer TokenPoolSyncer
 	UsageLogStore   UsageLogStoreInterface
 	APIKeyStore     APIKeyStoreInterface
@@ -85,6 +87,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		cfg:             cfg.Config,
 		runtime:         cfg.Runtime,
 		tokenStore:      cfg.TokenStore,
+		tokenRefresher:  cfg.TokenRefresher,
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
 		usageLogStore:   cfg.UsageLogStore,
 		apiKeyStore:     cfg.APIKeyStore,
@@ -203,26 +206,21 @@ func (s *Server) setupRoutes() {
 
 			// Token endpoints
 			if s.tokenStore != nil {
-				r.Get("/tokens", handleListTokens(s.tokenStore))
-				r.Get("/tokens/ids", handleListTokenIDs(s.tokenStore))
-				r.Get("/tokens/{id}", handleGetToken(s.tokenStore))
-				r.Put("/tokens/{id}", handleUpdateToken(s.tokenStore, s.tokenPoolSyncer))
+				r.Get("/tokens", handleListTokens(s.tokenStore, s.modelRegistry))
+				r.Get("/tokens/ids", handleListTokenIDs(s.tokenStore, s.modelRegistry))
+				r.Get("/tokens/{id}", handleGetToken(s.tokenStore, s.modelRegistry))
+				r.Put("/tokens/{id}", handleUpdateToken(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
+				r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenStore, s.tokenRefresher, s.modelRegistry))
 				r.Delete("/tokens/{id}", handleDeleteToken(s.tokenStore, s.tokenPoolSyncer))
 				if s.runtime != nil {
-					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, func() *config.TokenConfig {
-						current := s.runtime.Get()
-						if current == nil {
-							return nil
-						}
-						return &current.Token
-					}, s.modelRegistry))
+					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
 				} else {
-					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.cfg, s.modelRegistry))
+					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
 				}
 
 				// Stats endpoints (token-based)
-				r.Get("/stats/tokens", handleTokenStats(s.tokenStore))
-				r.Get("/stats/quota", handleQuotaStats(s.tokenStore))
+				r.Get("/stats/tokens", handleTokenStats(s.tokenStore, s.modelRegistry))
+				r.Get("/stats/quota", handleQuotaStats(s.tokenStore, s.modelRegistry))
 			}
 
 			// Stats endpoints (usage-based)

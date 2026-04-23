@@ -64,7 +64,6 @@ func Clone(cfg *Config) *Config {
 	cloned := *cfg
 	cloned.App.FilterTags = append([]string(nil), cfg.App.FilterTags...)
 	cloned.Retry.ResetSessionStatusCodes = append([]int(nil), cfg.Retry.ResetSessionStatusCodes...)
-	cloned.Retry.CoolingStatusCodes = append([]int(nil), cfg.Retry.CoolingStatusCodes...)
 
 	if cfg.Image.BlockedParallelEnabled != nil {
 		v := *cfg.Image.BlockedParallelEnabled

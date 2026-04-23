@@ -2,6 +2,7 @@ package token
 
 import (
 	"errors"
+	"log/slog"
 	"sync"
 	"time"
 
@@ -81,6 +82,32 @@ func (m *TokenManager) PickExcluding(poolName string, mode string, exclude map[u
 	return m.pick(poolName, mode, exclude)
 }
 
+// PickAnyExcluding selects an active token while ignoring mode quota.
+func (m *TokenManager) PickAnyExcluding(poolName string, exclude map[uint]struct{}) (*store.Token, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pool, ok := m.pools[poolName]
+	if !ok {
+		return nil, ErrNoTokenAvailable
+	}
+
+	algo := m.cfg.SelectionAlgorithm
+	if algo == "" {
+		algo = AlgoHighQuotaFirst
+	}
+
+	token := pool.SelectAnyExcluding(algo, exclude)
+	if token == nil {
+		return nil, ErrNoTokenAvailable
+	}
+
+	now := time.Now()
+	token.LastUsed = &now
+	m.dirty[token.ID] = struct{}{}
+	return token, nil
+}
+
 func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struct{}) (*store.Token, error) {
 	m.mu.Lock() // 写锁，因为要修改 quota
 	defer m.mu.Unlock()
@@ -94,6 +121,9 @@ func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struc
 	if algo == "" {
 		algo = AlgoHighQuotaFirst
 	}
+	if mode == "" {
+		return nil, ErrNoTokenAvailable
+	}
 
 	if token := pool.SelectExcluding(algo, mode, exclude); token != nil {
 		// 乐观预扣：pick 即扣减
@@ -104,6 +134,13 @@ func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struc
 		now := time.Now()
 		token.LastUsed = &now
 		m.dirty[token.ID] = struct{}{}
+		slog.Debug("token: quota pre-deducted",
+			"token_id", token.ID,
+			"pool", token.Pool,
+			"mode", mode,
+			"action", "pre_deduct",
+			"remaining", token.Quotas[mode],
+			"limit", token.LimitQuotas[mode])
 		return token, nil
 	}
 
@@ -189,8 +226,23 @@ func (m *TokenManager) RefundQuota(id uint, mode string) {
 	if token.Quotas == nil {
 		token.Quotas = make(store.IntMap)
 	}
-	token.Quotas[mode]++
+	limit := 0
+	if token.LimitQuotas != nil {
+		limit = token.LimitQuotas[mode]
+	}
+	refunded := token.Quotas[mode] + 1
+	if limit > 0 && refunded > limit {
+		refunded = limit
+	}
+	token.Quotas[mode] = refunded
 	m.dirty[id] = struct{}{}
+	slog.Debug("token: quota refunded",
+		"token_id", token.ID,
+		"pool", token.Pool,
+		"mode", mode,
+		"action", "refund",
+		"remaining", token.Quotas[mode],
+		"limit", limit)
 }
 
 // ClearModeQuota sets the quota for a specific mode to zero.
@@ -209,6 +261,17 @@ func (m *TokenManager) ClearModeQuota(id uint, mode string) {
 	}
 	token.Quotas[mode] = 0
 	m.dirty[id] = struct{}{}
+	limit := 0
+	if token.LimitQuotas != nil {
+		limit = token.LimitQuotas[mode]
+	}
+	slog.Debug("token: mode quota cleared",
+		"token_id", token.ID,
+		"pool", token.Pool,
+		"mode", mode,
+		"action", "clear_mode_quota",
+		"remaining", 0,
+		"limit", limit)
 }
 
 // UpdateModeQuota sets both quota and limit for a specific mode.
@@ -228,9 +291,19 @@ func (m *TokenManager) UpdateModeQuota(id uint, mode string, remaining int, limi
 	if token.LimitQuotas == nil {
 		token.LimitQuotas = make(store.IntMap)
 	}
+	if limit > 0 && remaining > limit {
+		remaining = limit
+	}
 	token.Quotas[mode] = remaining
 	token.LimitQuotas[mode] = limit
 	m.dirty[id] = struct{}{}
+	slog.Debug("token: mode quota updated",
+		"token_id", token.ID,
+		"pool", token.Pool,
+		"mode", mode,
+		"action", "update_mode_quota",
+		"remaining", remaining,
+		"limit", limit)
 }
 
 // TokenSnapshot holds a copy of token data for safe persistence.
@@ -283,6 +356,15 @@ func copyIntMap(m store.IntMap) store.IntMap {
 	return cp
 }
 
+// MarkDirty marks a token snapshot for persistence.
+func (m *TokenManager) MarkDirty(id uint) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.tokens[id]; ok {
+		m.dirty[id] = struct{}{}
+	}
+}
+
 // ClearDirty removes the given token IDs from the dirty set.
 // Call this only after successful persistence.
 func (m *TokenManager) ClearDirty(ids []uint) {
@@ -308,36 +390,4 @@ func (m *TokenManager) GetTokenPool(id uint) string {
 		return token.Pool
 	}
 	return ""
-}
-
-// RestoreToken updates quotas and limit_quotas for a token after refresh.
-// Used by the refresh scheduler to batch-update multiple modes at once.
-func (m *TokenManager) RestoreToken(id uint, quotas store.IntMap, limitQuotas store.IntMap) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	t, ok := m.tokens[id]
-	if !ok {
-		return
-	}
-
-	if t.Quotas == nil {
-		t.Quotas = make(store.IntMap)
-	}
-	if t.LimitQuotas == nil {
-		t.LimitQuotas = make(store.IntMap)
-	}
-	for mode, val := range quotas {
-		t.Quotas[mode] = val
-	}
-	for mode, val := range limitQuotas {
-		t.LimitQuotas[mode] = val
-	}
-
-	// If any quota was restored and token was active, ensure it stays active
-	if Status(t.Status) == StatusActive {
-		t.StatusReason = ""
-		t.FailCount = 0
-	}
-	m.dirty[id] = struct{}{}
 }

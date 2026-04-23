@@ -71,10 +71,10 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **多池路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 选择
 - [x] **3 种选择算法** — high_quota_first / random / round_robin
 - [x] **Priority 分层** — 高优先级 token 先被选择
-- [x] **三类配额** — Chat / Image / Video 独立计量与恢复
-- [x] **Grok 4.3 配额** — Grok 4.3 Beta 模型独立配额类别
+- [x] **按 mode 共享配额** — chat / image_lite / image_edit / video 按目录中的 mode 共享配额窗口
+- [x] **`image_ws` 显式例外** — WebSocket 图片模型不参与 quota sync，只使用内存中的 token+model 临时冷却
 - [x] **自动刷新** — Session 定时刷新，异常自动重建
-- [x] **Token 状态机** — active / cooling / disabled / expired 四态流转
+- [x] **Token 状态模型** — 持久化 `active / disabled / expired`，派生 `exhausted` 展示状态
 
 ### 模型目录
 
@@ -250,7 +250,6 @@ base_proxy_url = ""                # 可选：代理地址
 | `max_tokens` | `5` | 最大重试 Token 数 |
 | `per_token_retries` | `2` | 单 Token 重试上限 |
 | `reset_session_status_codes` | `[403]` | 触发 Session 重置的状态码 |
-| `cooling_status_codes` | `[429]` | 触发 Token 冷却的状态码 |
 | `retry_backoff_base` | `0.5` | 退避基础延迟（秒） |
 | `retry_backoff_factor` | `2.0` | 退避倍率 |
 | `retry_backoff_max` | `20.0` | 单次最大延迟（秒） |
@@ -263,16 +262,8 @@ base_proxy_url = ""                # 可选：代理地址
 
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
-| `fail_threshold` | `5` | 连续失败阈值（达到后标记 expired） |
+| `fail_threshold` | `5` | 连续失败阈值（达到后标记 disabled） |
 | `usage_flush_interval_sec` | `30` | 使用量写入数据库的间隔 |
-| `cool_check_interval_sec` | `30` | 检查冷却恢复的间隔 |
-| `basic_cool_duration_min` | `240` | Basic 池冷却时长（分钟） |
-| `super_cool_duration_min` | `120` | Super 池冷却时长（分钟） |
-| `heavy_cool_duration_min` | `60` | Heavy 池冷却时长（分钟） |
-| `default_chat_quota` | `50` | 每个 Token 的默认 Chat 配额 |
-| `default_image_quota` | `20` | 每个 Token 的默认 Image 配额 |
-| `default_video_quota` | `10` | 每个 Token 的默认 Video 配额 |
-| `quota_recovery_mode` | `"auto"` | 配额恢复模式：`auto` 或 `upstream` |
 | `selection_algorithm` | `"high_quota_first"` | 选择算法：high_quota_first / random / round_robin |
 
 </details>
@@ -517,12 +508,11 @@ sequenceDiagram
 <details>
 <summary><b>Token 配额耗尽后多久恢复？</b></summary>
 
-取决于配额恢复模式：
+quota-tracked 模型（`chat`、`image_lite`、`image_edit`、`video`）按 mode 窗口独立恢复。
 
-- **auto 模式**（默认）：冷却窗口到期后恢复为配置中的默认配额
-- **upstream 模式**：冷却窗口到期后从 Grok 的 rate-limits API 同步真实配额
-
-Token 配额耗尽后会进入 `cooling` 状态，恢复后自动切回 `active`。
+- 某个 token+mode 在刷新后首次拿到上游成功响应时，会启动该 mode 的刷新窗口计时。
+- 窗口到期后，GrokForge 会调用 `/rest/rate-limits` 刷新该 mode，并从上游学习剩余额度和总额度。
+- `image_ws` 不参与 quota 跟踪；它只使用内存里的 token+model 临时冷却。
 
 </details>
 

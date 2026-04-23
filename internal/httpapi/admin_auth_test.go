@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -75,6 +77,30 @@ func TestHandleAdminLogin_AppKeyNotConfigured(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 
 	assert.Equal(t, http.StatusForbidden, rec.Code)
+}
+
+func TestHandleAdminLoginRuntime_BootstrapKeyWorks(t *testing.T) {
+	cfg := &config.Config{}
+	bootstrapKey, generated, err := config.EnsureAdminAppKey(
+		cfg,
+		bytes.NewReader(bytes.Repeat([]byte{0x5A}, 24)),
+	)
+	require.NoError(t, err)
+	require.True(t, generated)
+
+	handler := handleAdminLoginRuntime(config.NewRuntime(cfg))
+
+	body := `{"key":"` + bootstrapKey + `"}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	cookies := rec.Result().Cookies()
+	require.Len(t, cookies, 1)
+	assert.True(t, verifyAdminSession(bootstrapKey, cookies[0].Value))
 }
 
 func TestHandleAdminLogin_SecureFlagOnHTTPS(t *testing.T) {

@@ -54,16 +54,6 @@ export function RetryConfigSection({ t, register, watch, setValue }: RetryConfig
           />
           <p className="text-xs text-muted">{t.config.resetSessionStatusCodesDesc}</p>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="retry.cooling_status_codes">{t.config.coolingStatusCodes}</Label>
-          <StatusCodeTagInput
-            id="retry.cooling_status_codes"
-            codes={watch('retry.cooling_status_codes') || []}
-            onChange={(codes) => setValue('retry.cooling_status_codes', codes, { shouldDirty: true })}
-            placeholder="429"
-          />
-          <p className="text-xs text-muted">{t.config.coolingStatusCodesDesc}</p>
-        </div>
       </div>
     </ConfigSection>
   )

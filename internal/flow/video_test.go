@@ -99,6 +99,7 @@ func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
+	vf.SetModeResolver(testModeResolver())
 
 	url, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "A sunset over mountains",
@@ -110,6 +111,9 @@ func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 	}
 	if url == "" {
 		t.Error("GenerateSync() returned empty URL")
+	}
+	if len(tokenSvc.firstUseModes) != 1 || tokenSvc.firstUseModes[0] != "auto" {
+		t.Fatalf("expected first use mode auto, got %+v", tokenSvc.firstUseModes)
 	}
 }
 

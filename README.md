@@ -71,10 +71,10 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Multi-pool routing** — ssoBasic / ssoSuper / ssoHeavy selected by `pool_floor`
 - [x] **3 selection algorithms** — high_quota_first / random / round_robin
 - [x] **Priority tiers** — Higher priority tokens are selected first
-- [x] **Three quota categories** — Chat / Image / Video independently metered and recovered
-- [x] **Grok 4.3 quota** — Independent quota category for Grok 4.3 Beta model
+- [x] **Mode-based quotas** — chat / image_lite / image_edit / video share quota windows by catalog mode
+- [x] **`image_ws` exception** — WebSocket image models stay outside quota sync and use transient token+model cooldown only
 - [x] **Auto refresh** — Periodic session refresh, auto rebuild on failure
-- [x] **Token state machine** — active / cooling / disabled / expired four-state transitions
+- [x] **Token state model** — persisted `active / disabled / expired`, derived `exhausted` display state
 
 ### Model Catalog
 
@@ -250,7 +250,6 @@ Admin panel changes take effect immediately without restart.
 | `max_tokens` | `5` | Maximum tokens to try |
 | `per_token_retries` | `2` | Maximum retries per token before switching |
 | `reset_session_status_codes` | `[403]` | Status codes that trigger session reset |
-| `cooling_status_codes` | `[429]` | Status codes that trigger token cooling |
 | `retry_backoff_base` | `0.5` | Backoff base delay (seconds) |
 | `retry_backoff_factor` | `2.0` | Backoff multiplier |
 | `retry_backoff_max` | `20.0` | Maximum single delay (seconds) |
@@ -263,16 +262,8 @@ Admin panel changes take effect immediately without restart.
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `fail_threshold` | `5` | Consecutive failure threshold (marks expired) |
+| `fail_threshold` | `5` | Consecutive failure threshold (marks disabled) |
 | `usage_flush_interval_sec` | `30` | Interval for flushing usage stats to DB |
-| `cool_check_interval_sec` | `30` | Interval for checking cooldown recovery |
-| `basic_cool_duration_min` | `240` | Basic pool cooling duration (minutes) |
-| `super_cool_duration_min` | `120` | Super pool cooling duration (minutes) |
-| `heavy_cool_duration_min` | `60` | Heavy pool cooling duration (minutes) |
-| `default_chat_quota` | `50` | Default chat quota per token |
-| `default_image_quota` | `20` | Default image quota per token |
-| `default_video_quota` | `10` | Default video quota per token |
-| `quota_recovery_mode` | `"auto"` | Recovery mode: `auto` or `upstream` |
 | `selection_algorithm` | `"high_quota_first"` | Algorithm: high_quota_first / random / round_robin |
 
 </details>
@@ -517,12 +508,11 @@ Usually triggered by Cloudflare protection. Solutions:
 <details>
 <summary><b>How long until token quotas recover?</b></summary>
 
-Depends on the recovery mode:
+Quota-tracked models (`chat`, `image_lite`, `image_edit`, `video`) recover per mode window.
 
-- **auto mode** (default): Restore configured default quotas after the pool's cooling window expires
-- **upstream mode**: Sync real quotas from Grok's rate-limits API when the cooling window expires
-
-Tokens enter `cooling` status when quotas are exhausted and automatically switch back to `active` after recovery.
+- The scheduler starts a token+mode window from the first successful upstream response after refresh.
+- When that window expires, GrokForge refreshes the mode from `/rest/rate-limits` and learns both remaining quota and total quota from upstream.
+- `image_ws` is not quota-tracked; it only uses transient token+model cooldown in memory.
 
 </details>
 

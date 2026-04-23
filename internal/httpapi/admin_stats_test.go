@@ -7,6 +7,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/crmmc/grokforge/internal/modelconfig"
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,14 +53,20 @@ func (m *mockUsageLogStore) TodayTokenTotals(ctx context.Context) (*store.TokenT
 
 func TestHandleTokenStats(t *testing.T) {
 	ms := newMockTokenStore()
-	// 3 active, 1 disabled, 1 expired
+	// 2 active, 1 exhausted, 1 disabled, 1 expired
 	ms.CreateToken(context.Background(), &store.Token{Token: "a1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive})
 	ms.CreateToken(context.Background(), &store.Token{Token: "a2_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusActive})
-	ms.CreateToken(context.Background(), &store.Token{Token: "a3_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusActive})
+	ms.CreateToken(context.Background(), &store.Token{
+		Token:       "a3_xxxxxxxxxxxxxxxxxxxx",
+		Pool:        "ssoSuper",
+		Status:      store.TokenStatusActive,
+		Quotas:      store.IntMap{"auto": 0},
+		LimitQuotas: store.IntMap{"auto": 50},
+	})
 	ms.CreateToken(context.Background(), &store.Token{Token: "d1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusDisabled})
 	ms.CreateToken(context.Background(), &store.Token{Token: "e1_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusExpired})
 
-	handler := handleTokenStats(ms)
+	handler := handleTokenStats(ms, nil)
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats/tokens", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -68,7 +76,8 @@ func TestHandleTokenStats(t *testing.T) {
 	var resp TokenStatsResponse
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	assert.Equal(t, 5, resp.Total)
-	assert.Equal(t, 3, resp.Active)
+	assert.Equal(t, 2, resp.Active)
+	assert.Equal(t, 1, resp.Exhausted)
 	assert.Equal(t, 1, resp.Expired)
 	assert.Equal(t, 1, resp.Disabled)
 }
@@ -80,7 +89,7 @@ func TestHandleQuotaStats(t *testing.T) {
 	ms.CreateToken(context.Background(), &store.Token{Token: "q3_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoSuper", Status: store.TokenStatusActive, Quotas: store.IntMap{"auto": 180}, LimitQuotas: store.IntMap{"auto": 200}})
 	ms.CreateToken(context.Background(), &store.Token{Token: "q4_xxxxxxxxxxxxxxxxxxxx", Pool: "ssoBasic", Status: store.TokenStatusDisabled, Quotas: store.IntMap{"auto": 100}}) // disabled, excluded from quota aggregation
 
-	handler := handleQuotaStats(ms)
+	handler := handleQuotaStats(ms, nil)
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -113,7 +122,7 @@ func TestHandleQuotaStats_EmptyQuotas(t *testing.T) {
 		Status: store.TokenStatusActive,
 	})
 
-	handler := handleQuotaStats(ms)
+	handler := handleQuotaStats(ms, nil)
 	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
 	w := httptest.NewRecorder()
 	handler.ServeHTTP(w, req)
@@ -124,6 +133,55 @@ func TestHandleQuotaStats_EmptyQuotas(t *testing.T) {
 	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
 	require.Len(t, resp.Pools, 1)
 	assert.Equal(t, 1, resp.Pools[0].ActiveCount)
+}
+
+func TestHandleQuotaStats_FiltersUnknownModesByRegistry(t *testing.T) {
+	ms := newMockTokenStore()
+	ms.CreateToken(context.Background(), &store.Token{
+		Token:       "q1_xxxxxxxxxxxxxxxxxxxx",
+		Pool:        "ssoBasic",
+		Status:      store.TokenStatusActive,
+		Quotas:      store.IntMap{"auto": 10, "legacy": 99},
+		LimitQuotas: store.IntMap{"auto": 20, "legacy": 99},
+	})
+
+	reg := registry.NewTestRegistry(
+		[]modelconfig.ModelSpec{
+			{
+				ID:         "grok-4.20",
+				Type:       modelconfig.TypeChat,
+				Enabled:    true,
+				PoolFloor:  modelconfig.PoolBasic,
+				Mode:       "auto",
+				PublicType: "chat",
+			},
+		},
+		[]modelconfig.ModeSpec{
+			{
+				ID:            "auto",
+				UpstreamName:  "auto",
+				WindowSeconds: 7200,
+				DefaultQuota: map[string]int{
+					"basic": 20,
+					"super": 50,
+					"heavy": 150,
+				},
+			},
+		},
+	)
+
+	handler := handleQuotaStats(ms, reg)
+	req := httptest.NewRequest(http.MethodGet, "/admin/stats/quota", nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+
+	var resp QuotaStatsResponse
+	require.NoError(t, json.NewDecoder(w.Body).Decode(&resp))
+	require.Len(t, resp.Pools, 1)
+	assert.Contains(t, resp.Pools[0].ModeQuotas, "auto")
+	assert.NotContains(t, resp.Pools[0].ModeQuotas, "legacy")
 }
 
 func TestHandleUsageStats(t *testing.T) {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
+	"github.com/crmmc/grokforge/internal/registry"
 )
 
 // buildFileURL constructs a full URL for a cached file based on the request.
@@ -25,14 +26,22 @@ const maxImageEditInputs = 3
 // resolveModelType resolves the model type from the registry.
 // Returns empty string if registry is nil or model not found.
 func (h *Handler) resolveModelType(model string) string {
-	if h.ModelRegistry == nil {
-		return ""
-	}
-	rm, ok := h.ModelRegistry.Resolve(model)
+	rm, ok := h.resolveModel(model)
 	if !ok {
 		return ""
 	}
 	return rm.Type
+}
+
+func (h *Handler) resolveModel(model string) (*registry.ResolvedModel, bool) {
+	if h.ModelRegistry == nil {
+		return nil, false
+	}
+	rm, ok := h.ModelRegistry.Resolve(model)
+	if !ok {
+		return nil, false
+	}
+	return rm, true
 }
 
 func (h *Handler) isImageWSModel(model string) bool {
@@ -57,10 +66,7 @@ func (h *Handler) isMediaModel(model string) bool {
 }
 
 func (h *Handler) resolveUpstream(model string) (string, string) {
-	if h.ModelRegistry == nil {
-		return "", ""
-	}
-	rm, ok := h.ModelRegistry.Resolve(model)
+	rm, ok := h.resolveModel(model)
 	if !ok {
 		return "", ""
 	}
@@ -93,12 +99,14 @@ func (h *Handler) handleChatImage(w http.ResponseWriter, r *http.Request, req *C
 			responseFormat = req.ImageConfig.ResponseFormat
 		}
 	}
+	rm, _ := h.resolveModel(req.Model)
 	_, upstreamMode := h.resolveUpstream(req.Model)
 
 	result, err := h.ImageFlow.GenerateLite(httpapi.BridgeFlowContext(r.Context()), &flow.ImageLiteRequest{
 		Model:          req.Model,
 		Prompt:         prompt,
 		N:              n,
+		Mode:           modeValue(rm),
 		UpstreamMode:   upstreamMode,
 		ResponseFormat: responseFormat,
 	})
@@ -137,13 +145,15 @@ func (h *Handler) handleChatImageWSGeneration(w http.ResponseWriter, r *http.Req
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_image_config", err.Error())
 		return
 	}
+	rm, _ := h.resolveModel(req.Model)
 	result, err := h.ImageFlow.Generate(httpapi.BridgeFlowContext(r.Context()), &flow.ImageRequest{
-		Model:          req.Model,
-		Prompt:         prompt,
-		N:              imageCfg.n,
-		Size:           imageCfg.size,
-		ResponseFormat: imageCfg.responseFormat,
-		EnableNSFW:     imageCfg.enableNSFW,
+		Model:           req.Model,
+		Prompt:          prompt,
+		N:               imageCfg.n,
+		Size:            imageCfg.size,
+		ResponseFormat:  imageCfg.responseFormat,
+		EnableNSFW:      imageCfg.enableNSFW,
+		CooldownSeconds: cooldownValue(rm),
 	})
 	if err != nil {
 		h.writeStreamingOrJSONError(w, req.Stream, err)
@@ -187,12 +197,14 @@ func (h *Handler) handleChatImageEdit(w http.ResponseWriter, r *http.Request, re
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_image_config", err.Error())
 		return
 	}
+	rm, _ := h.resolveModel(req.Model)
 	upstreamModel, upstreamMode := h.resolveUpstream(req.Model)
 
 	result, err := h.ImageFlow.Edit(httpapi.BridgeFlowContext(r.Context()), &flow.ImageEditRequest{
 		Model:          req.Model,
 		UpstreamModel:  upstreamModel,
 		UpstreamMode:   upstreamMode,
+		Mode:           modeValue(rm),
 		Prompt:         prompt,
 		OriginalImages: images,
 		N:              imageCfg.n,
@@ -235,6 +247,7 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 		httpapi.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid_video_config", err.Error())
 		return
 	}
+	rm, _ := h.resolveModel(req.Model)
 	upstreamModel, upstreamMode := h.resolveUpstream(req.Model)
 
 	videoReq := &flow.VideoRequest{
@@ -242,6 +255,7 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 		Model:         req.Model,
 		UpstreamModel: upstreamModel,
 		UpstreamMode:  upstreamMode,
+		Mode:          modeValue(rm),
 		Size:          videoCfg.size,
 		AspectRatio:   videoCfg.aspectRatio,
 		Seconds:       videoCfg.seconds,
@@ -270,6 +284,20 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 		return
 	}
 	h.blockingResponse(w, r, eventCh, req)
+}
+
+func modeValue(rm *registry.ResolvedModel) string {
+	if rm == nil {
+		return ""
+	}
+	return rm.Mode
+}
+
+func cooldownValue(rm *registry.ResolvedModel) int {
+	if rm == nil {
+		return 0
+	}
+	return rm.CooldownSeconds
 }
 
 func decodeImageDataURI(dataURI string) ([]byte, error) {

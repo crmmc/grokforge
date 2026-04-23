@@ -3,8 +3,10 @@ package token
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -34,6 +36,44 @@ func (m *mockTokenStore) UpdateTokenSnapshots(ctx context.Context, snapshots []s
 	return nil
 }
 
+type trackerStub struct {
+	recorded map[uint][]string
+	setAt    map[uint]map[string]time.Time
+}
+
+func (t *trackerStub) RecordFirstUsed(tokenID uint, mode string) {
+	if t.recorded == nil {
+		t.recorded = make(map[uint][]string)
+	}
+	t.recorded[tokenID] = append(t.recorded[tokenID], mode)
+}
+
+func (t *trackerStub) SetFirstUsedAt(tokenID uint, mode string, ts time.Time) {
+	if t.setAt == nil {
+		t.setAt = make(map[uint]map[string]time.Time)
+	}
+	if t.setAt[tokenID] == nil {
+		t.setAt[tokenID] = make(map[string]time.Time)
+	}
+	t.setAt[tokenID][mode] = ts
+	t.RecordFirstUsed(tokenID, mode)
+}
+
+func newTestTokenService(cfg *config.TokenConfig, store TokenStore) *TokenService {
+	return NewTokenService(cfg, store, []modelconfig.ModeSpec{
+		{
+			ID:            "auto",
+			UpstreamName:  "auto",
+			WindowSeconds: 7200,
+			DefaultQuota: map[string]int{
+				"basic": 20,
+				"super": 50,
+				"heavy": 150,
+			},
+		},
+	}, "https://grok.com")
+}
+
 func TestService_LoadTokens(t *testing.T) {
 	mockStore := &mockTokenStore{
 		tokens: []*store.Token{
@@ -43,7 +83,7 @@ func TestService_LoadTokens(t *testing.T) {
 	}
 
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	err := svc.LoadTokens(context.Background())
 	require.NoError(t, err)
@@ -58,6 +98,54 @@ func TestService_LoadTokens(t *testing.T) {
 	assert.Equal(t, uint(2), token.ID)
 }
 
+func TestService_LoadTokens_NormalizesModeMapsAndPrimesZeroModes(t *testing.T) {
+	mockStore := &mockTokenStore{
+		tokens: []*store.Token{
+			{
+				ID:          1,
+				Token:       "t1",
+				Pool:        PoolBasic,
+				Status:      string(StatusActive),
+				Quotas:      store.IntMap{"auto": 80, "legacy": 9},
+				LimitQuotas: store.IntMap{"auto": 50, "legacy": 9},
+			},
+			{
+				ID:     2,
+				Token:  "t2",
+				Pool:   PoolBasic,
+				Status: string(StatusActive),
+				Quotas: store.IntMap{"auto": 0},
+			},
+		},
+	}
+
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	tracker := &trackerStub{}
+	svc := newTestTokenService(cfg, mockStore)
+	svc.SetFirstUseTracker(tracker)
+
+	err := svc.LoadTokens(context.Background())
+	require.NoError(t, err)
+
+	token1 := svc.manager.GetToken(1)
+	require.NotNil(t, token1)
+	assert.Equal(t, 50, token1.Quotas["auto"])
+	assert.Equal(t, 50, token1.LimitQuotas["auto"])
+	_, hasLegacyQuota := token1.Quotas["legacy"]
+	_, hasLegacyLimit := token1.LimitQuotas["legacy"]
+	assert.False(t, hasLegacyQuota)
+	assert.False(t, hasLegacyLimit)
+
+	token2 := svc.manager.GetToken(2)
+	require.NotNil(t, token2)
+	assert.Equal(t, 20, token2.LimitQuotas["auto"])
+	assert.Equal(t, []string{"auto"}, tracker.recorded[2])
+	assert.WithinDuration(t, time.Now(), tracker.setAt[2]["auto"], 2*time.Second)
+
+	dirty := svc.manager.GetDirtyTokens()
+	assert.Len(t, dirty, 2)
+}
+
 func TestService_LoadTokens_NormalizesPoolAlias(t *testing.T) {
 	mockStore := &mockTokenStore{
 		tokens: []*store.Token{
@@ -66,7 +154,7 @@ func TestService_LoadTokens_NormalizesPoolAlias(t *testing.T) {
 	}
 
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	err := svc.LoadTokens(context.Background())
 	require.NoError(t, err)
@@ -79,7 +167,7 @@ func TestService_LoadTokens_NormalizesPoolAlias(t *testing.T) {
 func TestService_Pick(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	// Manually add token
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
@@ -92,7 +180,7 @@ func TestService_Pick(t *testing.T) {
 func TestService_PickExcluding(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
 	svc.manager.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 90}})
@@ -105,7 +193,7 @@ func TestService_PickExcluding(t *testing.T) {
 func TestService_ReportSuccess(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{
 		ID: 1, Token: "t1", Pool: PoolBasic,
@@ -123,7 +211,7 @@ func TestService_ReportSuccess(t *testing.T) {
 func TestService_ReportRateLimit(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
 
@@ -136,7 +224,7 @@ func TestService_ReportRateLimit(t *testing.T) {
 func TestService_ReportError_Recoverable(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 9}, FailCount: 0})
 
@@ -149,7 +237,7 @@ func TestService_ReportError_Recoverable(t *testing.T) {
 func TestService_ReportError_NonRecoverable(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 9}, FailCount: 0})
 
@@ -162,7 +250,7 @@ func TestService_ReportError_NonRecoverable(t *testing.T) {
 func TestService_FlushDirty(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
 	svc.manager.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
@@ -188,7 +276,7 @@ func TestService_FlushDirty(t *testing.T) {
 func TestService_RefreshToken_NotFound(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	// Token 999 doesn't exist
 	token := svc.manager.GetToken(999)
@@ -198,7 +286,7 @@ func TestService_RefreshToken_NotFound(t *testing.T) {
 func TestService_Stats(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	svc := NewTokenService(cfg, mockStore, "https://grok.com")
+	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
 	svc.manager.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusDisabled), Quotas: store.IntMap{"auto": 60}})

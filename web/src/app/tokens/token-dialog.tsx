@@ -3,17 +3,24 @@
 import { useEffect, useRef } from 'react'
 import { useForm, FormProvider } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
+import { AlertCircle } from 'lucide-react'
 import { useToken, useUpdateToken } from '@/lib/hooks'
+import type { AdminModelsResponse } from '@/lib/hooks/use-admin-models'
+import { buildQuotaCatalogPresentation, buildTokenQuotaGroups, formatQuotaPresentationIssues } from '@/lib/quota-presentation'
+import { useQuotaPresentationWarnings } from '@/lib/use-quota-presentation-warnings'
 import { tokenUpdateSchema, type TokenUpdateInput } from '@/lib/validations'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
-  Alert, AlertDescription, AlertTitle, Button, Input, Label, Select, SelectOption, Switch,
+  Alert, AlertDescription, AlertTitle, Button, Input, Label, Select, SelectOption, Switch, Badge,
 } from '@/components/ui'
 import { useToast } from '@/components/ui/toaster'
 import type { Token } from '@/types'
 import { useTranslation } from '@/lib/i18n/context'
 
 interface TokenDialogProps {
+  catalog?: AdminModelsResponse
+  catalogError?: Error | null
+  catalogLoading: boolean
   open: boolean
   onOpenChange: (open: boolean) => void
   tokenId: number
@@ -30,8 +37,9 @@ function toFormValues(token?: Token): TokenUpdateInput {
     }
   }
 
+  const status = token.status === 'exhausted' ? 'active' : token.status
   return {
-    status: token.status,
+    status,
     pool: token.pool,
     quotas: { ...(token.quotas ?? {}) },
     remark: token.remark ?? '',
@@ -39,26 +47,14 @@ function toFormValues(token?: Token): TokenUpdateInput {
   }
 }
 
-/** Get sorted mode keys from token quotas/limit_quotas */
-function getQuotaModes(token?: Token): string[] {
-  if (!token) return []
-  const keys = new Set([
-    ...Object.keys(token.quotas ?? {}),
-    ...Object.keys(token.limit_quotas ?? {}),
-  ])
-  return Array.from(keys).sort()
-}
-
-function modeLabel(mode: string, t: ReturnType<typeof useTranslation>['t']): string {
-  switch (mode) {
-    case 'chat': return t.tokens.chatQuota
-    case 'image': return t.tokens.imageQuota
-    case 'video': return t.tokens.videoQuota
-    default: return mode
-  }
-}
-
-export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
+export function TokenDialog({
+  catalog,
+  catalogError,
+  catalogLoading,
+  open,
+  onOpenChange,
+  tokenId,
+}: TokenDialogProps) {
   const { toast } = useToast()
   const tokenQuery = useToken(open ? tokenId : null)
   const updateToken = useUpdateToken()
@@ -89,6 +85,17 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
     hydratedTokenIdRef.current = tokenQuery.data.id
   }, [form, open, tokenId, tokenQuery.data])
 
+  const selectedPool = form.watch('pool')
+  const presentation = catalog ? buildQuotaCatalogPresentation(catalog) : null
+  const quotaPresentation = tokenQuery.data && presentation
+    ? buildTokenQuotaGroups(selectedPool || tokenQuery.data.pool, tokenQuery.data, presentation)
+    : { groups: [], issues: [] }
+  const issueMessages = formatQuotaPresentationIssues(quotaPresentation.issues, t)
+
+  useQuotaPresentationWarnings('token-dialog', tokenQuery.data && issueMessages.length > 0
+    ? issueMessages.map((message) => `Token #${tokenQuery.data?.id}: ${message}`)
+    : catalogError ? [`${t.common.humanReadableQuotaUnavailable}: ${catalogError.message || t.common.unknownError}`] : [])
+
   const onSubmit = async (data: TokenUpdateInput) => {
     if (!tokenQuery.data) {
       return
@@ -107,11 +114,9 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
     }
   }
 
-  const modes = getQuotaModes(tokenQuery.data)
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[500px]">
+      <DialogContent className="sm:max-w-[560px]">
         <DialogHeader>
           <DialogTitle>{tokenQuery.data ? `${t.tokens.editToken} #${tokenQuery.data.id}` : t.tokens.editToken}</DialogTitle>
         </DialogHeader>
@@ -135,10 +140,7 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="pool">{t.tokens.pool}</Label>
-                  <Select
-                    id="pool"
-                    {...form.register('pool')}
-                  >
+                  <Select id="pool" {...form.register('pool')}>
                     <SelectOption value="ssoBasic">{t.dashboard.basicPool}</SelectOption>
                     <SelectOption value="ssoSuper">{t.dashboard.superPool}</SelectOption>
                     <SelectOption value="ssoHeavy">{t.dashboard.heavyPool}</SelectOption>
@@ -146,39 +148,59 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="status">{t.tokens.status}</Label>
-                  <Select
-                    id="status"
-                    {...form.register('status')}
-                  >
+                  <Select id="status" {...form.register('status')}>
                     <SelectOption value="active">{t.tokens.active}</SelectOption>
                     <SelectOption value="disabled">{t.tokens.disabled}</SelectOption>
                     <SelectOption value="expired">{t.tokens.expired}</SelectOption>
-                    <SelectOption value="exhausted">{t.tokens.exhausted}</SelectOption>
                   </Select>
                 </div>
               </div>
 
-              {modes.length > 0 && (
-                <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(modes.length, 3)}, 1fr)` }}>
-                  {modes.map((mode) => {
-                    const limit = tokenQuery.data?.limit_quotas?.[mode] ?? 0
-                    return (
-                      <div key={mode} className="space-y-2">
-                        <Label htmlFor={`quota-${mode}`}>
-                          {modeLabel(mode, t)}
-                          <span className="ml-1 text-xs text-muted">/ {limit}</span>
+              <div className="space-y-3">
+                <div>
+                  <div className="text-sm font-medium">{t.common.sharedQuota}</div>
+                  <div className="text-xs text-muted">{t.common.modelsSharingSameQuota}</div>
+                </div>
+
+                {catalogLoading ? (
+                  <p className="text-sm text-muted">{t.common.loading}</p>
+                ) : catalogError ? (
+                  <QuotaAlert title={t.common.humanReadableQuotaUnavailable} message={catalogError.message || t.common.unknownError} />
+                ) : quotaPresentation.issues.length > 0 ? (
+                  <QuotaAlert title={t.common.humanReadableQuotaUnavailable} message={issueMessages.join(' / ')} />
+                ) : null}
+
+                {quotaPresentation.groups.length > 0 ? (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    {quotaPresentation.groups.map((group) => (
+                      <div key={group.key} className="rounded-lg border border-[rgba(0,0,0,0.08)] bg-[rgba(255,255,255,0.92)] p-3">
+                        <Label htmlFor={`quota-${group.mode}`} className="text-sm leading-5">
+                          {group.title}
                         </Label>
+                        <div className="mt-1 text-xs text-muted">
+                          {t.common.sharedQuota}: {group.total}
+                        </div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {group.models.map((model) => (
+                            <Badge key={model.id} variant="secondary" className="normal-case tracking-normal">
+                              {model.displayName}
+                            </Badge>
+                          ))}
+                        </div>
                         <Input
-                          id={`quota-${mode}`}
+                          id={`quota-${group.mode}`}
                           type="number"
-                          {...form.register(`quotas.${mode}`, { valueAsNumber: true })}
+                          className="mt-3"
+                          {...form.register(`quotas.${group.mode}`, { valueAsNumber: true })}
                           placeholder="0"
                         />
                       </div>
-                    )
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                ) : !catalogLoading && !catalogError ? (
+                  <p className="text-sm text-muted">{t.dashboard.noData}</p>
+                ) : null}
+              </div>
 
               <div className="flex items-center justify-between pt-2">
                 <Label htmlFor="nsfw_enabled">NSFW {t.tokens.nsfwEnabled}</Label>
@@ -210,5 +232,15 @@ export function TokenDialog({ open, onOpenChange, tokenId }: TokenDialogProps) {
         )}
       </DialogContent>
     </Dialog>
+  )
+}
+
+function QuotaAlert({ title, message }: { title: string; message: string }) {
+  return (
+    <Alert variant="warning">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   )
 }

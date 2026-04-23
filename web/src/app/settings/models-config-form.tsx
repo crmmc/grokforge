@@ -62,36 +62,27 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
     <form onSubmit={handleSubmit(doSubmit)} className="space-y-6">
       {/* Token Management */}
       <ConfigSection title={t.config.tokenManagement} description={t.config.tokenManagementDesc}>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-3">
           <div className="space-y-2">
             <Label htmlFor="fail_threshold">{t.config.failThreshold}</Label>
             <Input id="fail_threshold" type="number" className="max-w-[200px]" min="1" {...register('fail_threshold', { valueAsNumber: true })} />
           </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <div className="space-y-2">
-            <Label htmlFor="basic_cool_duration_min">{t.config.basicCoolDuration}</Label>
-            <Input id="basic_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('basic_cool_duration_min', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="super_cool_duration_min">{t.config.superCoolDuration}</Label>
-            <Input id="super_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('super_cool_duration_min', { valueAsNumber: true })} />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="heavy_cool_duration_min">{t.config.heavyCoolDuration}</Label>
-            <Input id="heavy_cool_duration_min" type="number" className="max-w-[200px]" min="0" {...register('heavy_cool_duration_min', { valueAsNumber: true })} />
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="usage_flush_interval_sec">{t.config.usageFlushInterval}</Label>
             <Input id="usage_flush_interval_sec" type="number" className="max-w-[200px]" min="1" {...register('usage_flush_interval_sec', { valueAsNumber: true })} />
             <p className="text-xs text-muted">{t.config.usageFlushIntervalDesc}</p>
           </div>
           <div className="space-y-2">
-            <Label htmlFor="cool_check_interval_sec">{t.config.coolCheckInterval}</Label>
-            <Input id="cool_check_interval_sec" type="number" className="max-w-[200px]" min="1" {...register('cool_check_interval_sec', { valueAsNumber: true })} />
-            <p className="text-xs text-muted">{t.config.coolCheckIntervalDesc}</p>
+            <Label htmlFor="selection_algorithm">{t.config.selectionAlgorithm}</Label>
+            <select
+              id="selection_algorithm"
+              className="flex h-10 w-full max-w-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              {...register('selection_algorithm')}
+            >
+              <option value="high_quota_first">{t.config.algorithmHighQuota}</option>
+              <option value="random">{t.config.algorithmRandom}</option>
+              <option value="round_robin">{t.config.algorithmRoundRobin}</option>
+            </select>
           </div>
         </div>
       </ConfigSection>
@@ -103,18 +94,6 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
           <Label htmlFor="image_nsfw">{t.config.imageNsfw}</Label>
         </div>
         <p className="text-sm text-muted">{t.config.imageNsfwDesc}</p>
-      </ConfigSection>
-
-      {/* Selection Algorithm */}
-      <ConfigSection title={t.config.selectionAlgorithm} description={t.config.selectionAlgorithmDesc}>
-        <div className="max-w-xs space-y-2">
-          <Label htmlFor="selection_algorithm">{t.config.selectionAlgorithm}</Label>
-          <select id="selection_algorithm" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" {...register('selection_algorithm')}>
-            <option value="high_quota_first">{t.config.algorithmHighQuota}</option>
-            <option value="random">{t.config.algorithmRandom}</option>
-            <option value="round_robin">{t.config.algorithmRoundRobin}</option>
-          </select>
-        </div>
       </ConfigSection>
 
       <GrokDefaultsSection

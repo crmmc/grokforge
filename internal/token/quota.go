@@ -33,6 +33,16 @@ type RateLimitsResponse struct {
 
 const rateLimitsPath = "/rest/rate-limits"
 
+type rateLimitsHTTPError struct {
+	statusCode    int
+	bodyPreview   string
+	bodyTruncated bool
+}
+
+func (e *rateLimitsHTTPError) Error() string {
+	return fmt.Sprintf("rate-limits API returned %d", e.statusCode)
+}
+
 // SyncModeQuota fetches quota for a specific mode from upstream and updates token state.
 // upstreamName is the mode's upstream_name (e.g., "auto", "fast", "expert").
 func (m *TokenManager) SyncModeQuota(ctx context.Context, tokenID uint, authToken string, baseURL string, upstreamName string) (*RateLimitsResponse, error) {
@@ -74,7 +84,15 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("rate-limits API returned %d", resp.StatusCode)
+		bodyPreview, truncated, readErr := readBodyPreview(resp.Body, 1024)
+		if readErr != nil {
+			return nil, readErr
+		}
+		return nil, &rateLimitsHTTPError{
+			statusCode:    resp.StatusCode,
+			bodyPreview:   bodyPreview,
+			bodyTruncated: truncated,
+		}
 	}
 
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
@@ -88,4 +106,19 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 	}
 
 	return &result, nil
+}
+
+func readBodyPreview(r io.Reader, limit int64) (string, bool, error) {
+	if limit <= 0 {
+		limit = 1024
+	}
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return "", false, err
+	}
+	truncated := int64(len(body)) > limit
+	if truncated {
+		body = body[:limit]
+	}
+	return string(body), truncated, nil
 }

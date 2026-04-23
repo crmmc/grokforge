@@ -2,9 +2,12 @@ package token
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/store"
 )
 
@@ -24,20 +27,39 @@ type PoolStats struct {
 
 // TokenService provides the high-level API for token management.
 type TokenService struct {
-	cfg     *config.TokenConfig
-	store   TokenStore
-	manager *TokenManager
-	baseURL string
+	cfg             *config.TokenConfig
+	store           TokenStore
+	manager         *TokenManager
+	modes           []modelconfig.ModeSpec
+	baseURL         string
+	firstUseTracker FirstUseTracker
+	manualRefresher ManualQuotaRefresher
 }
 
 // NewTokenService creates a new token service.
-func NewTokenService(cfg *config.TokenConfig, store TokenStore, baseURL string) *TokenService {
+func NewTokenService(
+	cfg *config.TokenConfig,
+	store TokenStore,
+	modes []modelconfig.ModeSpec,
+	baseURL string,
+) *TokenService {
 	return &TokenService{
 		cfg:     cfg,
 		store:   store,
 		manager: NewTokenManager(cfg),
+		modes:   append([]modelconfig.ModeSpec(nil), modes...),
 		baseURL: baseURL,
 	}
+}
+
+// SetFirstUseTracker wires a refresh-window tracker into the token service.
+func (s *TokenService) SetFirstUseTracker(tracker FirstUseTracker) {
+	s.firstUseTracker = tracker
+}
+
+// SetManualRefresher wires a manual quota refresher into the token service.
+func (s *TokenService) SetManualRefresher(refresher ManualQuotaRefresher) {
+	s.manualRefresher = refresher
 }
 
 // LoadTokens loads all tokens from the store into the manager.
@@ -51,16 +73,18 @@ func (s *TokenService) LoadTokens(ctx context.Context) error {
 		if err := normalizeTokenPool(t); err != nil {
 			return err
 		}
+		normalized := normalizeTokenQuotas(t, s.modes)
 		s.manager.AddToken(t)
+		if normalized.changed {
+			s.manager.MarkDirty(t.ID)
+		}
+		if s.firstUseTracker != nil {
+			now := time.Now()
+			for _, mode := range normalized.zeroModes {
+				s.firstUseTracker.SetFirstUsedAt(t.ID, mode, now)
+			}
+		}
 	}
-
-	// Clear dirty set after initial load
-	dirty := s.manager.GetDirtyTokens()
-	ids := make([]uint, len(dirty))
-	for i, d := range dirty {
-		ids[i] = d.ID
-	}
-	s.manager.ClearDirty(ids)
 
 	return nil
 }
@@ -75,14 +99,30 @@ func (s *TokenService) PickExcluding(pool string, mode string, exclude map[uint]
 	return s.manager.PickExcluding(pool, mode, exclude)
 }
 
+// PickAnyExcluding selects an active token without checking mode quota.
+func (s *TokenService) PickAnyExcluding(pool string, exclude map[uint]struct{}) (*store.Token, error) {
+	return s.manager.PickAnyExcluding(pool, exclude)
+}
+
 // ReportSuccess marks a token as successfully used.
 func (s *TokenService) ReportSuccess(id uint) {
 	s.manager.MarkSuccess(id)
 }
 
+// RecordFirstUse marks the token+mode as having observed upstream traffic.
+func (s *TokenService) RecordFirstUse(id uint, mode string) {
+	if s.firstUseTracker == nil || mode == "" {
+		return
+	}
+	s.firstUseTracker.RecordFirstUsed(id, mode)
+}
+
 // ReportRateLimit clears quota for the given mode on a token (429 response).
 func (s *TokenService) ReportRateLimit(id uint, mode string, reason string) {
 	s.manager.ClearModeQuota(id, mode)
+	if s.firstUseTracker != nil && mode != "" {
+		s.firstUseTracker.RecordFirstUsed(id, mode)
+	}
 }
 
 // ReportError handles an error for a token.
@@ -192,6 +232,27 @@ func (s *TokenService) SyncToken(ctx context.Context, id uint) error {
 	s.manager.RemoveToken(id)
 	s.manager.AddToken(dbToken)
 	return nil
+}
+
+// RefreshToken forces an immediate upstream quota refresh and persists the result.
+func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token, error) {
+	if s.manualRefresher == nil {
+		return nil, fmt.Errorf("token refresh not configured")
+	}
+	if err := s.manualRefresher.RefreshToken(ctx, id); err != nil {
+		if errors.Is(err, ErrTokenNotFound) {
+			return nil, store.ErrNotFound
+		}
+		return nil, err
+	}
+	if err := s.FlushDirty(ctx); err != nil {
+		return nil, err
+	}
+	token := s.manager.GetToken(id)
+	if token == nil {
+		return nil, store.ErrNotFound
+	}
+	return token, nil
 }
 
 func normalizeTokenPool(token *store.Token) error {

@@ -28,7 +28,7 @@ type videoStreamState struct {
 	moderated bool
 }
 
-func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, req *VideoRequest) (string, error) {
+func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, req *VideoRequest, mode string) (string, error) {
 	client := f.clientFactory(tok.Token)
 	if client == nil {
 		return "", errors.New("video client is nil")
@@ -43,6 +43,7 @@ func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, 
 	if err != nil {
 		return "", fmt.Errorf("start video generation: %w", err)
 	}
+	f.tokenSvc.RecordFirstUse(tok.ID, mode)
 
 	result, err := collectVideoStreamState(eventCh)
 	if err != nil {

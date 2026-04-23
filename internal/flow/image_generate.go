@@ -33,6 +33,7 @@ func (f *ImageFlow) generateWithRecovery(
 	ctx context.Context,
 	model string,
 	mode string,
+	cooldownSeconds int,
 	token *store.Token,
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
@@ -47,7 +48,7 @@ func (f *ImageFlow) generateWithRecovery(
 	if !blockedParallelEnabled(f.imageConfig()) {
 		return nil, err
 	}
-	return f.generateBlockedRecovery(ctx, model, mode, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
+	return f.generateBlockedRecovery(ctx, model, mode, cooldownSeconds, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
 func (f *ImageFlow) generateSingle(
@@ -89,6 +90,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 	ctx context.Context,
 	model string,
 	mode string,
+	cooldownSeconds int,
 	initialTokenID uint,
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
@@ -133,14 +135,22 @@ func (f *ImageFlow) generateBlockedRecovery(
 		close(resultCh)
 	})
 
-	return selectImageRecoveryResult(resultCh, cancel, mode, f.tokenSvc)
+	return f.selectImageRecoveryResult(model, resultCh, cancel, mode, cooldownSeconds)
 }
 
 func (f *ImageFlow) selectRecoveryTokens(model, mode string, initialTokenID uint, attempts int) []*store.Token {
 	exclude := map[uint]struct{}{initialTokenID: {}}
 	tokens := make([]*store.Token, 0, attempts)
 	for i := 0; i < attempts; i++ {
-		tok, err := f.pickTokenForModelExcluding(model, mode, exclude)
+		var (
+			tok *store.Token
+			err error
+		)
+		if mode == "" {
+			tok, err = f.pickWSTokenForModelExcluding(model, exclude)
+		} else {
+			tok, err = f.pickTokenForModelExcluding(model, mode, exclude)
+		}
 		if err != nil {
 			break
 		}
@@ -150,7 +160,13 @@ func (f *ImageFlow) selectRecoveryTokens(model, mode string, initialTokenID uint
 	return tokens
 }
 
-func selectImageRecoveryResult(resultCh <-chan imageAttemptResult, cancel context.CancelFunc, mode string, tokenSvc TokenServicer) (*imageGenerationResult, error) {
+func (f *ImageFlow) selectImageRecoveryResult(
+	model string,
+	resultCh <-chan imageAttemptResult,
+	cancel context.CancelFunc,
+	mode string,
+	cooldownSeconds int,
+) (*imageGenerationResult, error) {
 	var firstErr error
 	var winner *imageGenerationResult
 	for result := range resultCh {
@@ -160,11 +176,15 @@ func selectImageRecoveryResult(resultCh <-chan imageAttemptResult, cancel contex
 				data:  result.data,
 				token: result.token,
 			}
-			tokenSvc.ReportSuccess(result.token.ID)
+			if mode != "" {
+				f.tokenSvc.ReportSuccess(result.token.ID)
+			}
 		} else if result.err != nil {
-			if !errors.Is(result.err, errImageGenerationBlocked) {
+			if mode == "" {
+				f.reportWSImageError(model, result.token.ID, result.err, cooldownSeconds)
+			} else if !errors.Is(result.err, errImageGenerationBlocked) {
 				recoverable := isTransportError(result.err) || isServerError(result.err)
-				tokenSvc.ReportError(result.token.ID, mode, recoverable, truncateReason(result.err.Error()))
+				f.tokenSvc.ReportError(result.token.ID, mode, recoverable, truncateReason(result.err.Error()))
 			}
 			if firstErr == nil && !errors.Is(result.err, errImageGenerationBlocked) {
 				firstErr = result.err

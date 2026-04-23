@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const tokenStatusSchema = z.enum(['active', 'disabled', 'expired', 'exhausted'])
+export const tokenStatusSchema = z.enum(['active', 'disabled', 'expired'])
 
 const quotasMapSchema = z.record(z.string(), z.number().int().min(0)).optional()
 

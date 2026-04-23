@@ -67,7 +67,6 @@ func DefaultConfig() *Config {
 			MaxTokens:               5,
 			PerTokenRetries:         2,
 			ResetSessionStatusCodes: []int{403},
-			CoolingStatusCodes:      []int{429},
 			RetryBackoffBase:        0.5,
 			RetryBackoffFactor:      2.0,
 			RetryBackoffMax:         20.0,
@@ -76,10 +75,6 @@ func DefaultConfig() *Config {
 		Token: TokenConfig{
 			FailThreshold:         5,
 			UsageFlushIntervalSec: 30,
-			CoolCheckIntervalSec:  30,
-			BasicCoolDurationMin:  240,
-			SuperCoolDurationMin:  120,
-			HeavyCoolDurationMin:  60,
 			SelectionAlgorithm:    "high_quota_first",
 		},
 	}

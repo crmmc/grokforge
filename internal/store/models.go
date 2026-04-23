@@ -9,6 +9,14 @@ import (
 	"gorm.io/gorm"
 )
 
+var obsoleteConfigKeys = []string{
+	"retry.cooling_status_codes",
+	"token.cool_check_interval_sec",
+	"token.basic_cool_duration_min",
+	"token.super_cool_duration_min",
+	"token.heavy_cool_duration_min",
+}
+
 // StringSlice is a custom type for JSON-encoded []string in SQLite.
 type StringSlice []string
 
@@ -97,8 +105,8 @@ type APIKey struct {
 type Token struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
 	Token        string         `gorm:"uniqueIndex;size:512" json:"token"`
-	Pool         string         `gorm:"index;size:32" json:"pool"`   // canonical: ssoBasic, ssoSuper, ssoHeavy
-	Status       string         `gorm:"index;size:32" json:"status"` // active, disabled, expired
+	Pool         string         `gorm:"index;size:32" json:"pool"`     // canonical: ssoBasic, ssoSuper, ssoHeavy
+	Status       string         `gorm:"index;size:32" json:"status"`   // active, disabled, expired
 	Quotas       IntMap         `gorm:"type:text" json:"quotas"`       // mode -> remaining quota
 	LimitQuotas  IntMap         `gorm:"type:text" json:"limit_quotas"` // mode -> upper limit
 	FailCount    int            `json:"fail_count"`
@@ -156,5 +164,7 @@ func AutoMigrate(db *gorm.DB) error {
 	}
 	// Migrate cooling tokens to active (cooling is no longer a persisted status).
 	db.Exec("UPDATE tokens SET status = ? WHERE status = ?", TokenStatusActive, "cooling")
+	// Remove obsolete config overrides from the pre-mode-quota cooling model.
+	db.Exec("DELETE FROM config_entries WHERE key IN ?", obsoleteConfigKeys)
 	return nil
 }

@@ -40,3 +40,25 @@ func isServerError(err error) bool {
 	}
 	return statusCode >= httpStatusServerErrorMin && statusCode <= httpStatusServerErrorMax
 }
+
+func shouldSkipTokenPenalty(err error) bool {
+	return errors.Is(err, xai.ErrForbidden) || errors.Is(err, xai.ErrCFChallenge)
+}
+
+func reportTrackedTokenError(tokenSvc TokenServicer, tokenID uint, mode string, err error) {
+	if tokenSvc == nil || err == nil {
+		return
+	}
+	reason := truncateReason(err.Error())
+	switch {
+	case errors.Is(err, xai.ErrInvalidToken):
+		tokenSvc.MarkExpired(tokenID, reason)
+	case shouldSkipTokenPenalty(err):
+		return
+	case ShouldCoolToken(err, nil):
+		tokenSvc.ReportRateLimit(tokenID, mode, reason)
+	default:
+		recoverable := isTransportError(err) || isServerError(err)
+		tokenSvc.ReportError(tokenID, mode, recoverable, reason)
+	}
+}

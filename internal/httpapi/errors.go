@@ -9,7 +9,7 @@ import (
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
-// ErrPoolExhausted indicates all tokens in the pool are exhausted or cooling down.
+// ErrPoolExhausted indicates all eligible tokens in the pool are currently unavailable.
 var ErrPoolExhausted = errors.New("httpapi: token pool exhausted")
 
 // APIError represents an OpenAI-compatible error response.

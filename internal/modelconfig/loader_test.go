@@ -291,6 +291,23 @@ quota_sync = false
 	mustContain(t, err, "cooldown_seconds must be > 0 when quota_sync = false")
 }
 
+func TestValidate_QuotaSyncFalseOnlyAllowedForImageWS(t *testing.T) {
+	content := "version = 1\n" + validModeTOML + `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+quota_sync = false
+cooldown_seconds = 300
+upstream_mode = "auto"
+`
+	fs := makeFS(content)
+	_, _, err := Load(fs, "")
+	mustContain(t, err, `quota_sync = false is only valid for type "image_ws"`)
+}
+
 // --- Model validation failures (general) ---
 
 func TestValidate_InvalidTOML(t *testing.T) {

@@ -3,14 +3,15 @@
 import dynamic from 'next/dynamic'
 import { useEffect, useState, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useTokens, useDeleteToken, useUpdateToken, useBatchTokens, useRefreshToken, useTokenIdsByStatus, type BatchOperation } from '@/lib/hooks'
-import { Button, Skeleton, Alert, AlertDescription, ConfirmProvider, useConfirm } from '@/components/ui'
+import { useAdminModels, useTokens, useDeleteToken, useUpdateToken, useBatchTokens, useRefreshToken, useTokenIdsByStatus, type BatchOperation } from '@/lib/hooks'
+import { Button, Skeleton, Alert, AlertDescription, AlertTitle, ConfirmProvider, useConfirm } from '@/components/ui'
 import { useToast } from '@/components/ui/toaster'
 import { AlertCircle } from 'lucide-react'
 import type { Token } from '@/types'
 import { TokenActionsBar } from './token-actions-bar'
 import { TokenTable } from '@/components/features/token-table'
 import { useTranslation } from '@/lib/i18n/context'
+import { useQuotaPresentationWarnings } from '@/lib/use-quota-presentation-warnings'
 
 const TokenDialog = dynamic(
   () => import('./token-dialog').then((mod) => mod.TokenDialog),
@@ -34,6 +35,7 @@ function TokensPageInner() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [statusSelection, setStatusSelection] = useState<string | null>(null)
   const { data, isLoading, error } = useTokens({ page, page_size: 20, status: statusFilter, nsfw: nsfwBool })
+  const { data: catalog, isLoading: catalogLoading, error: catalogError } = useAdminModels()
   const deleteToken = useDeleteToken()
   const updateToken = useUpdateToken()
   const batchTokens = useBatchTokens()
@@ -42,6 +44,10 @@ function TokensPageInner() {
   const { toast } = useToast()
   const { t } = useTranslation()
   const confirm = useConfirm()
+
+  useQuotaPresentationWarnings('tokens-page', catalogError ? [
+    `${t.common.humanReadableQuotaUnavailable}: ${catalogError.message || t.common.unknownError}`,
+  ] : [])
 
   useEffect(() => {
     if (tokenIdsByStatus.data?.ids) {
@@ -176,15 +182,28 @@ function TokensPageInner() {
           <AlertDescription>{t.common.loadFailed}{': '}{error.message || t.common.unknownError}</AlertDescription>
         </Alert>
       ) : (
-        <TokenTable
-          tokens={data?.data || []}
-          selectedIds={selectedIds}
-          onSelectionChange={setSelectedIds}
-          onEdit={(token) => setActiveTokenID(token.id)}
-          onDelete={handleDelete}
-          onRefresh={handleRefresh}
-          onToggleStatus={handleToggleStatus}
-        />
+        <div className="space-y-4">
+          {catalogError && (
+            <Alert variant="warning">
+              <AlertCircle className="h-4 w-4" />
+              <AlertTitle>{t.common.humanReadableQuotaUnavailable}</AlertTitle>
+              <AlertDescription>{catalogError.message || t.common.unknownError}</AlertDescription>
+            </Alert>
+          )}
+
+          <TokenTable
+            catalog={catalog}
+            catalogError={catalogError}
+            catalogLoading={catalogLoading}
+            tokens={data?.data || []}
+            selectedIds={selectedIds}
+            onSelectionChange={setSelectedIds}
+            onEdit={(token) => setActiveTokenID(token.id)}
+            onDelete={handleDelete}
+            onRefresh={handleRefresh}
+            onToggleStatus={handleToggleStatus}
+          />
+        </div>
       )}
 
       {data && data.total_pages > 1 && (
@@ -213,6 +232,9 @@ function TokensPageInner() {
 
       {activeTokenID !== null && (
         <TokenDialog
+          catalog={catalog}
+          catalogError={catalogError}
+          catalogLoading={catalogLoading}
           open={activeTokenID !== null}
           onOpenChange={(open) => !open && setActiveTokenID(null)}
           tokenId={activeTokenID}

@@ -82,6 +82,40 @@ func (p *TokenPool) SelectExcluding(algorithm string, mode string, exclude map[u
 	return p.selectWithExclude(algorithm, mode, exclude)
 }
 
+// SelectAnyExcluding returns an active token while ignoring mode quota.
+func (p *TokenPool) SelectAnyExcluding(algorithm string, exclude map[uint]struct{}) *store.Token {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	tiers := make(map[int][]*store.Token)
+	for _, t := range p.tokens {
+		if _, skipped := exclude[t.ID]; skipped {
+			continue
+		}
+		if Status(t.Status) != StatusActive {
+			continue
+		}
+		tiers[t.Priority] = append(tiers[t.Priority], t)
+	}
+	if len(tiers) == 0 {
+		return nil
+	}
+
+	for _, pri := range sortedKeysDesc(tiers) {
+		candidates := tiers[pri]
+		if selected := p.selectByAlgorithm(algorithm, "", candidates); selected != nil {
+			slog.Debug("token: selected untracked token from pool",
+				"pool", p.name,
+				"token_id", selected.ID,
+				"priority", pri,
+				"algo", algorithm,
+				"candidates", len(candidates))
+			return selected
+		}
+	}
+	return nil
+}
+
 func (p *TokenPool) selectWithExclude(algorithm string, mode string, exclude map[uint]struct{}) *store.Token {
 	p.mu.RLock()
 	defer p.mu.RUnlock()

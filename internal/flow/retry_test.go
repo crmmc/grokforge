@@ -34,9 +34,6 @@ func TestDefaultRetryConfig(t *testing.T) {
 	if !reflect.DeepEqual(cfg.ResetSessionStatusCodes, []int{403}) {
 		t.Errorf("ResetSessionStatusCodes = %v, want [403]", cfg.ResetSessionStatusCodes)
 	}
-	if !reflect.DeepEqual(cfg.CoolingStatusCodes, []int{429}) {
-		t.Errorf("CoolingStatusCodes = %v, want [429]", cfg.CoolingStatusCodes)
-	}
 }
 
 func TestBackoffWithJitter_Attempt0(t *testing.T) {
@@ -169,27 +166,24 @@ func TestShouldCoolToken(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
-		cfg  *RetryConfig
 		want bool
 	}{
-		{"nil error", nil, nil, false},
-		{"rate limited with defaults", xai.ErrRateLimited, nil, true},
-		{"forbidden with defaults", xai.ErrForbidden, nil, false},
-		{"cf challenge with defaults", xai.ErrCFChallenge, nil, false},
-		{"502 gateway error with defaults", errors.New("server returned 502"), nil, false},
-		{"503 service unavailable with defaults", errors.New("503 Service Unavailable"), nil, false},
-		{"504 gateway timeout with defaults", errors.New("504 Gateway Timeout"), nil, false},
-		{"network error", xai.ErrNetwork, nil, false},
-		{"rate limited message in error", errors.New("request failed: " + xai.ErrRateLimited.Error()), nil, true},
-		{"custom cooling codes includes 502", errors.New("server returned 502"), &RetryConfig{CoolingStatusCodes: []int{429, 502}}, true},
-		{"custom cooling codes excludes 429", xai.ErrRateLimited, &RetryConfig{CoolingStatusCodes: []int{403}}, false},
-		{"forbidden excluded from cooling", xai.ErrForbidden, &RetryConfig{CoolingStatusCodes: []int{429}}, false},
+		{"nil error", nil, false},
+		{"rate limited with defaults", xai.ErrRateLimited, true},
+		{"forbidden with defaults", xai.ErrForbidden, false},
+		{"cf challenge with defaults", xai.ErrCFChallenge, false},
+		{"429 status code", errors.New("429 Too Many Requests"), true},
+		{"502 gateway error with defaults", errors.New("server returned 502"), false},
+		{"503 service unavailable with defaults", errors.New("503 Service Unavailable"), false},
+		{"504 gateway timeout with defaults", errors.New("504 Gateway Timeout"), false},
+		{"network error", xai.ErrNetwork, false},
+		{"rate limited message in error", errors.New("request failed: " + xai.ErrRateLimited.Error()), true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := ShouldCoolToken(tt.err, tt.cfg); got != tt.want {
-				t.Errorf("ShouldCoolToken(%v, %v) = %v, want %v", tt.err, tt.cfg, got, tt.want)
+			if got := ShouldCoolToken(tt.err, nil); got != tt.want {
+				t.Errorf("ShouldCoolToken(%v) = %v, want %v", tt.err, got, tt.want)
 			}
 		})
 	}

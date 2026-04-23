@@ -39,10 +39,6 @@ type RetryConfig struct {
 	// ResetSessionStatusCodes are HTTP status codes that require session reset before retry.
 	ResetSessionStatusCodes []int
 
-	// CoolingStatusCodes are HTTP status codes that should trigger token cooling.
-	// Only token-related errors should cool the token; gateway errors (502/503/504) should not.
-	CoolingStatusCodes []int
-
 	// RetryBudget caps total retry time. Zero means no budget.
 	RetryBudget time.Duration
 }
@@ -57,7 +53,6 @@ func DefaultRetryConfig() *RetryConfig {
 		JitterFactor:            0.25,
 		BackoffFactor:           2.0,
 		ResetSessionStatusCodes: []int{403},
-		CoolingStatusCodes:      []int{429},
 	}
 }
 
@@ -150,37 +145,24 @@ func defaultResetCodes(cfg *RetryConfig) []int {
 	return cfg.ResetSessionStatusCodes
 }
 
-func defaultCoolingCodes(cfg *RetryConfig) []int {
-	if cfg == nil || len(cfg.CoolingStatusCodes) == 0 {
-		return []int{429}
-	}
-	return cfg.CoolingStatusCodes
-}
-
-// ShouldCoolToken returns true if the error indicates the token should be cooled.
-// Only token-related errors (rate limit, forbidden) trigger cooling, not gateway errors.
-func ShouldCoolToken(err error, cfg *RetryConfig) bool {
+// ShouldCoolToken returns true only for 429 quota exhaustion semantics.
+func ShouldCoolToken(err error, _ *RetryConfig) bool {
 	if err == nil {
 		return false
 	}
 
-	coolingCodes := defaultCoolingCodes(cfg)
-
 	if errors.Is(err, xai.ErrRateLimited) {
-		return containsInt(coolingCodes, 429)
-	}
-	if errors.Is(err, xai.ErrForbidden) {
-		return containsInt(coolingCodes, 403)
+		return true
 	}
 
 	if statusCode, ok := extractStatusCode(err); ok {
-		return containsInt(coolingCodes, statusCode)
+		return statusCode == 429
 	}
 
 	// Fallback: check error message for rate limit text
 	msg := err.Error()
 	if strings.Contains(msg, xai.ErrRateLimited.Error()) {
-		return containsInt(coolingCodes, 429)
+		return true
 	}
 
 	return false

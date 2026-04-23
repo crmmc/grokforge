@@ -1,7 +1,7 @@
 'use client'
 
 import { Loader2, AlertCircle } from 'lucide-react'
-import { useAdminModels, type AdminModelEntry } from '@/lib/hooks/use-admin-models'
+import { useAdminModels, type AdminModelEntry, type AdminModeGroup } from '@/lib/hooks/use-admin-models'
 import { useTranslation } from '@/lib/i18n/context'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +45,9 @@ function FlagsBadges({ model, t }: { model: AdminModelEntry; t: ReturnType<typeo
   if (model.enable_pro) {
     flags.push({ label: t.settings.catalogEnablePro, variant: 'default' })
   }
+  if (!model.quota_sync) {
+    flags.push({ label: t.settings.catalogUntracked, variant: 'warning' })
+  }
   if (!model.enabled) {
     flags.push({ label: t.settings.catalogDisabled, variant: 'warning' })
   }
@@ -60,9 +63,20 @@ function FlagsBadges({ model, t }: { model: AdminModelEntry; t: ReturnType<typeo
   )
 }
 
+function DefaultQuotaText({ group }: { group: AdminModeGroup }) {
+  const orderedPools = ['basic', 'super', 'heavy']
+  const text = orderedPools
+    .filter((pool) => group.default_quotas[pool] !== undefined)
+    .map((pool) => `${pool}:${group.default_quotas[pool]}`)
+    .join(' / ')
+  return <span className="font-mono text-xs">{text || '-'}</span>
+}
+
 export function ModelCatalogTable() {
-  const { data: models, isLoading, error } = useAdminModels()
+  const { data: catalog, isLoading, error } = useAdminModels()
   const { t } = useTranslation()
+  const models = catalog?.models ?? []
+  const modeGroups = catalog?.mode_groups ?? []
 
   if (isLoading) {
     return (
@@ -83,7 +97,7 @@ export function ModelCatalogTable() {
     )
   }
 
-  if (!models || models.length === 0) {
+  if (models.length === 0 && modeGroups.length === 0) {
     return (
       <div className="flex items-center justify-center h-48 text-muted text-sm">
         {t.settings.catalogEmpty}
@@ -94,6 +108,32 @@ export function ModelCatalogTable() {
   return (
     <div className="space-y-3">
       <p className="text-muted text-sm">{t.settings.catalogDescription}</p>
+      <div className="rounded-lg border border-[rgba(0,0,0,0.06)] overflow-hidden">
+        <Table>
+          <TableHeader>
+            <TableRow className="bg-[rgba(0,0,0,0.02)]">
+              <TableHead>{t.settings.catalogMode}</TableHead>
+              <TableHead>{t.settings.catalogDisplayName}</TableHead>
+              <TableHead>{t.settings.catalogUpstreamMode}</TableHead>
+              <TableHead>{t.settings.catalogWindow}</TableHead>
+              <TableHead>{t.settings.catalogDefaults}</TableHead>
+              <TableHead>{t.settings.catalogTrackedModels}</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {modeGroups.map((group) => (
+              <TableRow key={group.mode}>
+                <TableCell className="font-mono text-xs">{group.mode}</TableCell>
+                <TableCell>{group.display_name}</TableCell>
+                <TableCell className="font-mono text-xs">{group.upstream_name}</TableCell>
+                <TableCell>{group.window_seconds}s</TableCell>
+                <TableCell><DefaultQuotaText group={group} /></TableCell>
+                <TableCell className="font-mono text-xs">{group.models.join(', ') || '-'}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
       <div className="rounded-lg border border-[rgba(0,0,0,0.06)] overflow-hidden">
         <Table>
           <TableHeader>
@@ -115,7 +155,7 @@ export function ModelCatalogTable() {
                 <TableCell>{m.display_name}</TableCell>
                 <TableCell><TypeBadge type={m.type} /></TableCell>
                 <TableCell><PoolBadge pool={m.pool_floor} /></TableCell>
-                <TableCell>{m.mode || <span className="text-muted">-</span>}</TableCell>
+                <TableCell>{m.quota_sync ? (m.mode || <span className="text-muted">-</span>) : <span className="text-muted">{t.settings.catalogUntracked}</span>}</TableCell>
                 <TableCell className="font-mono text-xs">
                   {m.upstream_model || <span className="text-muted">-</span>}
                 </TableCell>
