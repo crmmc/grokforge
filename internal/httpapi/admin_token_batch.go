@@ -3,27 +3,21 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
-	"strings"
 
-	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
 )
 
 // handleBatchTokens returns a handler for batch token operations.
-func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, cfg *config.Config, reg *registry.ModelRegistry) http.HandlerFunc {
-	return handleBatchTokensFromProvider(ts, syncer, func() *config.TokenConfig {
-		if cfg == nil {
-			return nil
-		}
-		return &cfg.Token
-	}, reg)
+func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry) http.HandlerFunc {
+	return handleBatchTokensFromProvider(ts, syncer, reg)
 }
 
-func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, getCfg func() *config.TokenConfig, reg *registry.ModelRegistry) http.HandlerFunc {
+func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req BatchTokenRequest
 		decoder := json.NewDecoder(r.Body)
@@ -39,11 +33,7 @@ func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSynce
 
 		switch req.Operation {
 		case BatchOpImport:
-			tokenCfg := getCfg()
-			if tokenCfg == nil {
-				tokenCfg = &config.TokenConfig{}
-			}
-			resp = handleBatchImport(r.Context(), ts, syncer, req, tokenCfg, reg)
+			resp = handleBatchImport(r.Context(), ts, syncer, req, reg)
 		case BatchOpExport:
 			resp = handleBatchExport(r.Context(), ts, req.IDs, r.URL.Query().Get("raw") == "true")
 		case BatchOpDelete:
@@ -106,7 +96,7 @@ type BatchError struct {
 }
 
 // handleBatchImport imports multiple tokens.
-func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, cfg *config.TokenConfig, reg *registry.ModelRegistry) BatchTokenResponse {
+func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, reg *registry.ModelRegistry) BatchTokenResponse {
 	resp := BatchTokenResponse{Operation: BatchOpImport}
 	pool, err := token.NormalizePoolName(req.Pool)
 	if err != nil {
@@ -115,15 +105,11 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 		return resp
 	}
 
-	// If no quotas provided, use catalog default_quota for the pool
-	quotas := req.Quotas
-	if len(quotas) == 0 && reg != nil {
-		// Convert normalized pool name (ssoBasic) to catalog key (basic)
-		catalogPool := strings.ToLower(strings.TrimPrefix(pool, "sso"))
-		quotas = make(store.IntMap)
-		for _, m := range reg.SupportedModes(catalogPool) {
-			quotas[m.ID] = m.DefaultQuota[catalogPool]
-		}
+	quotas, limitQuotas, err := buildImportQuotaMaps(pool, req.Quotas, reg)
+	if err != nil {
+		resp.Failed = len(req.Tokens)
+		resp.Errors = append(resp.Errors, BatchError{Message: err.Error()})
+		return resp
 	}
 
 	// Resolve import status: default to "active", only allow "active" or "disabled"
@@ -155,8 +141,8 @@ func handleBatchImport(ctx context.Context, ts TokenStoreInterface, syncer Token
 		t := &store.Token{
 			Token:       tokenStr,
 			Pool:        pool,
-			Quotas:      quotas,
-			LimitQuotas: quotas, // initial limit = initial quota
+			Quotas:      copyIntMap(quotas),
+			LimitQuotas: copyIntMap(limitQuotas),
 			Priority:    req.Priority,
 			Status:      importStatus,
 			Remark:      req.Remark,
@@ -225,7 +211,7 @@ func handleBatchExport(ctx context.Context, ts TokenStoreInterface, ids []uint, 
 	} else {
 		resp.Tokens = make([]TokenResponse, len(tokens))
 		for i, t := range tokens {
-			resp.Tokens[i] = tokenToResponse(t)
+			resp.Tokens[i] = tokenToResponse(t, nil)
 		}
 	}
 	resp.Success = len(tokens)
@@ -305,4 +291,54 @@ func ptrString(s string) *string {
 // ptrBool returns a pointer to a bool.
 func ptrBool(b bool) *bool {
 	return &b
+}
+
+func buildImportQuotaMaps(
+	pool string,
+	overrides store.IntMap,
+	reg *registry.ModelRegistry,
+) (store.IntMap, store.IntMap, error) {
+	if reg == nil {
+		quotas := copyIntMap(overrides)
+		return quotas, copyIntMap(overrides), nil
+	}
+
+	catalogPool := token.PoolToShort(pool)
+	quotas := make(store.IntMap)
+	limits := make(store.IntMap)
+	for _, mode := range reg.SupportedModes(catalogPool) {
+		limit := mode.DefaultQuota[catalogPool]
+		if limit <= 0 {
+			continue
+		}
+		quotas[mode.ID] = limit
+		limits[mode.ID] = limit
+	}
+
+	for mode, val := range overrides {
+		limit, ok := limits[mode]
+		if !ok {
+			return nil, nil, errors.New("unknown quota mode: " + mode)
+		}
+		if val < 0 {
+			return nil, nil, errors.New("quota for mode " + mode + " must be >= 0")
+		}
+		if val > limit {
+			return nil, nil, errors.New("quota for mode " + mode + " exceeds limit")
+		}
+		quotas[mode] = val
+	}
+
+	return quotas, limits, nil
+}
+
+func copyIntMap(src store.IntMap) store.IntMap {
+	if src == nil {
+		return nil
+	}
+	dst := make(store.IntMap, len(src))
+	for key, val := range src {
+		dst[key] = val
+	}
+	return dst
 }

@@ -2,6 +2,8 @@ package token
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -50,6 +52,9 @@ func NewScheduler(manager *TokenManager, modes []modelconfig.ModeSpec, baseURL s
 // RecordFirstUsed records the first use timestamp for a token+mode.
 // Only sets if not already present (first use after last refresh).
 func (s *Scheduler) RecordFirstUsed(tokenID uint, mode string) {
+	if mode == "" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.firstUsedAt[tokenID]; !ok {
@@ -63,6 +68,9 @@ func (s *Scheduler) RecordFirstUsed(tokenID uint, mode string) {
 // SetFirstUsedAt explicitly sets first_used_at for a token+mode.
 // Used by startup normalization for exhausted modes.
 func (s *Scheduler) SetFirstUsedAt(tokenID uint, mode string, t time.Time) {
+	if mode == "" {
+		return
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.firstUsedAt[tokenID]; !ok {
@@ -127,7 +135,7 @@ func (s *Scheduler) scan(ctx context.Context) {
 		if token == nil || Status(token.Status) != StatusActive {
 			continue
 		}
-		poolShort := poolToShort(token.Pool)
+		poolShort := PoolToShort(token.Pool)
 
 		for modeID, firstUsed := range modeMap {
 			mode, ok := modeByID[modeID]
@@ -204,9 +212,16 @@ func (s *Scheduler) scan(ctx context.Context) {
 func (s *Scheduler) refreshMode(ctx context.Context, tokenID uint, authToken string, mode modelconfig.ModeSpec) {
 	resp, err := s.manager.SyncModeQuota(ctx, tokenID, authToken, s.baseURL, mode.UpstreamName)
 	if err != nil {
+		statusCode, preview, truncated := refreshFailureDetails(err)
 		slog.Warn("refresh: mode quota sync failed",
-			"token_id", tokenID, "mode", mode.ID,
-			"upstream_name", mode.UpstreamName, "error", err)
+			"token_id", tokenID,
+			"mode", mode.ID,
+			"upstream_name", mode.UpstreamName,
+			"action", "refresh_failed",
+			"http_status", statusCode,
+			"response_body_preview", preview,
+			"response_body_truncated", truncated,
+			"error", err)
 		// Failure: keep current values, don't clear first_used_at
 		return
 	}
@@ -214,9 +229,6 @@ func (s *Scheduler) refreshMode(ctx context.Context, tokenID uint, authToken str
 	// Success: update quotas
 	remaining := resp.RemainingQueries
 	limit := resp.TotalQueries
-	if limit <= 0 {
-		limit = remaining // fallback if upstream doesn't report total
-	}
 	// Clamp: remaining <= limit
 	if remaining > limit {
 		remaining = limit
@@ -239,13 +251,115 @@ func (s *Scheduler) refreshMode(ctx context.Context, tokenID uint, authToken str
 	s.mu.Unlock()
 
 	slog.Debug("refresh: mode quota updated",
-		"token_id", tokenID, "mode", mode.ID,
-		"remaining", remaining, "limit", limit,
+		"token_id", tokenID,
+		"mode", mode.ID,
+		"upstream_name", mode.UpstreamName,
+		"action", "refresh_success",
+		"remaining", remaining,
+		"limit", limit,
+		"http_status", 200,
 		"observed_window", resp.WindowSizeSeconds)
 }
 
-// poolToShort converts canonical pool name to short form for catalog lookup.
-func poolToShort(pool string) string {
+// RefreshToken forces an immediate refresh for all supported modes of a token.
+func (s *Scheduler) RefreshToken(ctx context.Context, tokenID uint) error {
+	token := s.manager.GetToken(tokenID)
+	if token == nil {
+		return ErrTokenNotFound
+	}
+
+	var refreshErrs []error
+	for _, mode := range s.supportedModesForPool(token.Pool) {
+		if err := s.refreshModeNow(ctx, tokenID, token.Token, mode); err != nil {
+			refreshErrs = append(refreshErrs, err)
+		}
+	}
+	if len(refreshErrs) == 0 {
+		return nil
+	}
+	return errors.Join(refreshErrs...)
+}
+
+func (s *Scheduler) refreshModeNow(
+	ctx context.Context,
+	tokenID uint,
+	authToken string,
+	mode modelconfig.ModeSpec,
+) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	s.globalSem <- struct{}{}
+	defer func() { <-s.globalSem }()
+
+	resp, err := s.manager.SyncModeQuota(ctx, tokenID, authToken, s.baseURL, mode.UpstreamName)
+	if err != nil {
+		statusCode, preview, truncated := refreshFailureDetails(err)
+		slog.Warn("refresh: forced mode quota sync failed",
+			"token_id", tokenID,
+			"mode", mode.ID,
+			"upstream_name", mode.UpstreamName,
+			"action", "refresh_failed",
+			"http_status", statusCode,
+			"response_body_preview", preview,
+			"response_body_truncated", truncated,
+			"error", err)
+		return fmt.Errorf("refresh mode %s: %w", mode.ID, err)
+	}
+
+	remaining := resp.RemainingQueries
+	limit := resp.TotalQueries
+	if remaining > limit {
+		remaining = limit
+	}
+	s.manager.UpdateModeQuota(tokenID, mode.ID, remaining, limit)
+
+	s.mu.Lock()
+	if resp.WindowSizeSeconds > 0 {
+		s.observedWindow[mode.ID] = resp.WindowSizeSeconds
+	}
+	if modeMap, ok := s.firstUsedAt[tokenID]; ok {
+		delete(modeMap, mode.ID)
+		if len(modeMap) == 0 {
+			delete(s.firstUsedAt, tokenID)
+		}
+	}
+	s.mu.Unlock()
+
+	slog.Debug("refresh: forced mode quota updated",
+		"token_id", tokenID,
+		"mode", mode.ID,
+		"upstream_name", mode.UpstreamName,
+		"action", "refresh_success",
+		"remaining", remaining,
+		"limit", limit,
+		"http_status", 200,
+		"observed_window", resp.WindowSizeSeconds)
+	return nil
+}
+
+func (s *Scheduler) supportedModesForPool(pool string) []modelconfig.ModeSpec {
+	poolKey := PoolToShort(pool)
+	modes := make([]modelconfig.ModeSpec, 0, len(s.modes))
+	for _, mode := range s.modes {
+		if mode.DefaultQuota[poolKey] <= 0 {
+			continue
+		}
+		modes = append(modes, mode)
+	}
+	return modes
+}
+
+func refreshFailureDetails(err error) (int, string, bool) {
+	var httpErr *rateLimitsHTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr.statusCode, httpErr.bodyPreview, httpErr.bodyTruncated
+	}
+	return 0, "", false
+}
+
+// PoolToShort converts canonical pool name to short form for catalog lookup.
+func PoolToShort(pool string) string {
 	switch pool {
 	case PoolBasic:
 		return "basic"
