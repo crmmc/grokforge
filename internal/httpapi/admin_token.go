@@ -9,7 +9,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
+	"github.com/crmmc/grokforge/internal/token"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -32,6 +34,11 @@ type TokenPoolSyncer interface {
 	SyncToken(ctx context.Context, id uint) error
 }
 
+// TokenRefresher performs immediate upstream quota refresh for a token.
+type TokenRefresher interface {
+	RefreshToken(ctx context.Context, id uint) (*store.Token, error)
+}
+
 // TokenResponse is the API response for a token (with masked sensitive data).
 type TokenResponse struct {
 	ID            uint         `json:"id"`
@@ -52,15 +59,15 @@ type TokenResponse struct {
 }
 
 // tokenToResponse converts a store.Token to TokenResponse with masked token.
-func tokenToResponse(t *store.Token) TokenResponse {
+func tokenToResponse(t *store.Token, reg *registry.ModelRegistry) TokenResponse {
 	return TokenResponse{
 		ID:            t.ID,
 		Token:         maskSecret(t.Token),
 		Pool:          t.Pool,
 		Status:        t.Status,
-		DisplayStatus: deriveDisplayStatus(t),
-		Quotas:        t.Quotas,
-		LimitQuotas:   t.LimitQuotas,
+		DisplayStatus: deriveDisplayStatus(t, reg),
+		Quotas:        filterModeMap(t.Quotas, reg),
+		LimitQuotas:   filterModeMap(t.LimitQuotas, reg),
 		FailCount:     t.FailCount,
 		LastUsed:      t.LastUsed,
 		Remark:        t.Remark,
@@ -73,27 +80,69 @@ func tokenToResponse(t *store.Token) TokenResponse {
 }
 
 // deriveDisplayStatus computes the display status from persisted state.
-func deriveDisplayStatus(t *store.Token) string {
+func deriveDisplayStatus(t *store.Token, reg *registry.ModelRegistry) string {
 	switch t.Status {
 	case store.TokenStatusDisabled:
 		return "disabled"
 	case store.TokenStatusExpired:
 		return "expired"
 	}
-	// Check exhausted: all quota-tracked modes have 0 remaining
-	if len(t.Quotas) > 0 {
-		allExhausted := true
-		for _, v := range t.Quotas {
-			if v > 0 {
-				allExhausted = false
-				break
+	if reg == nil {
+		for _, remaining := range t.Quotas {
+			if remaining > 0 {
+				return "active"
 			}
 		}
-		if allExhausted {
+		if len(t.Quotas) > 0 {
 			return "exhausted"
 		}
+		return "active"
 	}
-	return "active"
+
+	supportedModes := supportedModesForPool(reg, t.Pool)
+	if len(supportedModes) == 0 {
+		return "active"
+	}
+	for _, mode := range supportedModes {
+		if t.Quotas[mode] > 0 {
+			return "active"
+		}
+	}
+	return "exhausted"
+}
+
+func supportedModesForPool(reg *registry.ModelRegistry, pool string) []string {
+	if reg == nil {
+		return nil
+	}
+	modeSpecs := reg.SupportedModes(token.PoolToShort(pool))
+	modes := make([]string, 0, len(modeSpecs))
+	for _, mode := range modeSpecs {
+		modes = append(modes, mode.ID)
+	}
+	return modes
+}
+
+func knownModeLimits(token *store.Token, reg *registry.ModelRegistry) store.IntMap {
+	if reg == nil {
+		return token.LimitQuotas
+	}
+	return filterModeMap(token.LimitQuotas, reg)
+}
+
+func filterModeMap(src store.IntMap, reg *registry.ModelRegistry) store.IntMap {
+	if reg == nil || src == nil {
+		return src
+	}
+	filtered := make(store.IntMap)
+	for _, mode := range reg.AllModes() {
+		val, ok := src[mode.ID]
+		if !ok {
+			continue
+		}
+		filtered[mode.ID] = val
+	}
+	return filtered
 }
 
 // PaginatedTokenResponse wraps tokens with pagination metadata.
@@ -106,7 +155,7 @@ type PaginatedTokenResponse struct {
 }
 
 // handleListTokens returns a handler that lists all tokens with pagination.
-func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
+func handleListTokens(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filter := store.TokenFilter{}
 
@@ -167,7 +216,7 @@ func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
 		if filterExhausted {
 			filtered := tokens[:0]
 			for _, t := range tokens {
-				if deriveDisplayStatus(t) == "exhausted" {
+				if deriveDisplayStatus(t, reg) == "exhausted" {
 					filtered = append(filtered, t)
 				}
 			}
@@ -193,7 +242,7 @@ func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
 
 		data := make([]TokenResponse, len(paged))
 		for i, t := range paged {
-			data[i] = tokenToResponse(t)
+			data[i] = tokenToResponse(t, reg)
 		}
 
 		resp := PaginatedTokenResponse{
@@ -210,7 +259,7 @@ func handleListTokens(ts TokenStoreInterface) http.HandlerFunc {
 }
 
 // handleGetToken returns a handler that gets a single token by ID.
-func handleGetToken(ts TokenStoreInterface) http.HandlerFunc {
+func handleGetToken(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id, err := strconv.ParseUint(idStr, 10, 32)
@@ -232,7 +281,7 @@ func handleGetToken(ts TokenStoreInterface) http.HandlerFunc {
 			return
 		}
 
-		resp := tokenToResponse(token)
+		resp := tokenToResponse(token, reg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}
@@ -248,7 +297,11 @@ type TokenUpdateRequest struct {
 }
 
 // handleUpdateToken returns a handler that updates an existing token.
-func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.HandlerFunc {
+func handleUpdateToken(
+	ts TokenStoreInterface,
+	syncer TokenPoolSyncer,
+	reg *registry.ModelRegistry,
+) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id, err := strconv.ParseUint(idStr, 10, 32)
@@ -301,11 +354,17 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 
 		// Validate quotas: keys must exist in LimitQuotas, values must not exceed limits
 		if len(req.Quotas) > 0 {
+			limits := knownModeLimits(token, reg)
 			for mode, val := range req.Quotas {
-				limit, ok := token.LimitQuotas[mode]
+				limit, ok := limits[mode]
 				if !ok {
 					WriteError(w, 400, "invalid_request", "unknown_mode",
 						"Unknown quota mode: "+mode)
+					return
+				}
+				if val < 0 {
+					WriteError(w, 400, "invalid_request", "invalid_quota",
+						"Quota for mode "+mode+" must be >= 0")
 					return
 				}
 				if val > limit {
@@ -357,17 +416,34 @@ func handleUpdateToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 			}
 		}
 
-		resp := tokenToResponse(token)
+		resp := tokenToResponse(token, reg)
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}
 }
 
 // handleListTokenIDs returns a handler that lists token IDs matching a status filter.
-func handleListTokenIDs(ts TokenStoreInterface) http.HandlerFunc {
+func handleListTokenIDs(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filter := store.TokenFilter{}
 		if status := r.URL.Query().Get("status"); status != "" {
+			if status == "exhausted" {
+				active := store.TokenStatusActive
+				filter.Status = &active
+				tokens, err := ts.ListTokensFiltered(r.Context(), filter)
+				if err != nil {
+					WriteError(w, 500, "server_error", "list_failed", "Failed to list token IDs")
+					return
+				}
+				ids := make([]uint, 0, len(tokens))
+				for _, token := range tokens {
+					if deriveDisplayStatus(token, reg) == "exhausted" {
+						ids = append(ids, token.ID)
+					}
+				}
+				WriteJSON(w, http.StatusOK, map[string][]uint{"ids": ids})
+				return
+			}
 			filter.Status = &status
 		}
 		ids, err := ts.ListTokenIDs(r.Context(), filter)
@@ -408,5 +484,45 @@ func handleDeleteToken(ts TokenStoreInterface, syncer TokenPoolSyncer) http.Hand
 		}
 
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// handleRefreshToken forces an immediate upstream refresh for the token.
+func handleRefreshToken(
+	ts TokenStoreInterface,
+	refresher TokenRefresher,
+	reg *registry.ModelRegistry,
+) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if refresher == nil {
+			WriteError(w, 501, "server_error", "refresh_not_configured", "Token refresh not configured")
+			return
+		}
+
+		idStr := chi.URLParam(r, "id")
+		id, err := strconv.ParseUint(idStr, 10, 32)
+		if err != nil {
+			WriteError(w, 400, "invalid_request", "invalid_id", "Invalid token ID")
+			return
+		}
+
+		token, err := refresher.RefreshToken(r.Context(), uint(id))
+		if err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				WriteError(w, 404, "not_found", "token_not_found", "Token not found")
+				return
+			}
+			WriteError(w, 502, "server_error", "refresh_failed", err.Error())
+			return
+		}
+		if token == nil {
+			token, err = ts.GetToken(r.Context(), uint(id))
+			if err != nil {
+				WriteError(w, 500, "server_error", "get_failed", "Failed to get token")
+				return
+			}
+		}
+
+		WriteJSON(w, http.StatusOK, tokenToResponse(token, reg))
 	}
 }
