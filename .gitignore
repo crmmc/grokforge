@@ -1,6 +1,10 @@
 # Binaries
 bin/
+grokforge
 *.exe
+
+# PRD tracking (internal)
+PRD_Tracking/
 
 # Claude Code
 .claude/
