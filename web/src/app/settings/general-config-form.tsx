@@ -58,6 +58,7 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
         blocked_parallel_enabled: config.image?.blocked_parallel_enabled ?? true,
         blocked_parallel_attempts: config.image?.blocked_parallel_attempts ?? 5,
       },
+      cache: config.cache ?? { image_max_mb: 0, video_max_mb: 0 },
     },
   })
 
@@ -70,6 +71,7 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
       proxy: data.proxy,
       retry: data.retry,
       image: data.image as Partial<ConfigResponse['image']>,
+      cache: data.cache,
     } as Partial<ConfigResponse>)
   }
 
@@ -141,6 +143,22 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
       />
 
       <RetryConfigSection t={t} register={register} watch={watch} setValue={setValue} />
+
+      {/* Cache Capacity Settings */}
+      <ConfigSection title={t.config.cacheSection} description={t.config.cacheSectionDesc}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="cache.image_max_mb">{t.config.imageCacheLimit}</Label>
+            <Input id="cache.image_max_mb" type="number" className="max-w-[200px]" min="0" {...register('cache.image_max_mb', { valueAsNumber: true })} />
+            <p className="text-xs text-muted">{t.config.imageCacheLimitDesc}</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="cache.video_max_mb">{t.config.videoCacheLimit}</Label>
+            <Input id="cache.video_max_mb" type="number" className="max-w-[200px]" min="0" {...register('cache.video_max_mb', { valueAsNumber: true })} />
+            <p className="text-xs text-muted">{t.config.videoCacheLimitDesc}</p>
+          </div>
+        </div>
+      </ConfigSection>
 
       {/* Image Blocked Parallel Settings */}
       <ConfigSection title={t.config.imageSettings} description={t.config.imageSettingsDesc}>

@@ -566,7 +566,11 @@ export const en = {
     usageFlushIntervalDesc:
       "How often token usage stats are written to database",
     cacheSection: "Cache",
-    cacheSectionDesc: "Response cache settings",
+    cacheSectionDesc: "Cache capacity limits per media type",
+    imageCacheLimit: "Image Cache Limit (MB)",
+    imageCacheLimitDesc: "Maximum disk space for cached images (0 = unlimited)",
+    videoCacheLimit: "Video Cache Limit (MB)",
+    videoCacheLimitDesc: "Maximum disk space for cached videos (0 = unlimited)",
     enableAutoClean: "Enable Auto Clean",
     cacheLimitMb: "Cache Limit (MB)",
     selectionAlgorithm: "Selection Algorithm",

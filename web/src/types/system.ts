@@ -77,12 +77,18 @@ export interface ImageConfigResponse {
   blocked_parallel_enabled: boolean;
 }
 
+export interface CacheConfigResponse {
+  image_max_mb: number;
+  video_max_mb: number;
+}
+
 export interface ConfigResponse {
   app: AppConfigResponse;
   image: ImageConfigResponse;
   proxy: ProxyConfigResponse;
   retry: RetryConfigResponse;
   token: TokenConfigResponse;
+  cache: CacheConfigResponse;
 }
 
 export interface UsageStats {
