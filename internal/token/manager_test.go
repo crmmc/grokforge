@@ -2,6 +2,7 @@ package token
 
 import (
 	"testing"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
@@ -266,4 +267,174 @@ func TestManager_MarkDisabled(t *testing.T) {
 	require.NotNil(t, token)
 	assert.Equal(t, string(StatusDisabled), token.Status)
 	assert.Equal(t, "manual disable", token.StatusReason)
+}
+
+// ── Cooling tests ──────────────────────────────────────────────
+
+func TestManager_ClearModeQuotaAndCool(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8, CoolDurationSuperSec: 7200}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	// Pick to increment inflight
+	tok, err := mgr.Pick(PoolSuper, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, 1, mgr.GetInflight(tok.ID))
+
+	mgr.ClearModeQuotaAndCool(1, "auto")
+
+	token := mgr.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["auto"], "quota should be cleared")
+	assert.Greater(t, token.CoolUntils["auto"], 0, "cool_until should be set")
+	assert.Equal(t, 0, mgr.GetInflight(1), "inflight should be released")
+}
+
+func TestManager_CoolMonotonicIncrease(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, CoolDurationSuperSec: 100}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	mgr.ClearModeQuotaAndCool(1, "auto")
+	first := mgr.GetToken(1).CoolUntils["auto"]
+
+	// Set a much longer cooling manually
+	mgr.GetToken(1).CoolUntils["auto"] = first + 99999
+
+	// ClearModeQuotaAndCool again — should NOT shorten
+	mgr.ClearModeQuotaAndCool(1, "auto")
+	assert.Equal(t, first+99999, mgr.GetToken(1).CoolUntils["auto"], "cooling should not be shortened")
+}
+
+func TestManager_CoolPerPoolDuration(t *testing.T) {
+	cfg := &config.TokenConfig{
+		FailThreshold:        3,
+		CoolDurationBasicSec: 1000,
+		CoolDurationSuperSec: 2000,
+		CoolDurationHeavySec: 3000,
+	}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "b1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"fast": 50}})
+	mgr.AddToken(&store.Token{ID: 2, Token: "s1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+	mgr.AddToken(&store.Token{ID: 3, Token: "h1", Pool: PoolHeavy, Status: string(StatusActive), Quotas: store.IntMap{"heavy": 50}})
+
+	now := int(time.Now().Unix())
+	mgr.ClearModeQuotaAndCool(1, "fast")
+	mgr.ClearModeQuotaAndCool(2, "auto")
+	mgr.ClearModeQuotaAndCool(3, "heavy")
+
+	// Each pool should have different cooling duration (within 5s tolerance)
+	assert.InDelta(t, now+1000, mgr.GetToken(1).CoolUntils["fast"], 5)
+	assert.InDelta(t, now+2000, mgr.GetToken(2).CoolUntils["auto"], 5)
+	assert.InDelta(t, now+3000, mgr.GetToken(3).CoolUntils["heavy"], 5)
+}
+
+func TestManager_PickSkipsCoolingToken(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	mgr := NewTokenManager(cfg)
+
+	future := int(time.Now().Add(1 * time.Hour).Unix())
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 50}, CoolUntils: store.IntMap{"auto": future}})
+	mgr.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 50}})
+
+	tok, err := mgr.Pick(PoolSuper, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), tok.ID, "should skip cooling token and pick token 2")
+}
+
+func TestManager_PickCoolingExpired(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	mgr := NewTokenManager(cfg)
+
+	past := int(time.Now().Add(-1 * time.Hour).Unix())
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 50}, CoolUntils: store.IntMap{"auto": past}})
+
+	tok, err := mgr.Pick(PoolSuper, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok.ID, "expired cooling token should be selectable")
+}
+
+// ── Inflight tests ─────────────────────────────────────────────
+
+func TestManager_PickInflightLimit(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 1, SelectionAlgorithm: AlgoHighQuotaFirst}
+	mgr := NewTokenManager(cfg)
+	// Token 1 has higher quota → will be picked first by high_quota_first.
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+	mgr.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	// First pick: token 1 (highest quota), inflight becomes 1 (= max).
+	tok1, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok1.ID, "first pick should select highest-quota token")
+	assert.Equal(t, 1, mgr.GetInflight(1))
+
+	// Second pick: token 1 is at max inflight, must select token 2.
+	tok2, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), tok2.ID, "should skip full-inflight token and pick token 2")
+	assert.Equal(t, 1, mgr.GetInflight(2))
+
+	// Both tokens at max inflight, next pick should fail.
+	_, err = mgr.Pick(PoolBasic, "auto")
+	assert.ErrorIs(t, err, ErrNoTokenAvailable, "should fail when all tokens at max inflight")
+}
+
+func TestManager_PickIncrementsInflight(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+
+	assert.Equal(t, 0, mgr.GetInflight(1))
+
+	_, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, 1, mgr.GetInflight(1))
+
+	_, err = mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, 2, mgr.GetInflight(1))
+}
+
+func TestManager_MarkSuccessReleasesInflight(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+
+	_, _ = mgr.Pick(PoolBasic, "auto")
+	assert.Equal(t, 1, mgr.GetInflight(1))
+
+	mgr.MarkSuccess(1)
+	assert.Equal(t, 0, mgr.GetInflight(1))
+}
+
+func TestManager_MarkFailedReleasesInflight(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+
+	_, _ = mgr.Pick(PoolBasic, "auto")
+	assert.Equal(t, 1, mgr.GetInflight(1))
+
+	mgr.MarkFailed(1, "test error")
+	assert.Equal(t, 0, mgr.GetInflight(1))
+}
+
+func TestManager_ReleaseInflightNoUnderflow(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3}
+	mgr := NewTokenManager(cfg)
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive)})
+
+	// Release without prior Pick — should not go negative
+	mgr.ReleaseInflightOnly(1)
+	assert.Equal(t, 0, mgr.GetInflight(1))
+
+	// Double release after single Pick
+	mgr.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 10}})
+	_, _ = mgr.Pick(PoolBasic, "auto")
+	mgr.ReleaseInflightOnly(2)
+	mgr.ReleaseInflightOnly(2)
+	assert.Equal(t, 0, mgr.GetInflight(2))
 }

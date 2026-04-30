@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/crmmc/grokforge/internal/store"
 )
@@ -121,6 +122,7 @@ func (p *TokenPool) selectWithExclude(algorithm string, mode string, exclude map
 	defer p.mu.RUnlock()
 
 	// Collect active tokens with remaining quota, grouped by priority
+	nowUnix := int(time.Now().Unix())
 	tiers := make(map[int][]*store.Token)
 	for _, t := range p.tokens {
 		if _, skipped := exclude[t.ID]; skipped {
@@ -131,6 +133,10 @@ func (p *TokenPool) selectWithExclude(algorithm string, mode string, exclude map
 		}
 		// 检查 mode quota
 		if t.Quotas == nil || t.Quotas[mode] <= 0 {
+			continue
+		}
+		// 检查 per-mode cooling
+		if t.CoolUntils[mode] > nowUnix {
 			continue
 		}
 		tiers[t.Priority] = append(tiers[t.Priority], t)
