@@ -232,7 +232,10 @@ func (m *chatMockTokenSvc) RefundQuota(id uint, mode string)                    
 func (m *chatMockTokenSvc) ReportSuccess(id uint)                                             {}
 func (m *chatMockTokenSvc) ReportRateLimit(id uint, mode string, reason string)               {}
 func (m *chatMockTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {}
-func (m *chatMockTokenSvc) MarkExpired(id uint, reason string)                                {}
+func (m *chatMockTokenSvc) ReportErrorKeepInflight(id uint, mode string, recoverable bool, reason string) {
+}
+func (m *chatMockTokenSvc) MarkExpired(id uint, reason string) {}
+func (m *chatMockTokenSvc) ReleaseToken(id uint)               {}
 
 type chatUnavailableTokenSvc struct {
 	err error
@@ -253,7 +256,10 @@ func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                        
 func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, mode string, reason string) {}
 func (m *chatUnavailableTokenSvc) ReportError(id uint, mode string, recoverable bool, reason string) {
 }
+func (m *chatUnavailableTokenSvc) ReportErrorKeepInflight(id uint, mode string, recoverable bool, reason string) {
+}
 func (m *chatUnavailableTokenSvc) MarkExpired(id uint, reason string) {}
+func (m *chatUnavailableTokenSvc) ReleaseToken(id uint)               {}
 
 type chatMockAPIKeyStore struct{}
 

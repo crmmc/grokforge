@@ -17,7 +17,7 @@ import (
 func newTestCacheService(t *testing.T) (*cache.Service, string) {
 	t.Helper()
 	base := t.TempDir()
-	return cache.NewService(base), base
+	return cache.NewService(base, nil), base
 }
 
 func createCacheFile(t *testing.T, base, mediaType, name string, size int) {

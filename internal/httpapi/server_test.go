@@ -74,7 +74,7 @@ func TestServer_AdminRoutesWithValidKey(t *testing.T) {
 }
 
 func TestServer_FilesRouteWithoutAuth(t *testing.T) {
-	cacheSvc := cache.NewService(t.TempDir())
+	cacheSvc := cache.NewService(t.TempDir(), nil)
 	name, err := cacheSvc.SaveFile("video", []byte("mp4-data"), ".mp4")
 	if err != nil {
 		t.Fatalf("SaveFile() error = %v", err)
