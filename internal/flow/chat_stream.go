@@ -15,6 +15,8 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 	filterTags := f.filterTags()
 	tokenFilter := newStreamTokenFilter(filterTags)
 	toolParser := newStreamToolCallParser(tools)
+	var searchSources []SearchSource
+	seenURLs := make(map[string]struct{})
 	for {
 		select {
 		case <-ctx.Done():
@@ -29,7 +31,7 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 				}
 				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
 				stop := "stop"
-				outCh <- StreamEvent{FinishReason: &stop, Usage: usage}
+				outCh <- StreamEvent{FinishReason: &stop, Usage: usage, SearchSources: searchSources}
 				return true, usage, true, ttft, nil
 			}
 			if event.Error != nil {
@@ -40,6 +42,14 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 			if flowEvent.Error != nil {
 				return false, nil, false, 0, flowEvent.Error
 			}
+			// Accumulate search sources across frames, dedup by URL
+			for _, src := range flowEvent.SearchSources {
+				if _, seen := seenURLs[src.URL]; !seen {
+					seenURLs[src.URL] = struct{}{}
+					searchSources = append(searchSources, src)
+				}
+			}
+			flowEvent.SearchSources = nil // only emit on finish
 			flowEvent = tokenFilter.Apply(flowEvent)
 			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
 			flowEvent.Downloader = dl
