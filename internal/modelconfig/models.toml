@@ -41,7 +41,7 @@ heavy = 20
 [[mode]]
 id = "grok43"
 upstream_name = "grok-420-computer-use-sa"
-window_seconds = 36000
+window_seconds = 7200
 [mode.default_quota]
 basic = 0
 super = 50
@@ -54,7 +54,7 @@ id = "grok-4.20"
 display_name = "Grok 4.20"
 type = "chat"
 enabled = true
-pool_floor = "basic"
+pool_floor = "super"
 mode = "auto"
 upstream_mode = "auto"
 
@@ -82,7 +82,7 @@ id = "grok-4.20-expert"
 display_name = "Grok 4.20 Expert"
 type = "chat"
 enabled = true
-pool_floor = "basic"
+pool_floor = "super"
 mode = "expert"
 upstream_mode = "expert"
 

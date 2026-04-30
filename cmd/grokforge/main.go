@@ -270,7 +270,7 @@ func main() {
 	logging.Info("image flow ready")
 
 	// Create cache service
-	cacheSvc := cache.NewService("data")
+	cacheSvc := cache.NewService("data", runtimeCfg)
 	logging.Info("cache service ready", "data_dir", "data")
 
 	// Wire cache service to video flow for download proxy
@@ -296,6 +296,7 @@ func main() {
 		TokenStore:      tokenStore,
 		TokenRefresher:  tokenSvc,
 		TokenPoolSyncer: tokenSvc,
+		TokenInflight:   tokenSvc.Manager(),
 		UsageLogStore:   usageLogStore,
 		APIKeyStore:     apiKeyStore,
 		CacheService:    cacheSvc,

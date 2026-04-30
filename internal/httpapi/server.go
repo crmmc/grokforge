@@ -45,6 +45,7 @@ type Server struct {
 	tokenStore      TokenStoreInterface
 	tokenRefresher  TokenRefresher
 	tokenPoolSyncer TokenPoolSyncer
+	tokenInflight   TokenInflightProvider
 	usageLogStore   UsageLogStoreInterface
 	apiKeyStore     APIKeyStoreInterface
 	cacheService    *cache.Service
@@ -62,6 +63,7 @@ type ServerConfig struct {
 	TokenStore      TokenStoreInterface
 	TokenRefresher  TokenRefresher
 	TokenPoolSyncer TokenPoolSyncer
+	TokenInflight   TokenInflightProvider
 	UsageLogStore   UsageLogStoreInterface
 	APIKeyStore     APIKeyStoreInterface
 	CacheService    *cache.Service
@@ -89,6 +91,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		tokenStore:      cfg.TokenStore,
 		tokenRefresher:  cfg.TokenRefresher,
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
+		tokenInflight:   cfg.TokenInflight,
 		usageLogStore:   cfg.UsageLogStore,
 		apiKeyStore:     cfg.APIKeyStore,
 		cacheService:    cfg.CacheService,
@@ -206,11 +209,11 @@ func (s *Server) setupRoutes() {
 
 			// Token endpoints
 			if s.tokenStore != nil {
-				r.Get("/tokens", handleListTokens(s.tokenStore, s.modelRegistry))
+				r.Get("/tokens", handleListTokens(s.tokenStore, s.modelRegistry, s.tokenInflight))
 				r.Get("/tokens/ids", handleListTokenIDs(s.tokenStore, s.modelRegistry))
-				r.Get("/tokens/{id}", handleGetToken(s.tokenStore, s.modelRegistry))
-				r.Put("/tokens/{id}", handleUpdateToken(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
-				r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenStore, s.tokenRefresher, s.modelRegistry))
+				r.Get("/tokens/{id}", handleGetToken(s.tokenStore, s.modelRegistry, s.tokenInflight))
+				r.Put("/tokens/{id}", handleUpdateToken(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry, s.tokenInflight))
+				r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenStore, s.tokenRefresher, s.modelRegistry, s.tokenInflight))
 				r.Delete("/tokens/{id}", handleDeleteToken(s.tokenStore, s.tokenPoolSyncer))
 				if s.runtime != nil {
 					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
