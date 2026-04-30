@@ -115,6 +115,7 @@ type Token struct {
 	NsfwEnabled  bool           `gorm:"default:false;index" json:"nsfw_enabled"`
 	StatusReason string         `gorm:"size:256" json:"status_reason,omitempty"`
 	Priority     int            `gorm:"default:0;index" json:"priority"`
+	CoolUntils   IntMap         `gorm:"type:text" json:"cool_untils,omitempty"` // mode → unix timestamp
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`

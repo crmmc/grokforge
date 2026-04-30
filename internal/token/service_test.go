@@ -234,6 +234,22 @@ func TestService_ReportError_Recoverable(t *testing.T) {
 	assert.Equal(t, 1, token.FailCount)
 }
 
+func TestService_ReportErrorKeepInflight(t *testing.T) {
+	mockStore := &mockTokenStore{}
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
+	svc := newTestTokenService(cfg, mockStore)
+
+	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 10}, FailCount: 0})
+	_, err := svc.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+
+	svc.ReportErrorKeepInflight(1, "auto", true, "test error")
+	token := svc.manager.GetToken(1)
+	assert.Equal(t, 9, token.Quotas["auto"], "intermediate retry should keep pre-deducted quota")
+	assert.Equal(t, 1, token.FailCount)
+	assert.Equal(t, 1, svc.manager.GetInflight(1), "keep-inflight error should not release inflight")
+}
+
 func TestService_ReportError_NonRecoverable(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
@@ -298,4 +314,33 @@ func TestService_Stats(t *testing.T) {
 	assert.Equal(t, 1, stats[PoolBasic].Disabled)
 	assert.Equal(t, 0, stats[PoolBasic].Expired)
 	assert.Equal(t, 1, stats[PoolSuper].Active)
+}
+
+func TestService_ReportRateLimitSetsCooling(t *testing.T) {
+	mockStore := &mockTokenStore{}
+	cfg := &config.TokenConfig{FailThreshold: 3, CoolDurationSuperSec: 7200}
+	svc := newTestTokenService(cfg, mockStore)
+
+	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	svc.ReportRateLimit(1, "auto", "429 rate limited")
+
+	token := svc.manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["auto"], "quota should be cleared")
+	assert.Greater(t, token.CoolUntils["auto"], 0, "CoolUntils[auto] should be set")
+}
+
+func TestService_ReleaseToken(t *testing.T) {
+	mockStore := &mockTokenStore{}
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
+	svc := newTestTokenService(cfg, mockStore)
+
+	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	_, err := svc.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, 1, svc.manager.GetInflight(1))
+
+	svc.ReleaseToken(1)
+	assert.Equal(t, 0, svc.manager.GetInflight(1))
 }

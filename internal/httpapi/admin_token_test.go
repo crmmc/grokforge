@@ -122,6 +122,10 @@ type mockTokenRefresher struct {
 	err   error
 }
 
+type mockInflightProvider struct{}
+
+func (m *mockInflightProvider) GetInflight(id uint) int { return 0 }
+
 func (m *mockTokenRefresher) RefreshToken(ctx context.Context, id uint) (*store.Token, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -170,7 +174,7 @@ func TestAdminToken_ListTokens(t *testing.T) {
 		Pool:   "ssoSuper",
 		Status: store.TokenStatusActive}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens", nil)
 	rec := httptest.NewRecorder()
 
@@ -206,7 +210,7 @@ func TestAdminToken_GetToken(t *testing.T) {
 		Status: store.TokenStatusActive,
 	}
 
-	handler := handleGetToken(mockStore, nil)
+	handler := handleGetToken(mockStore, nil, &mockInflightProvider{})
 
 	// Create request with chi URL param
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens/1", nil)
@@ -242,7 +246,7 @@ func TestAdminToken_GetToken_FiltersLegacyQuotaModes(t *testing.T) {
 		LimitQuotas: store.IntMap{"auto": 20, "legacy": 99},
 	}
 
-	handler := handleGetToken(mockStore, adminTestRegistry())
+	handler := handleGetToken(mockStore, adminTestRegistry(), &mockInflightProvider{})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens/1", nil)
 	rctx := chi.NewRouteContext()
@@ -271,7 +275,7 @@ func TestAdminToken_GetToken_FiltersLegacyQuotaModes(t *testing.T) {
 func TestAdminToken_GetToken_NotFound(t *testing.T) {
 	mockStore := newMockTokenStore()
 
-	handler := handleGetToken(mockStore, nil)
+	handler := handleGetToken(mockStore, nil, &mockInflightProvider{})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens/999", nil)
 	rctx := chi.NewRouteContext()
@@ -296,7 +300,7 @@ func TestAdminToken_RefreshToken(t *testing.T) {
 		Quotas:      store.IntMap{"auto": 30},
 		LimitQuotas: store.IntMap{"auto": 50},
 	}
-	handler := handleRefreshToken(mockStore, &mockTokenRefresher{token: refreshed}, nil)
+	handler := handleRefreshToken(mockStore, &mockTokenRefresher{token: refreshed}, nil, &mockInflightProvider{})
 
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/1/refresh", nil)
 	rctx := chi.NewRouteContext()
@@ -400,7 +404,7 @@ func TestAdminToken_UpdateToken_UpdatesQuotas(t *testing.T) {
 		LimitQuotas: store.IntMap{"auto": 100},
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 	body := `{"quotas":{"auto":80}}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -430,7 +434,7 @@ func TestAdminToken_UpdateToken_RejectsQuotaExceedingLimit(t *testing.T) {
 		LimitQuotas: store.IntMap{"auto": 100},
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 	body := `{"quotas":{"auto":200}}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -457,7 +461,7 @@ func TestAdminToken_UpdateToken_RejectsNegativeQuota(t *testing.T) {
 		LimitQuotas: store.IntMap{"auto": 100},
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 	body := `{"quotas":{"auto":-1}}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -500,7 +504,7 @@ func TestAdminToken_UpdateToken(t *testing.T) {
 		Status: store.TokenStatusActive,
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	body := `{"status": "disabled"}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
@@ -525,7 +529,7 @@ func TestAdminToken_UpdateToken(t *testing.T) {
 func TestAdminToken_UpdateToken_NotFound(t *testing.T) {
 	mockStore := newMockTokenStore()
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	body := `{"status": "disabled"}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/999", bytes.NewBufferString(body))
@@ -765,7 +769,7 @@ func TestAdminToken_ListTokensWithFilter_NoFilter(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", Pool: "ssoBasic", Status: store.TokenStatusActive, NsfwEnabled: false}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Pool: "ssoSuper", Status: store.TokenStatusDisabled, NsfwEnabled: true}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens", nil)
 	rec := httptest.NewRecorder()
 
@@ -792,7 +796,7 @@ func TestAdminToken_ListTokensWithFilter_StatusActive(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Pool: "ssoSuper", Status: store.TokenStatusDisabled, NsfwEnabled: true}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3", Pool: "ssoBasic", Status: store.TokenStatusActive, NsfwEnabled: true}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens?status=active", nil)
 	rec := httptest.NewRecorder()
 
@@ -824,7 +828,7 @@ func TestAdminToken_ListTokensWithFilter_NsfwTrue(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Pool: "ssoSuper", Status: store.TokenStatusActive, NsfwEnabled: true}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3", Pool: "ssoBasic", Status: store.TokenStatusDisabled, NsfwEnabled: true}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens?nsfw=true", nil)
 	rec := httptest.NewRecorder()
 
@@ -856,7 +860,7 @@ func TestAdminToken_ListTokensWithFilter_Combined(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Pool: "ssoSuper", Status: store.TokenStatusActive, NsfwEnabled: true}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3", Pool: "ssoBasic", Status: store.TokenStatusDisabled, NsfwEnabled: false}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens?status=active&nsfw=false", nil)
 	rec := httptest.NewRecorder()
 
@@ -898,7 +902,7 @@ func TestAdminToken_ListTokensWithFilter_ResponseIncludesNewFields(t *testing.T)
 		Remark:      "Test remark",
 	}
 
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens", nil)
 	rec := httptest.NewRecorder()
 
@@ -930,7 +934,7 @@ func TestAdminToken_ListTokensWithFilter_ResponseIncludesNewFields(t *testing.T)
 // Test: Invalid nsfw param returns 400 error
 func TestAdminToken_ListTokensWithFilter_InvalidNsfw(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleListTokens(mockStore, nil)
+	handler := handleListTokens(mockStore, nil, &mockInflightProvider{})
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/tokens?nsfw=invalid", nil)
 	rec := httptest.NewRecorder()
@@ -1228,7 +1232,7 @@ func TestAdminToken_UpdateToken_Remark(t *testing.T) {
 		Remark: "Original remark",
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	body := `{"remark": "Updated remark"}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
@@ -1269,7 +1273,7 @@ func TestAdminToken_UpdateToken_NsfwEnabled(t *testing.T) {
 		NsfwEnabled: false,
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	body := `{"nsfw_enabled": true}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))
@@ -1309,7 +1313,7 @@ func TestAdminToken_UpdateToken_RemarkMaxLength(t *testing.T) {
 		Status: store.TokenStatusActive,
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	// Create a remark that's too long (501 characters)
 	longRemark := make([]byte, 501)
@@ -1345,7 +1349,7 @@ func TestAdminToken_UpdateToken_PartialUpdate(t *testing.T) {
 		NsfwEnabled: false,
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	// Only update remark, leave other fields unchanged
 	body := `{"remark": "Only remark changed"}`
@@ -1465,7 +1469,7 @@ func TestTokenResponse_IncludesPriority(t *testing.T) {
 		Priority:    5,
 	}
 
-	resp := tokenToResponse(tok, nil)
+	resp := tokenToResponse(tok, nil, 0)
 	if resp.Priority != 5 {
 		t.Errorf("expected priority 5 in response, got %d", resp.Priority)
 	}
@@ -1484,7 +1488,7 @@ func TestTokenResponse_DefaultPriority(t *testing.T) {
 		// Priority = 0 (default)
 	}
 
-	resp := tokenToResponse(tok, nil)
+	resp := tokenToResponse(tok, nil, 0)
 	if resp.Priority != 0 {
 		t.Errorf("expected priority 0 in response, got %d", resp.Priority)
 	}
@@ -1504,7 +1508,7 @@ func TestAdminToken_UpdateToken_ResponseIncludesNewFields(t *testing.T) {
 		NsfwEnabled: false,
 	}
 
-	handler := handleUpdateToken(mockStore, nil, nil)
+	handler := handleUpdateToken(mockStore, nil, nil, &mockInflightProvider{})
 
 	body := `{"remark": "New remark", "nsfw_enabled": true}`
 	req := httptest.NewRequest(http.MethodPut, "/admin/tokens/1", bytes.NewBufferString(body))

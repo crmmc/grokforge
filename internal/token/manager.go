@@ -17,20 +17,22 @@ var (
 
 // TokenManager manages token pools and state transitions.
 type TokenManager struct {
-	cfg    *config.TokenConfig
-	pools  map[string]*TokenPool
-	tokens map[uint]*store.Token // all tokens by ID for quick lookup
-	dirty  map[uint]struct{}     // tokens that need persistence
-	mu     sync.RWMutex
+	cfg      *config.TokenConfig
+	pools    map[string]*TokenPool
+	tokens   map[uint]*store.Token // all tokens by ID for quick lookup
+	dirty    map[uint]struct{}     // tokens that need persistence
+	inflight map[uint]int          // token ID → active request count (memory-only)
+	mu       sync.RWMutex
 }
 
 // NewTokenManager creates a new token manager.
 func NewTokenManager(cfg *config.TokenConfig) *TokenManager {
 	return &TokenManager{
-		cfg:    cfg,
-		pools:  make(map[string]*TokenPool),
-		tokens: make(map[uint]*store.Token),
-		dirty:  make(map[uint]struct{}),
+		cfg:      cfg,
+		pools:    make(map[string]*TokenPool),
+		tokens:   make(map[uint]*store.Token),
+		dirty:    make(map[uint]struct{}),
+		inflight: make(map[uint]int),
 	}
 }
 
@@ -62,6 +64,7 @@ func (m *TokenManager) RemoveToken(id uint) {
 	}
 	delete(m.tokens, id)
 	delete(m.dirty, id)
+	delete(m.inflight, id)
 }
 
 // GetToken returns a token by ID.
@@ -83,6 +86,7 @@ func (m *TokenManager) PickExcluding(poolName string, mode string, exclude map[u
 }
 
 // PickAnyExcluding selects an active token while ignoring mode quota.
+// Does not check per-mode cooling (no mode context); image_ws has its own cooldown.
 func (m *TokenManager) PickAnyExcluding(poolName string, exclude map[uint]struct{}) (*store.Token, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -97,11 +101,15 @@ func (m *TokenManager) PickAnyExcluding(poolName string, exclude map[uint]struct
 		algo = AlgoHighQuotaFirst
 	}
 
+	// Build inflight-full exclude set.
+	exclude = m.addInflightExcludes(exclude)
+
 	token := pool.SelectAnyExcluding(algo, exclude)
 	if token == nil {
 		return nil, ErrNoTokenAvailable
 	}
 
+	m.inflight[token.ID]++
 	now := time.Now()
 	token.LastUsed = &now
 	m.dirty[token.ID] = struct{}{}
@@ -125,12 +133,16 @@ func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struc
 		return nil, ErrNoTokenAvailable
 	}
 
+	// Build inflight-full exclude set.
+	exclude = m.addInflightExcludes(exclude)
+
 	if token := pool.SelectExcluding(algo, mode, exclude); token != nil {
 		// 乐观预扣：pick 即扣减
 		if token.Quotas == nil {
 			token.Quotas = make(store.IntMap)
 		}
 		token.Quotas[mode]--
+		m.inflight[token.ID]++
 		now := time.Now()
 		token.LastUsed = &now
 		m.dirty[token.ID] = struct{}{}
@@ -161,11 +173,32 @@ func (m *TokenManager) MarkSuccess(id uint) {
 	token.StatusReason = ""
 	token.FailCount = 0
 	m.dirty[id] = struct{}{}
+	m.releaseInflight(id)
 }
 
 // MarkFailed increments fail count and disables if threshold reached.
 // When FailThreshold <= 0, the token is never auto-disabled (unlimited).
 func (m *TokenManager) MarkFailed(id uint, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	token, ok := m.tokens[id]
+	if !ok {
+		return
+	}
+
+	token.FailCount++
+	if m.cfg.FailThreshold > 0 && token.FailCount >= m.cfg.FailThreshold {
+		token.Status = string(StatusDisabled)
+		token.StatusReason = reason
+	}
+	m.dirty[id] = struct{}{}
+	m.releaseInflight(id)
+}
+
+// MarkFailedKeepInflight increments fail count without releasing inflight.
+// Used when the same request will retry with the same selected token.
+func (m *TokenManager) MarkFailedKeepInflight(id uint, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -210,6 +243,7 @@ func (m *TokenManager) MarkExpired(id uint, reason string) {
 	token.Status = string(StatusExpired)
 	token.StatusReason = reason
 	m.dirty[id] = struct{}{}
+	m.releaseInflight(id)
 }
 
 // RefundQuota restores one unit of quota for the given mode.
@@ -315,6 +349,7 @@ type TokenSnapshot struct {
 	LimitQuotas  store.IntMap
 	FailCount    int
 	LastUsed     *time.Time
+	CoolUntils   store.IntMap
 }
 
 // GetDirtyTokens returns snapshots of tokens that have been modified.
@@ -334,6 +369,7 @@ func (m *TokenManager) GetDirtyTokens() []TokenSnapshot {
 				Quotas:       copyIntMap(token.Quotas),
 				LimitQuotas:  copyIntMap(token.LimitQuotas),
 				FailCount:    token.FailCount,
+				CoolUntils:   copyIntMap(token.CoolUntils),
 			}
 			if token.LastUsed != nil {
 				t := *token.LastUsed
@@ -390,4 +426,114 @@ func (m *TokenManager) GetTokenPool(id uint) string {
 		return token.Pool
 	}
 	return ""
+}
+
+// ClearModeQuotaAndCool clears mode quota and sets per-mode cooling timestamp.
+// Used on 429 rate limit: prevents the token from being selected for this mode
+// even after quota refresh, until the cooling period expires.
+func (m *TokenManager) ClearModeQuotaAndCool(id uint, mode string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	token, ok := m.tokens[id]
+	if !ok {
+		return
+	}
+
+	// Clear quota for the specific mode.
+	if token.Quotas == nil {
+		token.Quotas = make(store.IntMap)
+	}
+	token.Quotas[mode] = 0
+
+	// Set per-mode cooling timestamp (monotonic increase: never shorten).
+	coolDur := m.coolDurationForPool(token.Pool)
+	until := int(time.Now().Add(coolDur).Unix())
+	if token.CoolUntils == nil {
+		token.CoolUntils = make(store.IntMap)
+	}
+	if existing := token.CoolUntils[mode]; until > existing {
+		token.CoolUntils[mode] = until
+	}
+
+	m.releaseInflight(id)
+	m.dirty[id] = struct{}{}
+
+	limit := 0
+	if token.LimitQuotas != nil {
+		limit = token.LimitQuotas[mode]
+	}
+	slog.Debug("token: mode quota cleared with cooling",
+		"token_id", token.ID,
+		"pool", token.Pool,
+		"mode", mode,
+		"action", "clear_mode_quota_cool",
+		"cool_until", token.CoolUntils[mode],
+		"cool_duration_sec", int(coolDur.Seconds()),
+		"limit", limit)
+}
+
+// ReleaseInflightOnly decrements the inflight counter without any state change.
+// Used for error paths that don't call a Report/Mark method (e.g. 403, CF challenge).
+func (m *TokenManager) ReleaseInflightOnly(id uint) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.releaseInflight(id)
+}
+
+// GetInflight returns the current inflight count for a token.
+func (m *TokenManager) GetInflight(id uint) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.inflight[id]
+}
+
+// releaseInflight decrements the inflight counter. Caller must hold m.mu write lock.
+func (m *TokenManager) releaseInflight(id uint) {
+	if m.inflight[id] > 0 {
+		m.inflight[id]--
+	}
+	if m.inflight[id] == 0 {
+		delete(m.inflight, id)
+	}
+}
+
+// addInflightExcludes returns a copy of exclude with tokens at max inflight added.
+// Caller must hold m.mu.
+func (m *TokenManager) addInflightExcludes(exclude map[uint]struct{}) map[uint]struct{} {
+	if m.cfg.MaxInflight <= 0 {
+		return exclude
+	}
+	for id, count := range m.inflight {
+		if count >= m.cfg.MaxInflight {
+			if exclude == nil {
+				exclude = make(map[uint]struct{})
+			}
+			exclude[id] = struct{}{}
+		}
+	}
+	return exclude
+}
+
+// coolDurationForPool returns the cooling duration for the given pool.
+func (m *TokenManager) coolDurationForPool(pool string) time.Duration {
+	switch pool {
+	case string(PoolBasic):
+		if m.cfg.CoolDurationBasicSec > 0 {
+			return time.Duration(m.cfg.CoolDurationBasicSec) * time.Second
+		}
+		return 86400 * time.Second
+	case string(PoolSuper):
+		if m.cfg.CoolDurationSuperSec > 0 {
+			return time.Duration(m.cfg.CoolDurationSuperSec) * time.Second
+		}
+		return 7200 * time.Second
+	case string(PoolHeavy):
+		if m.cfg.CoolDurationHeavySec > 0 {
+			return time.Duration(m.cfg.CoolDurationHeavySec) * time.Second
+		}
+		return 7200 * time.Second
+	default:
+		return 7200 * time.Second
+	}
 }

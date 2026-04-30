@@ -117,9 +117,9 @@ func (s *TokenService) RecordFirstUse(id uint, mode string) {
 	s.firstUseTracker.RecordFirstUsed(id, mode)
 }
 
-// ReportRateLimit clears quota for the given mode on a token (429 response).
+// ReportRateLimit clears quota and sets cooling for the given mode on a token (429 response).
 func (s *TokenService) ReportRateLimit(id uint, mode string, reason string) {
-	s.manager.ClearModeQuota(id, mode)
+	s.manager.ClearModeQuotaAndCool(id, mode)
 	if s.firstUseTracker != nil && mode != "" {
 		s.firstUseTracker.RecordFirstUsed(id, mode)
 	}
@@ -132,6 +132,13 @@ func (s *TokenService) ReportError(id uint, mode string, recoverable bool, reaso
 		s.manager.RefundQuota(id, mode)
 	}
 	s.manager.MarkFailed(id, reason)
+}
+
+// ReportErrorKeepInflight records an intermediate retry error without
+// releasing inflight or refunding quota. The final token exit path decides
+// whether the pre-deducted quota should be refunded.
+func (s *TokenService) ReportErrorKeepInflight(id uint, mode string, recoverable bool, reason string) {
+	s.manager.MarkFailedKeepInflight(id, reason)
 }
 
 // MarkDisabled immediately disables a token (manual user action).
@@ -147,6 +154,12 @@ func (s *TokenService) MarkExpired(id uint, reason string) {
 // RefundQuota restores one unit of quota for the given mode.
 func (s *TokenService) RefundQuota(id uint, mode string) {
 	s.manager.RefundQuota(id, mode)
+}
+
+// ReleaseToken decrements the inflight counter without any state change.
+// Used for error paths that don't call a Report/Mark method (e.g. 403, CF challenge).
+func (s *TokenService) ReleaseToken(id uint) {
+	s.manager.ReleaseInflightOnly(id)
 }
 
 // FlushDirty persists all dirty tokens to the store.
@@ -167,6 +180,7 @@ func (s *TokenService) FlushDirty(ctx context.Context) error {
 			LimitQuotas:  d.LimitQuotas,
 			FailCount:    d.FailCount,
 			LastUsed:     d.LastUsed,
+			CoolUntils:   d.CoolUntils,
 		}
 	}
 	if err := s.store.UpdateTokenSnapshots(ctx, snapshots); err != nil {

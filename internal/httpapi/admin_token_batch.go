@@ -211,7 +211,7 @@ func handleBatchExport(ctx context.Context, ts TokenStoreInterface, ids []uint, 
 	} else {
 		resp.Tokens = make([]TokenResponse, len(tokens))
 		for i, t := range tokens {
-			resp.Tokens[i] = tokenToResponse(t, nil)
+			resp.Tokens[i] = tokenToResponse(t, nil, 0)
 		}
 	}
 	resp.Success = len(tokens)

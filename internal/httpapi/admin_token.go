@@ -39,6 +39,18 @@ type TokenRefresher interface {
 	RefreshToken(ctx context.Context, id uint) (*store.Token, error)
 }
 
+// TokenInflightProvider provides in-memory inflight counts for tokens.
+type TokenInflightProvider interface {
+	GetInflight(id uint) int
+}
+
+func safeGetInflight(ip TokenInflightProvider, id uint) int {
+	if ip == nil {
+		return 0
+	}
+	return ip.GetInflight(id)
+}
+
 // TokenResponse is the API response for a token (with masked sensitive data).
 type TokenResponse struct {
 	ID            uint         `json:"id"`
@@ -48,6 +60,8 @@ type TokenResponse struct {
 	DisplayStatus string       `json:"display_status"`
 	Quotas        store.IntMap `json:"quotas"`
 	LimitQuotas   store.IntMap `json:"limit_quotas"`
+	CoolUntils    store.IntMap `json:"cool_untils,omitempty"`
+	Inflight      int          `json:"inflight"`
 	FailCount     int          `json:"fail_count"`
 	LastUsed      *time.Time   `json:"last_used,omitempty"`
 	Remark        string       `json:"remark,omitempty"`
@@ -59,7 +73,7 @@ type TokenResponse struct {
 }
 
 // tokenToResponse converts a store.Token to TokenResponse with masked token.
-func tokenToResponse(t *store.Token, reg *registry.ModelRegistry) TokenResponse {
+func tokenToResponse(t *store.Token, reg *registry.ModelRegistry, inflight int) TokenResponse {
 	return TokenResponse{
 		ID:            t.ID,
 		Token:         maskSecret(t.Token),
@@ -68,6 +82,8 @@ func tokenToResponse(t *store.Token, reg *registry.ModelRegistry) TokenResponse 
 		DisplayStatus: deriveDisplayStatus(t, reg),
 		Quotas:        filterModeMap(t.Quotas, reg),
 		LimitQuotas:   filterModeMap(t.LimitQuotas, reg),
+		CoolUntils:    filterModeMap(t.CoolUntils, reg),
+		Inflight:      inflight,
 		FailCount:     t.FailCount,
 		LastUsed:      t.LastUsed,
 		Remark:        t.Remark,
@@ -87,26 +103,55 @@ func deriveDisplayStatus(t *store.Token, reg *registry.ModelRegistry) string {
 	case store.TokenStatusExpired:
 		return "expired"
 	}
+
+	// Check if any mode is cooling.
+	nowUnix := int(time.Now().Unix())
+	anyCooling := false
+	for _, until := range t.CoolUntils {
+		if until > nowUnix {
+			anyCooling = true
+			break
+		}
+	}
+
 	if reg == nil {
 		for _, remaining := range t.Quotas {
 			if remaining > 0 {
+				if anyCooling {
+					return "cooling"
+				}
 				return "active"
 			}
 		}
 		if len(t.Quotas) > 0 {
+			if anyCooling {
+				return "cooling"
+			}
 			return "exhausted"
+		}
+		if anyCooling {
+			return "cooling"
 		}
 		return "active"
 	}
 
 	supportedModes := supportedModesForPool(reg, t.Pool)
 	if len(supportedModes) == 0 {
+		if anyCooling {
+			return "cooling"
+		}
 		return "active"
 	}
 	for _, mode := range supportedModes {
 		if t.Quotas[mode] > 0 {
+			if anyCooling {
+				return "cooling"
+			}
 			return "active"
 		}
+	}
+	if anyCooling {
+		return "cooling"
 	}
 	return "exhausted"
 }
@@ -155,7 +200,7 @@ type PaginatedTokenResponse struct {
 }
 
 // handleListTokens returns a handler that lists all tokens with pagination.
-func handleListTokens(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
+func handleListTokens(ts TokenStoreInterface, reg *registry.ModelRegistry, ip TokenInflightProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		filter := store.TokenFilter{}
 
@@ -242,7 +287,7 @@ func handleListTokens(ts TokenStoreInterface, reg *registry.ModelRegistry) http.
 
 		data := make([]TokenResponse, len(paged))
 		for i, t := range paged {
-			data[i] = tokenToResponse(t, reg)
+			data[i] = tokenToResponse(t, reg, safeGetInflight(ip, t.ID))
 		}
 
 		resp := PaginatedTokenResponse{
@@ -259,7 +304,7 @@ func handleListTokens(ts TokenStoreInterface, reg *registry.ModelRegistry) http.
 }
 
 // handleGetToken returns a handler that gets a single token by ID.
-func handleGetToken(ts TokenStoreInterface, reg *registry.ModelRegistry) http.HandlerFunc {
+func handleGetToken(ts TokenStoreInterface, reg *registry.ModelRegistry, ip TokenInflightProvider) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
 		id, err := strconv.ParseUint(idStr, 10, 32)
@@ -281,7 +326,7 @@ func handleGetToken(ts TokenStoreInterface, reg *registry.ModelRegistry) http.Ha
 			return
 		}
 
-		resp := tokenToResponse(token, reg)
+		resp := tokenToResponse(token, reg, safeGetInflight(ip, token.ID))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}
@@ -301,6 +346,7 @@ func handleUpdateToken(
 	ts TokenStoreInterface,
 	syncer TokenPoolSyncer,
 	reg *registry.ModelRegistry,
+	ip TokenInflightProvider,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		idStr := chi.URLParam(r, "id")
@@ -416,7 +462,7 @@ func handleUpdateToken(
 			}
 		}
 
-		resp := tokenToResponse(token, reg)
+		resp := tokenToResponse(token, reg, safeGetInflight(ip, token.ID))
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	}
@@ -492,6 +538,7 @@ func handleRefreshToken(
 	ts TokenStoreInterface,
 	refresher TokenRefresher,
 	reg *registry.ModelRegistry,
+	ip TokenInflightProvider,
 ) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if refresher == nil {
@@ -523,6 +570,6 @@ func handleRefreshToken(
 			}
 		}
 
-		WriteJSON(w, http.StatusOK, tokenToResponse(token, reg))
+		WriteJSON(w, http.StatusOK, tokenToResponse(token, reg, safeGetInflight(ip, token.ID)))
 	}
 }
