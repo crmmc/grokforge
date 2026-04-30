@@ -54,6 +54,7 @@ func reportTrackedTokenError(tokenSvc TokenServicer, tokenID uint, mode string, 
 	case errors.Is(err, xai.ErrInvalidToken):
 		tokenSvc.MarkExpired(tokenID, reason)
 	case shouldSkipTokenPenalty(err):
+		tokenSvc.ReleaseToken(tokenID)
 		return
 	case ShouldCoolToken(err, nil):
 		tokenSvc.ReportRateLimit(tokenID, mode, reason)

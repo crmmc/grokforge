@@ -72,6 +72,7 @@ func (f *ImageFlow) GenerateLite(ctx context.Context, req *ImageLiteRequest) (*I
 
 	client := f.editClientFactory(tok.Token)
 	if client == nil {
+		f.tokenSvc.ReleaseToken(tok.ID)
 		return nil, errors.New("chat client is nil")
 	}
 

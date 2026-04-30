@@ -71,7 +71,11 @@ type mockTokenService struct {
 	firstUseModes  []string
 	rateLimitCalls []uint
 	errorCalls     []uint
+	keepErrorCalls []uint
 	expiredCalls   []uint
+	releaseCalls   []uint
+	pickCalls      []uint
+	inflight       map[uint]int
 }
 
 func (m *mockTokenService) Pick(pool string, mode string) (*store.Token, error) {
@@ -90,6 +94,8 @@ func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[u
 		if _, skipped := exclude[t.ID]; skipped {
 			continue
 		}
+		m.addInflightLocked(t.ID)
+		m.pickCalls = append(m.pickCalls, t.ID)
 		return t, nil
 	}
 	return nil, errors.New("no tokens available")
@@ -112,41 +118,87 @@ func (m *mockTokenService) ReportSuccess(id uint) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.successCalls = append(m.successCalls, id)
+	m.releaseInflightLocked(id)
 }
 
 func (m *mockTokenService) ReportRateLimit(id uint, mode string, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.rateLimitCalls = append(m.rateLimitCalls, id)
+	m.releaseInflightLocked(id)
 }
 
 func (m *mockTokenService) ReportError(id uint, mode string, recoverable bool, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.errorCalls = append(m.errorCalls, id)
+	m.releaseInflightLocked(id)
+}
+
+func (m *mockTokenService) ReportErrorKeepInflight(id uint, mode string, recoverable bool, reason string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.keepErrorCalls = append(m.keepErrorCalls, id)
 }
 
 func (m *mockTokenService) MarkExpired(id uint, reason string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.expiredCalls = append(m.expiredCalls, id)
+	m.releaseInflightLocked(id)
+}
+
+func (m *mockTokenService) ReleaseToken(id uint) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.releaseCalls = append(m.releaseCalls, id)
+	m.releaseInflightLocked(id)
+}
+
+func (m *mockTokenService) addInflightLocked(id uint) {
+	if m.inflight == nil {
+		m.inflight = make(map[uint]int)
+	}
+	m.inflight[id]++
+}
+
+func (m *mockTokenService) releaseInflightLocked(id uint) {
+	if m.inflight[id] > 0 {
+		m.inflight[id]--
+	}
+	if m.inflight[id] == 0 {
+		delete(m.inflight, id)
+	}
+}
+
+func (m *mockTokenService) getInflight(id uint) int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.inflight[id]
 }
 
 // mockXAIClient implements xai.Client for testing.
 type mockXAIClient struct {
-	mu        sync.Mutex
-	events    []xai.StreamEvent
-	chatErr   error
-	callCount int
-	lastReq   *xai.ChatRequest
+	mu         sync.Mutex
+	events     []xai.StreamEvent
+	eventDelay time.Duration
+	chatErr    error
+	chatErrs   []error
+	callCount  int
+	lastReq    *xai.ChatRequest
 }
 
 func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan xai.StreamEvent, error) {
 	m.mu.Lock()
+	callIndex := m.callCount
 	m.callCount++
 	m.lastReq = req
 	events := m.events
 	chatErr := m.chatErr
+	if callIndex < len(m.chatErrs) {
+		chatErr = m.chatErrs[callIndex]
+	}
+	eventDelay := m.eventDelay
 	m.mu.Unlock()
 
 	if chatErr != nil {
@@ -154,6 +206,16 @@ func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan 
 	}
 
 	ch := make(chan xai.StreamEvent, len(events))
+	if eventDelay > 0 {
+		go func() {
+			time.Sleep(eventDelay)
+			for _, e := range events {
+				ch <- e
+			}
+			close(ch)
+		}()
+		return ch, nil
+	}
 	for _, e := range events {
 		ch <- e
 	}
@@ -306,6 +368,205 @@ func TestChatFlow_RetryOnRateLimit(t *testing.T) {
 	}
 }
 
+func TestChatFlow_SameTokenRetryKeepsInflightUntilSuccess(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	respData := `{"result":{"response":{"token":"Success","isThinking":false}}}`
+	client := &mockXAIClient{
+		chatErrs: []error{xai.ErrNetwork, nil},
+		events:   []xai.StreamEvent{{Data: json.RawMessage(respData)}},
+	}
+	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       1,
+		PerTokenRetries: 2,
+		BaseDelay:       time.Millisecond,
+		MaxDelay:        time.Millisecond,
+		JitterFactor:    0,
+	}, ModelResolver: testModelResolver()}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	for event := range ch {
+		if event.Error != nil {
+			t.Fatalf("unexpected stream error: %v", event.Error)
+		}
+	}
+
+	if client.callCount != 2 {
+		t.Fatalf("expected 2 chat attempts, got %d", client.callCount)
+	}
+	if len(tokenSvc.pickCalls) != 1 {
+		t.Fatalf("expected one token pick for same-token retry, got %v", tokenSvc.pickCalls)
+	}
+	if len(tokenSvc.keepErrorCalls) != 1 || tokenSvc.keepErrorCalls[0] != 1 {
+		t.Fatalf("expected one keep-inflight error call for token 1, got %v", tokenSvc.keepErrorCalls)
+	}
+	if len(tokenSvc.errorCalls) != 0 {
+		t.Fatalf("same-token retry should not release via ReportError, got %v", tokenSvc.errorCalls)
+	}
+	if got := tokenSvc.getInflight(1); got != 0 {
+		t.Fatalf("expected inflight released after success, got %d", got)
+	}
+}
+
+func TestChatFlow_RetryBudgetExceededReleasesSameTokenInflight(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	client := &mockXAIClient{chatErrs: []error{xai.ErrNetwork}}
+	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       1,
+		PerTokenRetries: 2,
+		BaseDelay:       50 * time.Millisecond,
+		MaxDelay:        50 * time.Millisecond,
+		JitterFactor:    0,
+		RetryBudget:     time.Millisecond,
+	}, ModelResolver: testModelResolver()}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	var lastEvent StreamEvent
+	for event := range ch {
+		lastEvent = event
+	}
+
+	if !errors.Is(lastEvent.Error, ErrRetryBudgetExceeded) {
+		t.Fatalf("expected retry budget error, got %v", lastEvent.Error)
+	}
+	if got := tokenSvc.getInflight(1); got != 0 {
+		t.Fatalf("expected inflight released after retry budget exit, got %d", got)
+	}
+	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
+		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+	}
+}
+
+func TestChatFlow_RetryBudgetExceededAfterStreamErrorReleasesSameTokenInflight(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	client := &mockXAIClient{
+		events:     []xai.StreamEvent{{Error: xai.ErrNetwork}},
+		eventDelay: 20 * time.Millisecond,
+	}
+	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       1,
+		PerTokenRetries: 2,
+		BaseDelay:       0,
+		MaxDelay:        0,
+		JitterFactor:    0,
+		RetryBudget:     5 * time.Millisecond,
+	}, ModelResolver: testModelResolver()}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	var lastEvent StreamEvent
+	for event := range ch {
+		lastEvent = event
+	}
+
+	if !errors.Is(lastEvent.Error, ErrRetryBudgetExceeded) {
+		t.Fatalf("expected retry budget error, got %v", lastEvent.Error)
+	}
+	if got := tokenSvc.getInflight(1); got != 0 {
+		t.Fatalf("expected inflight released after stream retry budget exit, got %d", got)
+	}
+	if len(tokenSvc.keepErrorCalls) != 1 || tokenSvc.keepErrorCalls[0] != 1 {
+		t.Fatalf("expected one keep-inflight error call for token 1, got %v", tokenSvc.keepErrorCalls)
+	}
+	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
+		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+	}
+}
+
+func TestChatFlow_ContextCancelDuringBackoffReleasesSameTokenInflight(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	client := &mockXAIClient{chatErrs: []error{xai.ErrNetwork}}
+	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       1,
+		PerTokenRetries: 2,
+		BaseDelay:       100 * time.Millisecond,
+		MaxDelay:        100 * time.Millisecond,
+		JitterFactor:    0,
+	}, ModelResolver: testModelResolver()}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	ch, err := flow.Complete(ctx, &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	time.AfterFunc(10*time.Millisecond, cancel)
+	var lastEvent StreamEvent
+	for event := range ch {
+		lastEvent = event
+	}
+
+	if !errors.Is(lastEvent.Error, context.Canceled) {
+		t.Fatalf("expected context canceled, got %v", lastEvent.Error)
+	}
+	if got := tokenSvc.getInflight(1); got != 0 {
+		t.Fatalf("expected inflight released after context cancel, got %d", got)
+	}
+	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
+		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+	}
+}
+
+func TestChatFlow_ClientFactoryNilReleasesToken(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return nil }, cfg)
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	var lastEvent StreamEvent
+	for event := range ch {
+		lastEvent = event
+	}
+
+	if lastEvent.Error == nil || lastEvent.Error.Error() != "chat client is nil" {
+		t.Fatalf("expected chat client nil error, got %v", lastEvent.Error)
+	}
+	if got := tokenSvc.getInflight(1); got != 0 {
+		t.Fatalf("expected inflight released after nil client, got %d", got)
+	}
+	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
+		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+	}
+}
+
 func TestChatFlow_TokenRotation(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{
@@ -394,7 +655,7 @@ func TestChatFlow_HandleError_CFChallenge_NoTokenPenalty(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, "auto", xai.ErrCFChallenge, cfg)
+	flow.handleErrorAndRelease(1, "auto", xai.ErrCFChallenge, cfg)
 
 	if len(tokenSvc.rateLimitCalls) != 0 {
 		t.Errorf("CF challenge should not rate limit, got %v", tokenSvc.rateLimitCalls)
@@ -412,7 +673,7 @@ func TestChatFlow_HandleError_Forbidden_NoTokenPenalty(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, "auto", xai.ErrForbidden, cfg)
+	flow.handleErrorAndRelease(1, "auto", xai.ErrForbidden, cfg)
 
 	if len(tokenSvc.expiredCalls) != 0 {
 		t.Errorf("403 should not expire token, got %v", tokenSvc.expiredCalls)
@@ -430,8 +691,8 @@ func TestChatFlow_HandleError_TransportSkipsPenalty(t *testing.T) {
 	flow := &ChatFlow{tokenSvc: tokenSvc}
 	cfg := DefaultRetryConfig()
 
-	flow.handleError(1, "auto", xai.ErrNetwork, cfg)
-	flow.handleError(1, "auto", errors.New("503 Service Unavailable"), cfg)
+	flow.handleErrorAndRelease(1, "auto", xai.ErrNetwork, cfg)
+	flow.handleErrorAndRelease(1, "auto", errors.New("503 Service Unavailable"), cfg)
 
 	if len(tokenSvc.rateLimitCalls) != 0 {
 		t.Errorf("expected no rate limit calls, got %v", tokenSvc.rateLimitCalls)

@@ -21,7 +21,10 @@ const (
 	videoResolutionHigh     = "720p"
 )
 
-var videoGeneratedIDPattern = regexp.MustCompile(`/generated/([0-9a-fA-F-]{32,36})/`)
+var (
+	errVideoClientNil       = errors.New("video client is nil")
+	videoGeneratedIDPattern = regexp.MustCompile(`/generated/([0-9a-fA-F-]{32,36})/`)
+)
 
 type videoStreamState struct {
 	videoURL  string
@@ -31,7 +34,7 @@ type videoStreamState struct {
 func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, req *VideoRequest, mode string) (string, error) {
 	client := f.clientFactory(tok.Token)
 	if client == nil {
-		return "", errors.New("video client is nil")
+		return "", errVideoClientNil
 	}
 
 	parentPostID, err := f.resolveVideoSeedPost(ctx, client, req)

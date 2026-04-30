@@ -2,6 +2,7 @@ package flow
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"time"
@@ -141,6 +142,11 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 
 	videoURL, err := f.generateVideoViaChat(timeoutCtx, tok, req, mode)
 	if err != nil {
+		if errors.Is(err, errVideoClientNil) {
+			f.tokenSvc.ReleaseToken(tok.ID)
+			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
+			return "", err
+		}
 		f.reportTokenError(tok.ID, mode, err)
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 		return "", err
