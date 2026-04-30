@@ -65,6 +65,7 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 
 	client := f.editClientFactory(tok.Token)
 	if client == nil {
+		f.tokenSvc.ReleaseToken(tok.ID)
 		return nil, errors.New("image edit client is nil")
 	}
 

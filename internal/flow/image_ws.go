@@ -83,6 +83,7 @@ func (f *ImageFlow) pickWSTokenForModelExcluding(model string, exclude map[uint]
 				break
 			}
 			if f.wsCooldownActive(model, tok.ID, now) {
+				f.tokenSvc.ReleaseToken(tok.ID)
 				poolExclude[tok.ID] = struct{}{}
 				continue
 			}
@@ -150,6 +151,9 @@ func (f *ImageFlow) reportWSImageError(model string, tokenID uint, err error, co
 		f.tokenSvc.MarkExpired(tokenID, reason)
 	case errors.Is(err, xai.ErrRateLimited), isWSBusyError(err):
 		f.setWSCooldown(model, tokenID, cooldownSeconds)
+		f.tokenSvc.ReleaseToken(tokenID)
+	default:
+		f.tokenSvc.ReleaseToken(tokenID)
 	}
 }
 

@@ -137,6 +137,35 @@ func TestVideoFlow_GenerateSync_ChatError(t *testing.T) {
 	}
 }
 
+func TestVideoFlow_GenerateSync_NilClientReleasesWithoutPenalty(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+	}
+	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
+	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return nil }, cfg)
+
+	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
+		Prompt: "Test",
+		Model:  "grok-imagine-video",
+	}))
+	if !errors.Is(err, errVideoClientNil) {
+		t.Fatalf("expected video client nil error, got %v", err)
+	}
+
+	tokenSvc.mu.Lock()
+	defer tokenSvc.mu.Unlock()
+	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
+		t.Fatalf("expected token release, got %v", tokenSvc.releaseCalls)
+	}
+	if len(tokenSvc.errorCalls) != 0 || len(tokenSvc.rateLimitCalls) != 0 || len(tokenSvc.expiredCalls) != 0 {
+		t.Fatalf("expected no token penalty, errors=%v rate_limits=%v expired=%v",
+			tokenSvc.errorCalls, tokenSvc.rateLimitCalls, tokenSvc.expiredCalls)
+	}
+	if got := tokenSvc.inflight[1]; got != 0 {
+		t.Fatalf("expected inflight released, got %d", got)
+	}
+}
+
 func TestVideoFlow_GenerateSync_PresetAppended(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "ssoBasic"}},

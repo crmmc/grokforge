@@ -113,18 +113,31 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 	for attempt := 0; attempt < cfg.MaxTokens*cfg.PerTokenRetries; attempt++ {
 		if retryBudgetExceeded(budgetDeadline) {
 			slog.Debug("flow: retry budget exceeded", "attempt", attempt)
+			if currentToken != nil {
+				f.tokenSvc.ReleaseToken(currentToken.ID)
+				currentToken = nil
+			}
 			lastErr = ErrRetryBudgetExceeded
 			break
 		}
 		attemptStart := time.Now()
 		// Check context
 		if ctx.Err() != nil {
+			if currentToken != nil {
+				f.tokenSvc.ReleaseToken(currentToken.ID)
+			}
 			outCh <- StreamEvent{Error: ctx.Err()}
 			return
 		}
 
 		// Pick new token if needed — try pools in order
 		if currentToken == nil || tokenRetries >= cfg.PerTokenRetries {
+			// Release old token's inflight when swapping due to retry exhaustion
+			// (e.g. stream returned no data and no error).
+			if currentToken != nil {
+				f.tokenSvc.ReleaseToken(currentToken.ID)
+				currentToken = nil
+			}
 			var tok *store.Token
 			var pickErr error
 			for _, pool := range pools {
@@ -151,11 +164,17 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			currentToken = tok
 			tokenRetries = 0
 			client = f.clientFactory(tok.Token)
+			if client == nil {
+				f.tokenSvc.ReleaseToken(tok.ID)
+				outCh <- StreamEvent{Error: errors.New("chat client is nil")}
+				return
+			}
 		}
 
 		// Build xai request
 		xaiReq, err := f.buildXAIRequest(ctx, req, client)
 		if err != nil {
+			f.tokenSvc.ReleaseToken(currentToken.ID)
 			outCh <- StreamEvent{Error: err}
 			return
 		}
@@ -168,11 +187,17 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 				"attempt", attempt, "token_id", currentToken.ID,
 				"error", err, "token_retries", tokenRetries)
 			if resetErr := f.resetSessionIfNeeded(err, cfg, client); resetErr != nil {
+				f.tokenSvc.ReleaseToken(currentToken.ID)
 				outCh <- StreamEvent{Error: resetErr}
 				return
 			}
-			f.handleError(currentToken.ID, req.Mode, err, cfg)
 			tokenRetries++
+			sameTokenRetry := shouldRetrySameToken(err, cfg, tokenRetries)
+			if sameTokenRetry {
+				f.handleErrorKeepInflight(currentToken.ID, req.Mode, err, cfg)
+			} else {
+				f.handleErrorAndRelease(currentToken.ID, req.Mode, err, cfg)
+			}
 
 			if IsNonRecoverable(err) {
 				slog.Debug("flow: error not recoverable, giving up", "error", err)
@@ -181,7 +206,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 
 			// Force swap token on 429 quota exhaustion or ErrInvalidToken.
-			if errors.Is(err, xai.ErrInvalidToken) || ShouldSwapToken(err, cfg) {
+			if !sameTokenRetry {
 				slog.Debug("flow: forcing token swap", "token_id", currentToken.ID, "error", err)
 				currentToken = nil
 			}
@@ -191,6 +216,10 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			slog.Debug("flow: backing off before retry",
 				"attempt", attempt, "delay_ms", delay.Milliseconds())
 			if retryDelayExceedsBudget(budgetDeadline, delay) {
+				if sameTokenRetry {
+					f.tokenSvc.ReleaseToken(currentToken.ID)
+					currentToken = nil
+				}
 				lastErr = ErrRetryBudgetExceeded
 				break
 			}
@@ -198,6 +227,9 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			select {
 			case <-ctx.Done():
 				timer.Stop()
+				if sameTokenRetry {
+					f.tokenSvc.ReleaseToken(currentToken.ID)
+				}
 				outCh <- StreamEvent{Error: ctx.Err()}
 				return
 			case <-timer.C:
@@ -243,12 +275,21 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 		// Stream failed — capture error for potential final report
 		if streamErr != nil {
 			lastErr = streamErr
-			f.handleError(currentToken.ID, req.Mode, streamErr, cfg)
+			tokenRetries++
+			sameTokenRetry := shouldRetrySameToken(streamErr, cfg, tokenRetries)
+			if sameTokenRetry {
+				f.handleErrorKeepInflight(currentToken.ID, req.Mode, streamErr, cfg)
+			} else {
+				f.handleErrorAndRelease(currentToken.ID, req.Mode, streamErr, cfg)
+				currentToken = nil
+			}
+			if IsNonRecoverable(streamErr) {
+				outCh <- StreamEvent{Error: streamErr}
+				return
+			}
+			continue
 		}
 		tokenRetries++
-		if tokenRetries >= cfg.PerTokenRetries || ShouldSwapToken(streamErr, cfg) {
-			currentToken = nil
-		}
 	}
 
 	// All retries exhausted — always send error to client
@@ -278,7 +319,25 @@ func (f *ChatFlow) filterTags() []string {
 	return f.cfg.FilterTags
 }
 
-func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryConfig) {
+func shouldRetrySameToken(err error, cfg *RetryConfig, tokenRetries int) bool {
+	if err == nil || cfg == nil {
+		return false
+	}
+	if IsNonRecoverable(err) || tokenRetries >= cfg.PerTokenRetries {
+		return false
+	}
+	return !ShouldSwapToken(err, cfg)
+}
+
+func (f *ChatFlow) handleErrorAndRelease(tokenID uint, mode string, err error, cfg *RetryConfig) {
+	f.handleError(tokenID, mode, err, cfg, false)
+}
+
+func (f *ChatFlow) handleErrorKeepInflight(tokenID uint, mode string, err error, cfg *RetryConfig) {
+	f.handleError(tokenID, mode, err, cfg, true)
+}
+
+func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryConfig, keepInflight bool) {
 	reason := truncateReason(err.Error())
 	if errors.Is(err, xai.ErrInvalidToken) {
 		slog.Debug("flow: marking token expired (401)", "token_id", tokenID)
@@ -287,17 +346,23 @@ func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryC
 	}
 	if errors.Is(err, xai.ErrForbidden) {
 		slog.Debug("flow: 403 without token penalty", "token_id", tokenID)
+		if !keepInflight {
+			f.tokenSvc.ReleaseToken(tokenID)
+		}
 		return
 	}
 	if errors.Is(err, xai.ErrCFChallenge) {
 		// CF challenge — token is fine, don't penalize
 		slog.Debug("flow: CF challenge, no token penalty", "token_id", tokenID)
+		if !keepInflight {
+			f.tokenSvc.ReleaseToken(tokenID)
+		}
 		return
 	}
 	if isTransportError(err) {
 		// Transport error — recoverable, refund quota
 		slog.Debug("flow: transport error, refunding quota", "token_id", tokenID)
-		f.tokenSvc.ReportError(tokenID, mode, true, reason)
+		f.reportTokenError(tokenID, mode, true, reason, keepInflight)
 		return
 	}
 	if ShouldCoolToken(err, cfg) {
@@ -307,8 +372,16 @@ func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryC
 		// 5xx → recoverable (refund); other client errors → not recoverable
 		recoverable := isServerError(err)
 		slog.Debug("flow: reporting error", "token_id", tokenID, "error", err, "recoverable", recoverable)
-		f.tokenSvc.ReportError(tokenID, mode, recoverable, reason)
+		f.reportTokenError(tokenID, mode, recoverable, reason, keepInflight)
 	}
+}
+
+func (f *ChatFlow) reportTokenError(tokenID uint, mode string, recoverable bool, reason string, keepInflight bool) {
+	if keepInflight {
+		f.tokenSvc.ReportErrorKeepInflight(tokenID, mode, recoverable, reason)
+		return
+	}
+	f.tokenSvc.ReportError(tokenID, mode, recoverable, reason)
 }
 
 // truncateReason truncates a reason string to 256 characters max.

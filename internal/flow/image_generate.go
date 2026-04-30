@@ -46,8 +46,11 @@ func (f *ImageFlow) generateWithRecovery(
 		return &imageGenerationResult{data: data, token: token}, nil
 	}
 	if !blockedParallelEnabled(f.imageConfig()) {
+		f.tokenSvc.ReleaseToken(token.ID)
 		return nil, err
 	}
+	// Release initial token's inflight before recovery with different tokens.
+	f.tokenSvc.ReleaseToken(token.ID)
 	return f.generateBlockedRecovery(ctx, model, mode, cooldownSeconds, token.ID, prompt, aspectRatio, enableNSFW, enablePro)
 }
 
@@ -123,10 +126,9 @@ func (f *ImageFlow) generateBlockedRecovery(
 				enableNSFW,
 				enablePro,
 			)
-			select {
-			case resultCh <- result:
-			case <-retryCtx.Done():
-			}
+			// Always send — resultCh is buffered to len(recoveryTokens),
+			// so this never blocks. Ensures every token gets finalized.
+			resultCh <- result
 		})
 	}
 
@@ -179,12 +181,18 @@ func (f *ImageFlow) selectImageRecoveryResult(
 			if mode != "" {
 				f.tokenSvc.ReportSuccess(result.token.ID)
 			}
+		} else if result.err == nil {
+			// Successful loser — winner already chosen, just release inflight.
+			f.tokenSvc.ReleaseToken(result.token.ID)
 		} else if result.err != nil {
 			if mode == "" {
 				f.reportWSImageError(model, result.token.ID, result.err, cooldownSeconds)
 			} else if !errors.Is(result.err, errImageGenerationBlocked) {
 				recoverable := isTransportError(result.err) || isServerError(result.err)
 				f.tokenSvc.ReportError(result.token.ID, mode, recoverable, truncateReason(result.err.Error()))
+			} else {
+				// Blocked result — no token penalty, just release inflight.
+				f.tokenSvc.ReleaseToken(result.token.ID)
 			}
 			if firstErr == nil && !errors.Is(result.err, errImageGenerationBlocked) {
 				firstErr = result.err
