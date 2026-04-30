@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { appConfigSchema, proxyConfigSchema, retryConfigSchema } from '@/lib/validations/config'
+import { appConfigSchema, cacheConfigSchema, proxyConfigSchema, retryConfigSchema } from '@/lib/validations/config'
 
 const imageBlockedSchema = z.object({
   blocked_parallel_enabled: z.boolean(),
@@ -11,6 +11,7 @@ export const generalSchema = z.object({
   proxy: proxyConfigSchema,
   retry: retryConfigSchema,
   image: imageBlockedSchema,
+  cache: cacheConfigSchema,
 })
 
 export type GeneralInput = z.infer<typeof generalSchema>

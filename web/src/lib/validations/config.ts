@@ -62,10 +62,16 @@ export const imageConfigSchema = z.object({
   blocked_parallel_enabled: z.boolean(),
 });
 
+export const cacheConfigSchema = z.object({
+  image_max_mb: z.number().int().min(0),
+  video_max_mb: z.number().int().min(0),
+});
+
 export const configSchema = z.object({
   app: appConfigSchema,
   image: imageConfigSchema,
   proxy: proxyConfigSchema,
   retry: retryConfigSchema,
   token: tokenConfigSchema,
+  cache: cacheConfigSchema,
 });
