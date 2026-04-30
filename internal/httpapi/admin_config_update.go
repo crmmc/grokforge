@@ -177,6 +177,23 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 		}
 
+		if req.Cache != nil {
+			if req.Cache.ImageMaxMB != nil {
+				if *req.Cache.ImageMaxMB < 0 {
+					WriteError(w, 400, "invalid_request", "invalid_value", "cache.image_max_mb must be >= 0")
+					return
+				}
+				cfg.Cache.ImageMaxMB = *req.Cache.ImageMaxMB
+			}
+			if req.Cache.VideoMaxMB != nil {
+				if *req.Cache.VideoMaxMB < 0 {
+					WriteError(w, 400, "invalid_request", "invalid_value", "cache.video_max_mb must be >= 0")
+					return
+				}
+				cfg.Cache.VideoMaxMB = *req.Cache.VideoMaxMB
+			}
+		}
+
 		// Persist hot-reloadable app fields to database
 		dbUpdates := make(map[string]string)
 		if req.App != nil {
@@ -317,6 +334,14 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.Token.SelectionAlgorithm != nil {
 				dbUpdates["token.selection_algorithm"] = *req.Token.SelectionAlgorithm
+			}
+		}
+		if req.Cache != nil {
+			if req.Cache.ImageMaxMB != nil {
+				dbUpdates["cache.image_max_mb"] = fmt.Sprintf("%d", *req.Cache.ImageMaxMB)
+			}
+			if req.Cache.VideoMaxMB != nil {
+				dbUpdates["cache.video_max_mb"] = fmt.Sprintf("%d", *req.Cache.VideoMaxMB)
 			}
 		}
 		if configStore != nil && len(dbUpdates) > 0 {

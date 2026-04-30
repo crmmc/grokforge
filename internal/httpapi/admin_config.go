@@ -88,6 +88,10 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			UsageFlushIntervalSec: cfg.Token.UsageFlushIntervalSec,
 			SelectionAlgorithm:    cfg.Token.SelectionAlgorithm,
 		},
+		Cache: CacheConfigResponse{
+			ImageMaxMB: cfg.Cache.ImageMaxMB,
+			VideoMaxMB: cfg.Cache.VideoMaxMB,
+		},
 	}
 }
 

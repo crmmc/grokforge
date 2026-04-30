@@ -76,6 +76,14 @@ func DefaultConfig() *Config {
 			FailThreshold:         5,
 			UsageFlushIntervalSec: 30,
 			SelectionAlgorithm:    "high_quota_first",
+			MaxInflight:           8,
+			CoolDurationBasicSec:  86400,
+			CoolDurationSuperSec:  7200,
+			CoolDurationHeavySec:  7200,
+		},
+		Cache: CacheConfig{
+			ImageMaxMB: 0,
+			VideoMaxMB: 0,
 		},
 	}
 }
