@@ -118,3 +118,16 @@ fail_threshold = 5
 usage_flush_interval_sec = 30
 # Token selection algorithm: high_quota_first / random / round_robin
 selection_algorithm = "high_quota_first"
+# Max concurrent requests per token (0 = unlimited)
+max_inflight = 8
+# Cooling duration after 429 rate limit, per pool tier (seconds)
+cool_duration_basic_sec = 86400
+cool_duration_super_sec = 7200
+cool_duration_heavy_sec = 7200
+
+# ==================== Cache Management ====================
+[cache]
+# Maximum cache size for images in MB (0 = unlimited)
+image_max_mb = 0
+# Maximum cache size for videos in MB (0 = unlimited)
+video_max_mb = 0

@@ -7,6 +7,7 @@ type ConfigResponse struct {
 	Proxy ProxyConfigResponse `json:"proxy"`
 	Retry RetryConfigResponse `json:"retry"`
 	Token TokenConfigResponse `json:"token"`
+	Cache CacheConfigResponse `json:"cache"`
 }
 
 // AppConfigResponse is the API response for app config (secrets masked).
@@ -76,6 +77,12 @@ type TokenConfigResponse struct {
 	SelectionAlgorithm    string `json:"selection_algorithm"`
 }
 
+// CacheConfigResponse is the API response for cache config.
+type CacheConfigResponse struct {
+	ImageMaxMB int `json:"image_max_mb"`
+	VideoMaxMB int `json:"video_max_mb"`
+}
+
 // ConfigUpdateRequest represents the fields that can be hot-reloaded.
 type ConfigUpdateRequest struct {
 	App   *AppConfigUpdate   `json:"app,omitempty"`
@@ -83,6 +90,7 @@ type ConfigUpdateRequest struct {
 	Proxy *ProxyConfigUpdate `json:"proxy,omitempty"`
 	Retry *RetryConfigUpdate `json:"retry,omitempty"`
 	Token *TokenConfigUpdate `json:"token,omitempty"`
+	Cache *CacheConfigUpdate `json:"cache,omitempty"`
 }
 
 // ImageConfigUpdate contains hot-reloadable image config fields.
@@ -143,4 +151,10 @@ type TokenConfigUpdate struct {
 	FailThreshold         *int    `json:"fail_threshold,omitempty"`
 	UsageFlushIntervalSec *int    `json:"usage_flush_interval_sec,omitempty"`
 	SelectionAlgorithm    *string `json:"selection_algorithm,omitempty"`
+}
+
+// CacheConfigUpdate contains hot-reloadable cache config fields.
+type CacheConfigUpdate struct {
+	ImageMaxMB *int `json:"image_max_mb,omitempty"`
+	VideoMaxMB *int `json:"video_max_mb,omitempty"`
 }

@@ -224,6 +224,48 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return fmt.Errorf("config: invalid value %q for %s", v, k)
 			}
 			c.Token.SelectionAlgorithm = v
+		case "token.max_inflight":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Token.MaxInflight = parsed
+		case "token.cool_duration_basic_sec":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Token.CoolDurationBasicSec = parsed
+		case "token.cool_duration_super_sec":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Token.CoolDurationSuperSec = parsed
+		case "token.cool_duration_heavy_sec":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Token.CoolDurationHeavySec = parsed
+		case "cache.image_max_mb":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			if parsed < 0 {
+				return fmt.Errorf("config: %s must be >= 0, got %d", k, parsed)
+			}
+			c.Cache.ImageMaxMB = parsed
+		case "cache.video_max_mb":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			if parsed < 0 {
+				return fmt.Errorf("config: %s must be >= 0, got %d", k, parsed)
+			}
+			c.Cache.VideoMaxMB = parsed
 		default:
 			return fmt.Errorf("config: unknown db override key %q", k)
 		}

@@ -21,6 +21,51 @@ func TestLoad_RejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsNegativeCacheImageLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[cache]\nimage_max_mb = -1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "cache.image_max_mb") {
+		t.Fatalf("expected cache.image_max_mb error, got %v", err)
+	}
+}
+
+func TestLoad_RejectsNegativeCacheVideoLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[cache]\nvideo_max_mb = -1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "cache.video_max_mb") {
+		t.Fatalf("expected cache.video_max_mb error, got %v", err)
+	}
+}
+
+func TestLoad_AllowsZeroCacheLimit(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[cache]\nimage_max_mb = 0\nvideo_max_mb = 0\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Cache.ImageMaxMB != 0 || cfg.Cache.VideoMaxMB != 0 {
+		t.Fatalf("expected zero cache limits, got %+v", cfg.Cache)
+	}
+}
+
 func TestApplyDBOverrides_RejectsUnknownKey(t *testing.T) {
 	cfg := DefaultConfig()
 

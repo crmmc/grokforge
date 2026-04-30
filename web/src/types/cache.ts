@@ -1,6 +1,7 @@
 export interface CacheTypeStats {
   count: number
   size_mb: number
+  limit_mb: number
 }
 
 export interface CacheStatsResponse {

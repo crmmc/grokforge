@@ -15,6 +15,7 @@ type Config struct {
 	Proxy ProxyConfig `toml:"proxy"`
 	Retry RetryConfig `toml:"retry"`
 	Token TokenConfig `toml:"token"`
+	Cache CacheConfig `toml:"cache"`
 }
 
 // AppConfig contains application settings.
@@ -90,6 +91,16 @@ type TokenConfig struct {
 	FailThreshold         int    `toml:"fail_threshold"`
 	UsageFlushIntervalSec int    `toml:"usage_flush_interval_sec"`
 	SelectionAlgorithm    string `toml:"selection_algorithm" json:"selection_algorithm"`
+	MaxInflight           int    `toml:"max_inflight"`
+	CoolDurationBasicSec  int    `toml:"cool_duration_basic_sec"`
+	CoolDurationSuperSec  int    `toml:"cool_duration_super_sec"`
+	CoolDurationHeavySec  int    `toml:"cool_duration_heavy_sec"`
+}
+
+// CacheConfig contains cache management settings.
+type CacheConfig struct {
+	ImageMaxMB int `toml:"image_max_mb" json:"image_max_mb"`
+	VideoMaxMB int `toml:"video_max_mb" json:"video_max_mb"`
 }
 
 // Load loads configuration from the given path.
@@ -112,6 +123,19 @@ func Load(path string) (*Config, error) {
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		return nil, fmt.Errorf("unknown config keys: %v", undecoded)
 	}
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
+	}
 
 	return cfg, nil
+}
+
+func validateConfig(cfg *Config) error {
+	if cfg.Cache.ImageMaxMB < 0 {
+		return fmt.Errorf("cache.image_max_mb must be >= 0, got %d", cfg.Cache.ImageMaxMB)
+	}
+	if cfg.Cache.VideoMaxMB < 0 {
+		return fmt.Errorf("cache.video_max_mb must be >= 0, got %d", cfg.Cache.VideoMaxMB)
+	}
+	return nil
 }
