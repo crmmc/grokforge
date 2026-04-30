@@ -8,12 +8,13 @@ import (
 )
 
 type chatCompletionResponse struct {
-	ID      string                 `json:"id"`
-	Object  string                 `json:"object"`
-	Created int64                  `json:"created"`
-	Model   string                 `json:"model"`
-	Choices []chatCompletionChoice `json:"choices"`
-	Usage   *flow.Usage            `json:"usage,omitempty"`
+	ID            string                  `json:"id"`
+	Object        string                  `json:"object"`
+	Created       int64                   `json:"created"`
+	Model         string                  `json:"model"`
+	Choices       []chatCompletionChoice  `json:"choices"`
+	Usage         *flow.Usage             `json:"usage,omitempty"`
+	SearchSources []flow.SearchSource     `json:"search_sources,omitempty"`
 }
 
 type chatCompletionChoice struct {
@@ -37,6 +38,7 @@ type chatResponseCollector struct {
 	toolParser  *toolCallStreamParser
 	toolCalls   []flow.ToolCall
 	lastUsage   *flow.Usage
+	searchSources []flow.SearchSource
 }
 
 func newChatResponseCollector(req *ChatRequest, cfg *config.Config) *chatResponseCollector {
@@ -59,6 +61,10 @@ func newChatResponseCollector(req *ChatRequest, cfg *config.Config) *chatRespons
 func (c *chatResponseCollector) AddEvent(event flow.StreamEvent) {
 	if event.Usage != nil {
 		c.lastUsage = event.Usage
+	}
+
+	if len(event.SearchSources) > 0 {
+		c.searchSources = event.SearchSources
 	}
 
 	if event.ReasoningContent != "" {
@@ -129,6 +135,7 @@ func (c *chatResponseCollector) Build() *chatCompletionResponse {
 				FinishReason: finish,
 			},
 		},
-		Usage: c.lastUsage,
+		Usage:         c.lastUsage,
+		SearchSources: c.searchSources,
 	}
 }

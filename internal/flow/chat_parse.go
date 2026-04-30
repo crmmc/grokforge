@@ -30,6 +30,21 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 				CardAttachment *struct {
 					JSONData string `json:"jsonData"`
 				} `json:"cardAttachment"`
+				// webSearchResults contains web search citations
+				WebSearchResults *struct {
+					Results []struct {
+						URL   string `json:"url"`
+						Title string `json:"title"`
+					} `json:"results"`
+				} `json:"webSearchResults"`
+				// xSearchResults contains X/Twitter post citations
+				XSearchResults *struct {
+					Results []struct {
+						PostID   string `json:"postId"`
+						Username string `json:"username"`
+						Text     string `json:"text"`
+					} `json:"results"`
+				} `json:"xSearchResults"`
 			} `json:"response"`
 		} `json:"result"`
 	}
@@ -82,12 +97,38 @@ func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 		}
 	}
 
+	// Extract search sources from web and X search results
+	var sources []SearchSource
+	if wsr := resp.WebSearchResults; wsr != nil {
+		for _, item := range wsr.Results {
+			if item.URL != "" {
+				sources = append(sources, SearchSource{
+					URL:   item.URL,
+					Title: item.Title,
+					Type:  "web",
+				})
+			}
+		}
+	}
+	if xsr := resp.XSearchResults; xsr != nil {
+		for _, item := range xsr.Results {
+			if item.PostID != "" && item.Username != "" {
+				sources = append(sources, SearchSource{
+					URL:   fmt.Sprintf("https://x.com/%s/status/%s", item.Username, item.PostID),
+					Title: normalizeXTitle(item.Username, item.Text),
+					Type:  "x_post",
+				})
+			}
+		}
+	}
+
 	// Parse tool calls from response content
 	return StreamEvent{
 		Content:          content,
 		ReasoningContent: reasoning,
 		IsThinking:       resp.IsThinking,
 		RolloutID:        strings.TrimSpace(resp.RolloutID),
+		SearchSources:    sources,
 	}
 }
 
@@ -123,4 +164,20 @@ func (f *ChatFlow) recordUsage(apiKeyID uint, tokenID uint, model, endpoint stri
 		Estimated:    estimated,
 		CreatedAt:    time.Now(),
 	})
+}
+
+// normalizeXTitle builds a display title for an X/Twitter post.
+// Uses the first 50 chars of text, falling back to "𝕏/@username".
+func normalizeXTitle(username, text string) string {
+	// Normalize whitespace
+	text = strings.Join(strings.Fields(text), " ")
+	if text == "" {
+		return "𝕏/@" + username
+	}
+	// Truncate to 50 runes
+	runes := []rune(text)
+	if len(runes) > 50 {
+		return string(runes[:50]) + "…"
+	}
+	return text
 }

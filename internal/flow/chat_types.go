@@ -114,6 +114,13 @@ type Usage struct {
 // DownloadFunc downloads content from a URL using an authenticated session.
 type DownloadFunc func(ctx context.Context, url string) ([]byte, error)
 
+// SearchSource represents a single search result citation.
+type SearchSource struct {
+	URL   string `json:"url"`
+	Title string `json:"title"`
+	Type  string `json:"type"` // "web" or "x_post"
+}
+
 // StreamEvent represents a flow-level stream event.
 type StreamEvent struct {
 	Content          string       `json:"content,omitempty"`
@@ -123,6 +130,7 @@ type StreamEvent struct {
 	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
 	Error            error        `json:"-"`
 	IsThinking       bool         `json:"-"`
-	RolloutID        string       `json:"-"`
-	Downloader       DownloadFunc `json:"-"`
+	RolloutID        string         `json:"-"`
+	SearchSources    []SearchSource `json:"-"`
+	Downloader       DownloadFunc   `json:"-"`
 }

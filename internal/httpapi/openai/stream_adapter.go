@@ -14,6 +14,7 @@ type chatStreamChunk struct {
 	Model             string             `json:"model"`
 	Choices           []chatStreamChoice `json:"choices"`
 	SystemFingerprint string             `json:"system_fingerprint,omitempty"`
+	SearchSources     []flow.SearchSource `json:"search_sources,omitempty"`
 }
 
 type chatStreamChoice struct {
@@ -39,6 +40,7 @@ type chatStreamAdapter struct {
 	thinkWriter   *thinkStreamWriter
 	toolParser    *toolCallStreamParser
 	toolCallsSeen bool
+	searchSources []flow.SearchSource
 }
 
 func newChatStreamAdapter(req *ChatRequest, cfg *config.Config) *chatStreamAdapter {
@@ -69,6 +71,10 @@ func (a *chatStreamAdapter) RoleChunk() chatStreamChunk {
 func (a *chatStreamAdapter) HandleEvent(event flow.StreamEvent) []chatStreamChunk {
 	var chunks []chatStreamChunk
 
+	if len(event.SearchSources) > 0 {
+		a.searchSources = event.SearchSources
+	}
+
 	if text := a.thinkWriter.HandleReasoning(event.ReasoningContent); text != "" {
 		chunks = append(chunks, a.chunk(chatStreamDelta{Content: text}, nil))
 	}
@@ -93,7 +99,9 @@ func (a *chatStreamAdapter) FinishChunks() []chatStreamChunk {
 	if a.toolCallsSeen {
 		finish = "tool_calls"
 	}
-	chunks = append(chunks, a.chunk(chatStreamDelta{}, &finish))
+	finishChunk := a.chunk(chatStreamDelta{}, &finish)
+	finishChunk.SearchSources = a.searchSources
+	chunks = append(chunks, finishChunk)
 	return chunks
 }
 
