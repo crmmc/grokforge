@@ -41,7 +41,7 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 - **Single binary deployment** — Frontend embedded via `go:embed`, just copy and run
 - **Modern admin panel** — Next.js + shadcn/ui, one-stop Dashboard / Token / API Key / Settings / Usage / Cache management
-- **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers
+- **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers + recent-use penalty
 - **Static model catalog** — Models defined in a TOML file embedded in the binary, overridable via external file
 - **Mode-based dynamic quotas** — Quota windows driven by the model catalog; `image_ws` uses transient cooldown only
 - **SSE heartbeat** — 2KB initial padding + 15s ping keeps connections alive through proxies and CDNs
@@ -71,6 +71,8 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - [x] **Multi-pool routing** — ssoBasic / ssoSuper / ssoHeavy selected by `pool_floor`
 - [x] **3 selection algorithms** — high_quota_first / random / round_robin
 - [x] **Priority tiers** — Higher priority tokens are selected first
+- [x] **Recent-use penalty** — Configurable deprioritization window (default 15s) prevents the same token from being picked consecutively
+- [x] **Batch quota refresh** — SSE-streamed batch refresh with real-time progress and cancel support
 - [x] **Mode-based quotas** — chat / image_lite / image_edit / video share quota windows by catalog mode
 - [x] **`image_ws` exception** — WebSocket image models stay outside quota sync and use transient token+model cooldown only
 - [x] **Auto refresh** — Periodic session refresh, auto rebuild on failure
@@ -266,6 +268,7 @@ Admin panel changes take effect immediately without restart.
 | `fail_threshold` | `5` | Consecutive failure threshold (marks disabled) |
 | `usage_flush_interval_sec` | `30` | Interval for flushing usage stats to DB |
 | `selection_algorithm` | `"high_quota_first"` | Algorithm: high_quota_first / random / round_robin |
+| `recent_use_penalty_sec` | `15` | Deprioritization window after a token is picked (seconds, 0 = disabled) |
 
 </details>
 
@@ -350,7 +353,7 @@ sequenceDiagram
 The admin panel includes:
 
 - **Dashboard** — System status at a glance: Token count, API Key count, call volume, quota progress, trend charts
-- **Token Management** — Batch import / enable / disable / delete, status filtering, quota editing, priority settings, manual refresh
+- **Token Management** — Batch import / enable / disable / delete, status filtering, quota editing, priority settings, batch quota refresh with SSE progress
 - **API Key** — Create and manage API keys, model whitelist, daily limit, rate limit
 - **Model Catalog** — Read-only view of the static model catalog with pool_floor and upstream details
 - **Settings** — General config online editing (hot-reload) + read-only model catalog view
