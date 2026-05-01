@@ -41,7 +41,7 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 - **单二进制部署** — 前端通过 `go:embed` 嵌入，拷贝即跑，无需额外运行时
 - **现代管理面板** — Next.js + shadcn/ui，Dashboard / Token / API Key / 设置 / 统计 / 缓存一站式管理
-- **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法和优先级分层
+- **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法、优先级分层和近期使用惩罚
 - **静态模型目录** — 模型定义嵌入二进制的 TOML 文件中，支持外部文件覆盖
 - **按 mode 动态配额** — 配额窗口由模型目录驱动；`image_ws` 仅使用临时冷却
 - **SSE 心跳保活** — 2KB 初始填充 + 15s 心跳，防止反代/CDN 超时断连
@@ -71,6 +71,8 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - [x] **多池路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 选择
 - [x] **3 种选择算法** — high_quota_first / random / round_robin
 - [x] **Priority 分层** — 高优先级 token 先被选择
+- [x] **近期使用惩罚** — 可配置降权窗口（默认 15s），避免同一 token 连续被选中
+- [x] **批量配额刷新** — SSE 实时进度流，支持批量触发上游配额同步和取消
 - [x] **按 mode 共享配额** — chat / image_lite / image_edit / video 按目录中的 mode 共享配额窗口
 - [x] **`image_ws` 显式例外** — WebSocket 图片模型不参与 quota sync，只使用内存中的 token+model 临时冷却
 - [x] **自动刷新** — Session 定时刷新，异常自动重建
@@ -266,6 +268,7 @@ base_proxy_url = ""                # 可选：代理地址
 | `fail_threshold` | `5` | 连续失败阈值（达到后标记 disabled） |
 | `usage_flush_interval_sec` | `30` | 使用量写入数据库的间隔 |
 | `selection_algorithm` | `"high_quota_first"` | 选择算法：high_quota_first / random / round_robin |
+| `recent_use_penalty_sec` | `15` | 同一 Token 被选中后的降权窗口（秒，0 = 禁用） |
 
 </details>
 
@@ -462,7 +465,7 @@ sequenceDiagram
 管理面板功能包括：
 
 - **Dashboard** — 一目了然的系统状态：Token 数量、API Key 数、调用量、配额进度、趋势图表
-- **Token 管理** — 批量导入 / 启停 / 删除、状态筛选、配额修改、优先级设置、手动刷新
+- **Token 管理** — 批量导入 / 启停 / 删除、状态筛选、配额修改、优先级设置、批量配额刷新（SSE 实时进度）
 - **API Key** — 创建与管理 API 密钥、模型白名单、日限额、速率限制
 - **模型目录** — 静态模型目录只读查看，含 pool_floor 和 upstream 详情
 - **设置** — General 配置在线编辑（热重载）+ 只读模型目录查看

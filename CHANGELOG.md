@@ -114,6 +114,34 @@ feea09c: fix: upgrade Go 1.24.1 → 1.25.8 to resolve 19 stdlib vulnerabilities
 
 ---
 
+## Unreleased
+
+更新内容:
+
+486d88a: feat: add recent-use token penalty and batch quota refresh
+- Token 选择新增 recent-use 惩罚机制（可配置窗口，默认 15s，soft exclude + fallback）
+- 新增 POST /admin/tokens/batch/refresh SSE 端点，批量刷新配额并实时推送进度
+- admin config API 支持 recent_use_penalty_sec 热更新，保存后立即同步到 TokenManager
+- 前端 Token 页新增批量刷新操作入口、SSE 进度条和取消功能
+- 前端设置页新增近期使用惩罚配置项
+
+ac85a46: feat: extract search sources from Grok SSE and output as structured field
+
+de7d145: chore: update model config and server initialization
+
+d7e4bf1: refactor: pass token priority through flow layer for weighted selection
+
+d09d367: feat: add priority-based token selection with weighted random picking
+- Token 支持 priority 字段，高优先级 token 优先被选中
+- 选择算法支持加权随机
+
+2931be4: feat: implement cache capacity management with per-type limits and LRU eviction
+- 缓存容量管理：per-type MB 上限 + LRU 驱逐
+
+3f902b7: feat: add cache capacity settings to frontend Settings page
+
+---
+
 ## v0.3.0-beta
 
 更新内容:

@@ -1,6 +1,6 @@
 # Binaries
 bin/
-grokforge
+/grokforge
 *.exe
 
 # PRD tracking (internal)
