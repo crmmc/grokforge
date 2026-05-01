@@ -43,10 +43,10 @@ func requestTimeoutRuntimeMiddleware(runtime *config.Runtime) func(http.Handler)
 }
 
 // routeTimeout returns the request timeout for the given route.
-// Chat completions use the configurable proxy.timeout (default 300s);
+// Chat completions and batch refresh use the configurable proxy.timeout (default 300s);
 // all other routes use the configurable app.request_timeout (default 60s).
 func routeTimeout(cfg *config.Config, method, path string) time.Duration {
-	if method == http.MethodPost && path == "/v1/chat/completions" {
+	if method == http.MethodPost && (path == "/v1/chat/completions" || path == "/admin/tokens/batch/refresh") {
 		if cfg != nil && cfg.Proxy.Timeout > 0 {
 			return time.Duration(cfg.Proxy.Timeout) * time.Second
 		}

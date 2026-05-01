@@ -54,6 +54,7 @@ export const tokenConfigSchema = z.object({
   fail_threshold: z.number().int().min(1),
   usage_flush_interval_sec: z.number().int().min(1),
   selection_algorithm: z.enum(["high_quota_first", "random", "round_robin"]),
+  recent_use_penalty_sec: z.number().int().min(0),
 });
 
 export const imageConfigSchema = z.object({

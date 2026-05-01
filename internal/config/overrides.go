@@ -248,6 +248,15 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Token.CoolDurationHeavySec = parsed
+		case "token.recent_use_penalty_sec":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			if parsed < 0 {
+				return fmt.Errorf("token.recent_use_penalty_sec must be >= 0, got %d", parsed)
+			}
+			c.Token.RecentUsePenaltySec = parsed
 		case "cache.image_max_mb":
 			parsed, err := parseIntOverride(k, v)
 			if err != nil {

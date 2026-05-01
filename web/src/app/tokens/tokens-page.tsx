@@ -12,6 +12,7 @@ import { TokenActionsBar } from './token-actions-bar'
 import { TokenTable } from '@/components/features/token-table'
 import { useTranslation } from '@/lib/i18n/context'
 import { useQuotaPresentationWarnings } from '@/lib/use-quota-presentation-warnings'
+import { useBatchRefreshFlow, RefreshProgressAlert } from './batch-refresh'
 
 const TokenDialog = dynamic(
   () => import('./token-dialog').then((mod) => mod.TokenDialog),
@@ -40,6 +41,10 @@ function TokensPageInner() {
   const updateToken = useUpdateToken()
   const batchTokens = useBatchTokens()
   const refreshToken = useRefreshToken()
+  const { handleBatchRefresh, isRefreshing, refreshProgress, cancelRefresh } = useBatchRefreshFlow({
+    selectedIds,
+    onComplete: () => setSelectedIds(new Set()),
+  })
   const tokenIdsByStatus = useTokenIdsByStatus(statusSelection)
   const { toast } = useToast()
   const { t } = useTranslation()
@@ -162,7 +167,9 @@ function TokensPageInner() {
         <TokenActionsBar
           selectedIds={selectedIds}
           batchPending={batchTokens.isPending}
+          refreshPending={isRefreshing}
           onBatchOperation={handleBatchOperation}
+          onBatchRefresh={handleBatchRefresh}
           onExport={handleExport}
           onShowImport={() => setShowImport(true)}
           onSelectByStatus={handleSelectByStatus}
@@ -189,6 +196,10 @@ function TokensPageInner() {
               <AlertTitle>{t.common.humanReadableQuotaUnavailable}</AlertTitle>
               <AlertDescription>{catalogError.message || t.common.unknownError}</AlertDescription>
             </Alert>
+          )}
+
+          {refreshProgress && (
+            <RefreshProgressAlert progress={refreshProgress} onCancel={cancelRefresh} />
           )}
 
           <TokenTable

@@ -28,7 +28,7 @@ interface FetchOptions extends RequestInit {
   params?: Record<string, string | number | boolean | undefined>
 }
 
-function redirectToLogin() {
+export function redirectToLogin() {
   if (typeof window === 'undefined' || isRedirectingToLogin) {
     return
   }

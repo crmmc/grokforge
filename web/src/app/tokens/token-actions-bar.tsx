@@ -17,14 +17,16 @@ import { cn } from '@/lib/utils'
 interface TokenActionsBarProps {
   selectedIds: Set<number>
   batchPending: boolean
+  refreshPending: boolean
   onBatchOperation: (operation: BatchOperation) => void
+  onBatchRefresh: () => void
   onExport: () => void
   onShowImport: () => void
   onSelectByStatus: (status: string) => void
   onDeselectAll: () => void
 }
 
-export function TokenActionsBar({ selectedIds, batchPending, onBatchOperation, onExport, onShowImport, onSelectByStatus, onDeselectAll }: TokenActionsBarProps) {
+export function TokenActionsBar({ selectedIds, batchPending, refreshPending, onBatchOperation, onBatchRefresh, onExport, onShowImport, onSelectByStatus, onDeselectAll }: TokenActionsBarProps) {
   const { t } = useTranslation()
 
   return (
@@ -53,7 +55,7 @@ export function TokenActionsBar({ selectedIds, batchPending, onBatchOperation, o
       {selectedIds.size > 0 && (
         <DropdownMenu>
           <DropdownMenuTrigger
-            disabled={batchPending}
+            disabled={batchPending || refreshPending}
             className={cn(
               buttonVariants({ variant: 'outline' }),
               'w-full min-w-[156px] justify-between sm:w-auto'
@@ -68,6 +70,10 @@ export function TokenActionsBar({ selectedIds, batchPending, onBatchOperation, o
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onBatchOperation('enable_nsfw')}>{t.tokens.enableNsfw}</DropdownMenuItem>
             <DropdownMenuItem onClick={() => onBatchOperation('disable_nsfw')}>{t.tokens.disableNsfw}</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={onBatchRefresh} disabled={refreshPending}>
+              {t.tokens.refreshQuota}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onBatchOperation('delete')} variant="destructive">
               {t.common.delete}

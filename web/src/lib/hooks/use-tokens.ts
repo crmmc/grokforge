@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api-client";
+import { useCallback, useRef, useState } from "react";
+import { api, redirectToLogin } from "../api-client";
 import type { Token, TokenUpdateRequest, PaginatedResponse } from "@/types";
 
 export const tokenKeys = {
@@ -130,4 +131,130 @@ export function useTokenIdsByStatus(status: string | null) {
       api.get<{ ids: number[] }>("/tokens/ids", status ? { status } : {}),
     enabled: status !== null,
   });
+}
+
+// --- Batch Refresh (SSE) ---
+
+export interface BatchRefreshEvent {
+  type: "progress" | "complete";
+  token_id?: number;
+  status?: "success" | "error";
+  error?: string;
+  current: number;
+  total: number;
+  success?: number;
+  failed?: number;
+}
+
+export interface BatchRefreshCallbacks {
+  onStart?: (total: number) => void;
+  onProgress?: (event: BatchRefreshEvent) => void;
+  onComplete?: (event: BatchRefreshEvent) => void;
+  onCancel?: () => void;
+  onError?: (error: Error) => void;
+}
+
+async function readBatchRefreshSSE(
+  response: Response,
+  callbacks: BatchRefreshCallbacks,
+  signal: AbortSignal,
+): Promise<void> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error("No response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completed = false;
+
+  try {
+    for (;;) {
+      if (signal.aborted) break;
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        if (!line.startsWith("data: ")) continue;
+        const data = line.slice(6).trim();
+        if (data === "[DONE]") continue;
+        const event: BatchRefreshEvent = JSON.parse(data);
+        if (event.type === "progress") {
+          callbacks.onProgress?.(event);
+        } else if (event.type === "complete") {
+          completed = true;
+          callbacks.onComplete?.(event);
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  if (!completed && !signal.aborted) {
+    throw new Error("Refresh stream ended unexpectedly");
+  }
+}
+
+export function useBatchRefresh() {
+  const queryClient = useQueryClient();
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
+  const lockRef = useRef(false);
+
+  const startRefresh = useCallback(
+    async (
+      ids: number[] | undefined,
+      callbacks: BatchRefreshCallbacks,
+    ) => {
+      if (lockRef.current) return;
+      lockRef.current = true;
+      setIsRefreshing(true);
+      callbacks.onStart?.(ids?.length ?? 0);
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      try {
+        const response = await fetch("/admin/tokens/batch/refresh", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ids }),
+          signal: controller.signal,
+        });
+
+        if (!response.ok) {
+          if (response.status === 401) redirectToLogin();
+          const err = await response
+            .json()
+            .catch(() => ({ error: { message: "Unknown error" } }));
+          throw new Error(
+            err.error?.message || err.message || "Refresh failed",
+          );
+        }
+
+        await readBatchRefreshSSE(response, callbacks, controller.signal);
+      } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          callbacks.onCancel?.();
+        } else if (err instanceof Error) {
+          callbacks.onError?.(err);
+        }
+      } finally {
+        lockRef.current = false;
+        setIsRefreshing(false);
+        abortRef.current = null;
+        queryClient.invalidateQueries({ queryKey: tokenKeys.all });
+      }
+    },
+    [queryClient],
+  );
+
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
+  return { startRefresh, cancel, isRefreshing };
 }

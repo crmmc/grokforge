@@ -46,6 +46,7 @@ type Server struct {
 	tokenRefresher  TokenRefresher
 	tokenPoolSyncer TokenPoolSyncer
 	tokenInflight   TokenInflightProvider
+	tokenCfgSync    func(*config.TokenConfig)
 	usageLogStore   UsageLogStoreInterface
 	apiKeyStore     APIKeyStoreInterface
 	cacheService    *cache.Service
@@ -64,6 +65,7 @@ type ServerConfig struct {
 	TokenRefresher  TokenRefresher
 	TokenPoolSyncer TokenPoolSyncer
 	TokenInflight   TokenInflightProvider
+	TokenCfgSync    func(*config.TokenConfig)
 	UsageLogStore   UsageLogStoreInterface
 	APIKeyStore     APIKeyStoreInterface
 	CacheService    *cache.Service
@@ -92,6 +94,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		tokenRefresher:  cfg.TokenRefresher,
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
 		tokenInflight:   cfg.TokenInflight,
+		tokenCfgSync:    cfg.TokenCfgSync,
 		usageLogStore:   cfg.UsageLogStore,
 		apiKeyStore:     cfg.APIKeyStore,
 		cacheService:    cfg.CacheService,
@@ -201,7 +204,11 @@ func (s *Server) setupRoutes() {
 			// Config endpoints
 			if s.runtime != nil {
 				r.Get("/config", handleGetConfigRuntime(s.runtime))
-				r.Put("/config", handlePutConfigRuntime(s.runtime, s.configStore))
+				r.Put("/config", handlePutConfigRuntime(s.runtime, s.configStore, func(cfg *config.Config) {
+					if s.tokenCfgSync != nil {
+						s.tokenCfgSync(&cfg.Token)
+					}
+				}))
 			} else if s.cfg != nil {
 				r.Get("/config", handleGetConfig(s.cfg))
 				r.Put("/config", handlePutConfig(s.cfg, s.configStore))
@@ -220,6 +227,7 @@ func (s *Server) setupRoutes() {
 				} else {
 					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
 				}
+				r.Post("/tokens/batch/refresh", handleBatchRefresh(s.tokenStore, s.tokenRefresher))
 
 				// Stats endpoints (token-based)
 				r.Get("/stats/tokens", handleTokenStats(s.tokenStore, s.modelRegistry))

@@ -438,3 +438,57 @@ func TestManager_ReleaseInflightNoUnderflow(t *testing.T) {
 	mgr.ReleaseInflightOnly(2)
 	assert.Equal(t, 0, mgr.GetInflight(2))
 }
+
+func TestManager_PickRecentUsePenalty(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, RecentUsePenaltySec: 60, SelectionAlgorithm: AlgoHighQuotaFirst}
+	mgr := NewTokenManager(cfg)
+
+	// Token 1 has much higher quota. Without penalty, high_quota_first would always pick it.
+	// With penalty, second pick should select token 2 despite lower quota.
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+	mgr.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 5}})
+
+	first, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), first.ID, "first pick should select highest quota token")
+
+	// Second pick: recent-use penalty should exclude token 1, forcing token 2.
+	second, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(2), second.ID, "second pick should select token 2 due to recent-use penalty on token 1")
+}
+
+func TestManager_PickRecentUsePenaltyFallback(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, RecentUsePenaltySec: 60, SelectionAlgorithm: AlgoHighQuotaFirst}
+	mgr := NewTokenManager(cfg)
+
+	// Only one token: penalty should not block selection (fallback).
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+
+	tok1, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok1.ID)
+
+	// Second pick: only token is penalized, but fallback allows selection.
+	tok2, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok2.ID, "should still pick the only token via fallback")
+}
+
+func TestManager_PickRecentUsePenaltyDisabled(t *testing.T) {
+	cfg := &config.TokenConfig{FailThreshold: 3, RecentUsePenaltySec: 0, SelectionAlgorithm: AlgoHighQuotaFirst}
+	mgr := NewTokenManager(cfg)
+
+	// With penalty disabled, highest quota always wins.
+	mgr.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 100}})
+	mgr.AddToken(&store.Token{ID: 2, Token: "t2", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+
+	tok1, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok1.ID, "highest quota token should be picked")
+
+	// Second pick: penalty is disabled, so token 1 still has the highest quota (99 after deduction).
+	tok2, err := mgr.Pick(PoolBasic, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, uint(1), tok2.ID, "same token should be picked again when penalty is disabled")
+}

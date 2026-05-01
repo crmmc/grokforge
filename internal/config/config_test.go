@@ -49,6 +49,31 @@ func TestLoad_RejectsNegativeCacheVideoLimit(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsNegativeRecentUsePenalty(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[token]\nrecent_use_penalty_sec = -1\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "token.recent_use_penalty_sec") {
+		t.Fatalf("expected token.recent_use_penalty_sec error, got %v", err)
+	}
+}
+
+func TestApplyDBOverrides_RejectsNegativeRecentUsePenalty(t *testing.T) {
+	cfg := DefaultConfig()
+
+	err := cfg.ApplyDBOverrides(map[string]string{
+		"token.recent_use_penalty_sec": "-5",
+	})
+	if err == nil || !strings.Contains(err.Error(), "token.recent_use_penalty_sec") {
+		t.Fatalf("expected token.recent_use_penalty_sec error, got %v", err)
+	}
+}
+
 func TestLoad_AllowsZeroCacheLimit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")

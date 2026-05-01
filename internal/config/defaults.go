@@ -80,6 +80,7 @@ func DefaultConfig() *Config {
 			CoolDurationBasicSec:  86400,
 			CoolDurationSuperSec:  7200,
 			CoolDurationHeavySec:  7200,
+			RecentUsePenaltySec:   15,
 		},
 		Cache: CacheConfig{
 			ImageMaxMB: 0,

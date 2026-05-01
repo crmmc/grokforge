@@ -337,3 +337,73 @@ func TestAdminConfig_PutConfig_IgnoresMaskedAppKey(t *testing.T) {
 		t.Fatalf("retry.max_tokens = %d, want 5", cfg.Retry.MaxTokens)
 	}
 }
+
+func TestPutConfigRuntime_OnSuccess_CalledOnSuccess(t *testing.T) {
+	initial := &config.Config{
+		Token: config.TokenConfig{
+			FailThreshold:       5,
+			RecentUsePenaltySec: 15,
+		},
+	}
+	runtime := config.NewRuntime(initial)
+
+	var received *config.Config
+	onSuccess := func(cfg *config.Config) {
+		received = cfg
+	}
+
+	handler := handlePutConfigRuntime(runtime, nil, onSuccess)
+
+	body := `{"token": {"recent_use_penalty_sec": 60}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if received == nil {
+		t.Fatal("onSuccess was not called")
+	}
+	if received.Token.RecentUsePenaltySec != 60 {
+		t.Errorf("expected RecentUsePenaltySec=60 in callback, got %d", received.Token.RecentUsePenaltySec)
+	}
+	if runtime.Get().Token.RecentUsePenaltySec != 60 {
+		t.Errorf("runtime not updated, got %d", runtime.Get().Token.RecentUsePenaltySec)
+	}
+}
+
+func TestPutConfigRuntime_OnSuccess_NotCalledOnFailure(t *testing.T) {
+	initial := &config.Config{
+		Token: config.TokenConfig{
+			SelectionAlgorithm: "high_quota_first",
+		},
+	}
+	runtime := config.NewRuntime(initial)
+
+	called := false
+	onSuccess := func(_ *config.Config) {
+		called = true
+	}
+
+	handler := handlePutConfigRuntime(runtime, nil, onSuccess)
+
+	body := `{"token": {"selection_algorithm": "invalid_algo"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if called {
+		t.Error("onSuccess should not be called on validation failure")
+	}
+	if runtime.Get().Token.SelectionAlgorithm != "high_quota_first" {
+		t.Error("runtime should not be updated on failure")
+	}
+}
