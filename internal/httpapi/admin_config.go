@@ -87,6 +87,7 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			FailThreshold:         cfg.Token.FailThreshold,
 			UsageFlushIntervalSec: cfg.Token.UsageFlushIntervalSec,
 			SelectionAlgorithm:    cfg.Token.SelectionAlgorithm,
+			RecentUsePenaltySec:   cfg.Token.RecentUsePenaltySec,
 		},
 		Cache: CacheConfigResponse{
 			ImageMaxMB: cfg.Cache.ImageMaxMB,

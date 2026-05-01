@@ -175,6 +175,14 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				}
 				cfg.Token.SelectionAlgorithm = *req.Token.SelectionAlgorithm
 			}
+			if req.Token.RecentUsePenaltySec != nil {
+				if *req.Token.RecentUsePenaltySec < 0 {
+					WriteError(w, 400, "invalid_request", "invalid_value",
+						"token.recent_use_penalty_sec must be >= 0")
+					return
+				}
+				cfg.Token.RecentUsePenaltySec = *req.Token.RecentUsePenaltySec
+			}
 		}
 
 		if req.Cache != nil {
@@ -335,6 +343,9 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Token.SelectionAlgorithm != nil {
 				dbUpdates["token.selection_algorithm"] = *req.Token.SelectionAlgorithm
 			}
+			if req.Token.RecentUsePenaltySec != nil {
+				dbUpdates["token.recent_use_penalty_sec"] = fmt.Sprintf("%d", *req.Token.RecentUsePenaltySec)
+			}
 		}
 		if req.Cache != nil {
 			if req.Cache.ImageMaxMB != nil {
@@ -359,7 +370,7 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 	}
 }
 
-func handlePutConfigRuntime(runtime *config.Runtime, configStore *store.ConfigStore) http.HandlerFunc {
+func handlePutConfigRuntime(runtime *config.Runtime, configStore *store.ConfigStore, onSuccess func(*config.Config)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		snapshot := runtime.Snapshot()
 		sc := &statusCapture{ResponseWriter: w}
@@ -368,6 +379,9 @@ func handlePutConfigRuntime(runtime *config.Runtime, configStore *store.ConfigSt
 			return
 		}
 		runtime.Store(snapshot)
+		if onSuccess != nil {
+			onSuccess(snapshot)
+		}
 	}
 }
 

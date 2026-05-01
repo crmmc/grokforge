@@ -297,6 +297,7 @@ func main() {
 		TokenRefresher:  tokenSvc,
 		TokenPoolSyncer: tokenSvc,
 		TokenInflight:   tokenSvc.Manager(),
+		TokenCfgSync:    tokenSvc.Manager().UpdateConfig,
 		UsageLogStore:   usageLogStore,
 		APIKeyStore:     apiKeyStore,
 		CacheService:    cacheSvc,

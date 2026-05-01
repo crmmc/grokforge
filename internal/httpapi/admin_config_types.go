@@ -75,6 +75,7 @@ type TokenConfigResponse struct {
 	FailThreshold         int    `json:"fail_threshold"`
 	UsageFlushIntervalSec int    `json:"usage_flush_interval_sec"`
 	SelectionAlgorithm    string `json:"selection_algorithm"`
+	RecentUsePenaltySec   int    `json:"recent_use_penalty_sec"`
 }
 
 // CacheConfigResponse is the API response for cache config.
@@ -151,6 +152,7 @@ type TokenConfigUpdate struct {
 	FailThreshold         *int    `json:"fail_threshold,omitempty"`
 	UsageFlushIntervalSec *int    `json:"usage_flush_interval_sec,omitempty"`
 	SelectionAlgorithm    *string `json:"selection_algorithm,omitempty"`
+	RecentUsePenaltySec   *int    `json:"recent_use_penalty_sec,omitempty"`
 }
 
 // CacheConfigUpdate contains hot-reloadable cache config fields.

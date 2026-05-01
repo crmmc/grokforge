@@ -95,6 +95,7 @@ type TokenConfig struct {
 	CoolDurationBasicSec  int    `toml:"cool_duration_basic_sec"`
 	CoolDurationSuperSec  int    `toml:"cool_duration_super_sec"`
 	CoolDurationHeavySec  int    `toml:"cool_duration_heavy_sec"`
+	RecentUsePenaltySec   int    `toml:"recent_use_penalty_sec" json:"recent_use_penalty_sec"`
 }
 
 // CacheConfig contains cache management settings.
@@ -131,6 +132,9 @@ func Load(path string) (*Config, error) {
 }
 
 func validateConfig(cfg *Config) error {
+	if cfg.Token.RecentUsePenaltySec < 0 {
+		return fmt.Errorf("token.recent_use_penalty_sec must be >= 0, got %d", cfg.Token.RecentUsePenaltySec)
+	}
 	if cfg.Cache.ImageMaxMB < 0 {
 		return fmt.Errorf("cache.image_max_mb must be >= 0, got %d", cfg.Cache.ImageMaxMB)
 	}

@@ -84,6 +84,11 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
               <option value="round_robin">{t.config.algorithmRoundRobin}</option>
             </select>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="recent_use_penalty_sec">{t.config.recentUsePenalty}</Label>
+            <Input id="recent_use_penalty_sec" type="number" className="max-w-[200px]" min="0" {...register('recent_use_penalty_sec', { valueAsNumber: true })} />
+            <p className="text-xs text-muted">{t.config.recentUsePenaltyDesc}</p>
+          </div>
         </div>
       </ConfigSection>
 

@@ -17,22 +17,24 @@ var (
 
 // TokenManager manages token pools and state transitions.
 type TokenManager struct {
-	cfg      *config.TokenConfig
-	pools    map[string]*TokenPool
-	tokens   map[uint]*store.Token // all tokens by ID for quick lookup
-	dirty    map[uint]struct{}     // tokens that need persistence
-	inflight map[uint]int          // token ID → active request count (memory-only)
-	mu       sync.RWMutex
+	cfg          *config.TokenConfig
+	pools        map[string]*TokenPool
+	tokens       map[uint]*store.Token // all tokens by ID for quick lookup
+	dirty        map[uint]struct{}     // tokens that need persistence
+	inflight     map[uint]int          // token ID → active request count (memory-only)
+	lastPickedAt map[uint]time.Time    // token ID → last pick timestamp (memory-only)
+	mu           sync.RWMutex
 }
 
 // NewTokenManager creates a new token manager.
 func NewTokenManager(cfg *config.TokenConfig) *TokenManager {
 	return &TokenManager{
-		cfg:      cfg,
-		pools:    make(map[string]*TokenPool),
-		tokens:   make(map[uint]*store.Token),
-		dirty:    make(map[uint]struct{}),
-		inflight: make(map[uint]int),
+		cfg:          cfg,
+		pools:        make(map[string]*TokenPool),
+		tokens:       make(map[uint]*store.Token),
+		dirty:        make(map[uint]struct{}),
+		inflight:     make(map[uint]int),
+		lastPickedAt: make(map[uint]time.Time),
 	}
 }
 
@@ -65,6 +67,7 @@ func (m *TokenManager) RemoveToken(id uint) {
 	delete(m.tokens, id)
 	delete(m.dirty, id)
 	delete(m.inflight, id)
+	delete(m.lastPickedAt, id)
 }
 
 // GetToken returns a token by ID.
@@ -101,10 +104,18 @@ func (m *TokenManager) PickAnyExcluding(poolName string, exclude map[uint]struct
 		algo = AlgoHighQuotaFirst
 	}
 
-	// Build inflight-full exclude set.
+	// Build inflight-full exclude set (hard exclude).
 	exclude = m.addInflightExcludes(exclude)
 
-	token := pool.SelectAnyExcluding(algo, exclude)
+	// First attempt: apply recent-use penalty (soft exclude, copy semantics).
+	penaltyExclude := m.addRecentUseExcludes(exclude)
+
+	token := pool.SelectAnyExcluding(algo, penaltyExclude)
+	if token == nil && len(penaltyExclude) > len(exclude) {
+		// Fallback: retry without recent-use penalty.
+		token = pool.SelectAnyExcluding(algo, exclude)
+	}
+
 	if token == nil {
 		return nil, ErrNoTokenAvailable
 	}
@@ -112,6 +123,7 @@ func (m *TokenManager) PickAnyExcluding(poolName string, exclude map[uint]struct
 	m.inflight[token.ID]++
 	now := time.Now()
 	token.LastUsed = &now
+	m.lastPickedAt[token.ID] = now
 	m.dirty[token.ID] = struct{}{}
 	return token, nil
 }
@@ -133,10 +145,19 @@ func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struc
 		return nil, ErrNoTokenAvailable
 	}
 
-	// Build inflight-full exclude set.
+	// Build inflight-full exclude set (hard exclude).
 	exclude = m.addInflightExcludes(exclude)
 
-	if token := pool.SelectExcluding(algo, mode, exclude); token != nil {
+	// First attempt: apply recent-use penalty (soft exclude, copy semantics).
+	penaltyExclude := m.addRecentUseExcludes(exclude)
+
+	token := pool.SelectExcluding(algo, mode, penaltyExclude)
+	if token == nil && len(penaltyExclude) > len(exclude) {
+		// Fallback: retry without recent-use penalty.
+		token = pool.SelectExcluding(algo, mode, exclude)
+	}
+
+	if token != nil {
 		// 乐观预扣：pick 即扣减
 		if token.Quotas == nil {
 			token.Quotas = make(store.IntMap)
@@ -145,6 +166,7 @@ func (m *TokenManager) pick(poolName string, mode string, exclude map[uint]struc
 		m.inflight[token.ID]++
 		now := time.Now()
 		token.LastUsed = &now
+		m.lastPickedAt[token.ID] = now
 		m.dirty[token.ID] = struct{}{}
 		slog.Debug("token: quota pre-deducted",
 			"token_id", token.ID,
@@ -411,6 +433,15 @@ func (m *TokenManager) ClearDirty(ids []uint) {
 	}
 }
 
+// UpdateConfig replaces the token config with a copy of the provided config.
+// Used for hot-reloading config changes from the admin API.
+func (m *TokenManager) UpdateConfig(tc *config.TokenConfig) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	copied := *tc
+	m.cfg = &copied
+}
+
 // GetPool returns a pool by name.
 func (m *TokenManager) GetPool(name string) *TokenPool {
 	m.mu.RLock()
@@ -513,6 +544,41 @@ func (m *TokenManager) addInflightExcludes(exclude map[uint]struct{}) map[uint]s
 		}
 	}
 	return exclude
+}
+
+// addRecentUseExcludes returns a NEW map with tokens picked within the
+// recent-use penalty window added. The input exclude map is NOT modified
+// (copy semantics), so the caller can use the original for fallback.
+// Caller must hold m.mu.
+func (m *TokenManager) addRecentUseExcludes(exclude map[uint]struct{}) map[uint]struct{} {
+	window := m.cfg.RecentUsePenaltySec
+	if window <= 0 {
+		return exclude
+	}
+	cutoff := time.Now().Add(-time.Duration(window) * time.Second)
+
+	// Collect IDs to penalize, lazily cleaning expired entries.
+	var penalized []uint
+	for id, pickedAt := range m.lastPickedAt {
+		if pickedAt.After(cutoff) {
+			penalized = append(penalized, id)
+		} else {
+			delete(m.lastPickedAt, id)
+		}
+	}
+	if len(penalized) == 0 {
+		return exclude
+	}
+
+	// Copy the original exclude map, then add penalty entries.
+	result := make(map[uint]struct{}, len(exclude)+len(penalized))
+	for id := range exclude {
+		result[id] = struct{}{}
+	}
+	for _, id := range penalized {
+		result[id] = struct{}{}
+	}
+	return result
 }
 
 // coolDurationForPool returns the cooling duration for the given pool.

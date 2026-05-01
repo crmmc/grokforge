@@ -69,6 +69,7 @@ export interface TokenConfigResponse {
   fail_threshold: number;
   usage_flush_interval_sec: number;
   selection_algorithm: string;
+  recent_use_penalty_sec: number;
 }
 
 export interface ImageConfigResponse {
