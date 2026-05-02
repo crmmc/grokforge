@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"sync"
 	"testing"
@@ -15,12 +16,14 @@ import (
 
 // mockVideoClient simulates xai video API calls.
 type mockVideoClient struct {
-	mu          sync.Mutex
-	chatErr     error
-	chatDelay   time.Duration
-	videoURL    string
-	pollCalls   int
-	lastChatReq *xai.ChatRequest
+	mu             sync.Mutex
+	chatErr        error
+	chatDelay      time.Duration
+	videoURL       string
+	pollCalls      int
+	uploadCalls    int
+	imagePostCalls int
+	lastChatReq    *xai.ChatRequest
 }
 
 func (m *mockVideoClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan xai.StreamEvent, error) {
@@ -51,6 +54,9 @@ func (m *mockVideoClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-cha
 }
 
 func (m *mockVideoClient) CreateImagePost(ctx context.Context, imageURL string) (string, error) {
+	m.mu.Lock()
+	m.imagePostCalls++
+	m.mu.Unlock()
 	return "post-1", nil
 }
 
@@ -76,7 +82,11 @@ func (m *mockVideoClient) DownloadTo(ctx context.Context, url string, w io.Write
 }
 
 func (m *mockVideoClient) UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error) {
-	return "file-1", "generated/ref-image", nil
+	m.mu.Lock()
+	m.uploadCalls++
+	idx := m.uploadCalls
+	m.mu.Unlock()
+	return fmt.Sprintf("file-%d", idx), fmt.Sprintf("generated/ref-image-%d", idx), nil
 }
 
 func withVideoUpstream(req *VideoRequest) *VideoRequest {
