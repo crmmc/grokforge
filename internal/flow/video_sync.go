@@ -37,12 +37,12 @@ func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, 
 		return "", errVideoClientNil
 	}
 
-	parentPostID, err := f.resolveVideoSeedPost(ctx, client, req)
+	parentPostID, imageURLs, err := f.resolveVideoSeedPost(ctx, client, req)
 	if err != nil {
 		return "", err
 	}
 
-	eventCh, err := client.Chat(ctx, f.buildVideoChatRequest(req, parentPostID, videoGenerationResolution(tok.Pool, req.Quality)))
+	eventCh, err := client.Chat(ctx, f.buildVideoChatRequest(req, parentPostID, imageURLs, videoGenerationResolution(tok.Pool, req.Quality)))
 	if err != nil {
 		return "", fmt.Errorf("start video generation: %w", err)
 	}
@@ -71,22 +71,49 @@ func (f *VideoFlow) resolveVideoSeedPost(
 	ctx context.Context,
 	client VideoClient,
 	req *VideoRequest,
-) (string, error) {
-	if len(req.ReferenceImage) == 0 {
-		return client.CreateVideoPost(ctx, req.Prompt)
+) (string, []string, error) {
+	if len(req.ReferenceImages) == 0 {
+		postID, err := client.CreateVideoPost(ctx, req.Prompt)
+		return postID, nil, err
 	}
 
-	mimeType := detectImageEditMIME(req.ReferenceImage)
-	content := base64.StdEncoding.EncodeToString(req.ReferenceImage)
-	fileName := "video-reference" + extensionForMIME(mimeType)
-	_, fileURI, err := client.UploadFile(ctx, fileName, mimeType, content)
-	if err != nil {
-		return "", fmt.Errorf("upload video reference: %w", err)
+	var parentPostID string
+	imageURLs := make([]string, 0, len(req.ReferenceImages))
+	for i, img := range req.ReferenceImages {
+		mimeType := detectImageEditMIME(img)
+		fileName := fmt.Sprintf("video-reference-%d%s", i, extensionForMIME(mimeType))
+		content := base64.StdEncoding.EncodeToString(img)
+		_, fileURI, err := client.UploadFile(ctx, fileName, mimeType, content)
+		if err != nil {
+			return "", nil, fmt.Errorf("upload video reference %d: %w", i, err)
+		}
+		contentURL := normalizeUploadedImageURL(fileURI)
+		imageURLs = append(imageURLs, contentURL)
+
+		postID, err := client.CreateImagePost(ctx, contentURL)
+		if err != nil {
+			return "", nil, fmt.Errorf("create video reference post %d: %w", i, err)
+		}
+		if i == 0 {
+			parentPostID = postID
+		}
 	}
-	return client.CreateImagePost(ctx, normalizeUploadedImageURL(fileURI))
+	return parentPostID, imageURLs, nil
 }
 
-func (f *VideoFlow) buildVideoChatRequest(req *VideoRequest, parentPostID, resolution string) *xai.ChatRequest {
+func (f *VideoFlow) buildVideoChatRequest(req *VideoRequest, parentPostID string, imageURLs []string, resolution string) *xai.ChatRequest {
+	videoConfig := map[string]any{
+		"aspectRatio":    resolveVideoAspectRatio(req.AspectRatio, req.Size),
+		"parentPostId":   parentPostID,
+		"resolutionName": resolution,
+		"videoLength":    req.Seconds,
+	}
+	if len(imageURLs) > 0 {
+		videoConfig["imageReferences"] = imageURLs
+		videoConfig["isReferenceToVideo"] = true
+		videoConfig["isVideoEdit"] = false
+	}
+
 	xaiReq := &xai.ChatRequest{
 		Messages: []xai.Message{{
 			Role:    "user",
@@ -99,12 +126,7 @@ func (f *VideoFlow) buildVideoChatRequest(req *VideoRequest, parentPostID, resol
 		UpstreamMode:  req.UpstreamMode,
 		ModelConfig: map[string]any{
 			"modelMap": map[string]any{
-				"videoGenModelConfig": map[string]any{
-					"aspectRatio":    resolveVideoAspectRatio(req.AspectRatio, req.Size),
-					"parentPostId":   parentPostID,
-					"resolutionName": resolution,
-					"videoLength":    req.Seconds,
-				},
+				"videoGenModelConfig": videoConfig,
 			},
 		},
 	}

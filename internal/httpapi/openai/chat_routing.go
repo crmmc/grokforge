@@ -22,6 +22,7 @@ func buildFileURL(r *http.Request, mediaType, filename string) string {
 }
 
 const maxImageEditInputs = 3
+const maxVideoReferenceInputs = 7
 
 // resolveModelType resolves the model type from the registry.
 // Returns empty string if registry is nil or model not found.
@@ -263,7 +264,10 @@ func (h *Handler) handleChatVideo(w http.ResponseWriter, r *http.Request, req *C
 		Preset:        videoCfg.preset,
 	}
 	if len(images) > 0 {
-		videoReq.ReferenceImage = images[0]
+		if len(images) > maxVideoReferenceInputs {
+			images = images[:maxVideoReferenceInputs]
+		}
+		videoReq.ReferenceImages = images
 	}
 
 	videoURL, err := h.VideoFlow.GenerateSync(httpapi.BridgeFlowContext(r.Context()), videoReq)

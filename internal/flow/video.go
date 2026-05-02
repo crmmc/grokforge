@@ -44,7 +44,7 @@ type VideoRequest struct {
 	Seconds        int
 	Quality        string
 	Preset         string
-	ReferenceImage []byte
+	ReferenceImages [][]byte
 }
 
 // VideoFlow handles async video generation.
