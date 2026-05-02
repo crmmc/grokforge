@@ -39,6 +39,11 @@ type TokenRefresher interface {
 	RefreshToken(ctx context.Context, id uint) (*store.Token, error)
 }
 
+// NsfwEnabler enables NSFW on the upstream for a given token string.
+type NsfwEnabler interface {
+	EnableNsfwUpstream(ctx context.Context, tokenString string) error
+}
+
 // TokenInflightProvider provides in-memory inflight counts for tokens.
 type TokenInflightProvider interface {
 	GetInflight(id uint) int

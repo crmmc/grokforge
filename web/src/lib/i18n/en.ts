@@ -136,7 +136,6 @@ export const en = {
     enable: "Enable",
     disable: "Disable",
     enableNsfw: "Enable NSFW",
-    disableNsfw: "Disable NSFW",
     export: "Export",
     noTokens: "No tokens found.",
     quota: "Quota",

@@ -108,7 +108,6 @@ function TokensPageInner() {
                        operation === 'enable' ? t.tokens.enable :
                        operation === 'disable' ? t.tokens.disable :
                        operation === 'enable_nsfw' ? t.tokens.enableNsfw :
-                       operation === 'disable_nsfw' ? t.tokens.disableNsfw :
                        operation
 
     if (operation === 'delete' && !(await confirm({ title: `${t.common.delete} ${ids.length} tokens?`, variant: 'destructive' }))) {

@@ -69,7 +69,6 @@ export function TokenActionsBar({ selectedIds, batchPending, refreshPending, onB
             <DropdownMenuItem onClick={() => onBatchOperation('disable')}>{t.tokens.disable}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => onBatchOperation('enable_nsfw')}>{t.tokens.enableNsfw}</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onBatchOperation('disable_nsfw')}>{t.tokens.disableNsfw}</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={onBatchRefresh} disabled={refreshPending}>
               {t.tokens.refreshQuota}

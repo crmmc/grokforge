@@ -138,7 +138,6 @@ export const zh = {
     enable: "启用",
     disable: "禁用",
     enableNsfw: "启用 NSFW",
-    disableNsfw: "禁用 NSFW",
     export: "导出",
     noTokens: "暂无令牌",
     quota: "额度",

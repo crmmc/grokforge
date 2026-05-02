@@ -62,17 +62,18 @@ func (c *client) initHTTPClients() error {
 	return nil
 }
 
-func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
+// newTLSClient creates a tls-client HTTP client with the given options and proxy.
+func newTLSClient(opts *Options, proxyURL string) (tls_client.HttpClient, error) {
 	jar := tls_client.NewCookieJar()
-	profile := ResolveBrowserProfile(c.opts.Browser)
+	profile := ResolveBrowserProfile(opts.Browser)
 
 	tlsOpts := []tls_client.HttpClientOption{
-		tls_client.WithTimeoutSeconds(int(c.opts.RequestTimeout.Seconds())),
+		tls_client.WithTimeoutSeconds(int(opts.RequestTimeout.Seconds())),
 		tls_client.WithClientProfile(profile),
 		tls_client.WithCookieJar(jar),
 		tls_client.WithNotFollowRedirects(),
 	}
-	if c.opts.SkipProxySSLVerify {
+	if opts.SkipProxySSLVerify {
 		tlsOpts = append(tlsOpts, tls_client.WithInsecureSkipVerify())
 	}
 
@@ -82,7 +83,7 @@ func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
 
 	httpClient, err := tls_client.NewHttpClient(nil, tlsOpts...)
 	if err != nil {
-		slog.Debug("xai: tls-client init failed", "error", err, "browser", c.opts.Browser)
+		slog.Debug("xai: tls-client init failed", "error", err, "browser", opts.Browser)
 		return nil, err
 	}
 
@@ -95,13 +96,17 @@ func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
 		}
 	}
 	slog.Debug("xai: tls-client initialized",
-		"browser_profile", c.opts.Browser,
+		"browser_profile", opts.Browser,
 		"tls_profile", profile,
 		"proxy", maskedProxy,
-		"timeout_sec", int(c.opts.RequestTimeout.Seconds()),
-		"skip_proxy_ssl_verify", c.opts.SkipProxySSLVerify)
+		"timeout_sec", int(opts.RequestTimeout.Seconds()),
+		"skip_proxy_ssl_verify", opts.SkipProxySSLVerify)
 
 	return httpClient, nil
+}
+
+func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
+	return newTLSClient(c.opts, proxyURL)
 }
 
 // setProxy switches the underlying HTTP client's proxy.
