@@ -47,6 +47,7 @@ type Server struct {
 	tokenPoolSyncer TokenPoolSyncer
 	tokenInflight   TokenInflightProvider
 	tokenCfgSync    func(*config.TokenConfig)
+	nsfwEnabler     NsfwEnabler
 	usageLogStore   UsageLogStoreInterface
 	apiKeyStore     APIKeyStoreInterface
 	cacheService    *cache.Service
@@ -66,6 +67,7 @@ type ServerConfig struct {
 	TokenPoolSyncer TokenPoolSyncer
 	TokenInflight   TokenInflightProvider
 	TokenCfgSync    func(*config.TokenConfig)
+	NsfwEnabler     NsfwEnabler
 	UsageLogStore   UsageLogStoreInterface
 	APIKeyStore     APIKeyStoreInterface
 	CacheService    *cache.Service
@@ -95,6 +97,7 @@ func NewServer(cfg *ServerConfig) *Server {
 		tokenPoolSyncer: cfg.TokenPoolSyncer,
 		tokenInflight:   cfg.TokenInflight,
 		tokenCfgSync:    cfg.TokenCfgSync,
+		nsfwEnabler:     cfg.NsfwEnabler,
 		usageLogStore:   cfg.UsageLogStore,
 		apiKeyStore:     cfg.APIKeyStore,
 		cacheService:    cfg.CacheService,
@@ -223,9 +226,9 @@ func (s *Server) setupRoutes() {
 				r.Post("/tokens/{id}/refresh", handleRefreshToken(s.tokenStore, s.tokenRefresher, s.modelRegistry, s.tokenInflight))
 				r.Delete("/tokens/{id}", handleDeleteToken(s.tokenStore, s.tokenPoolSyncer))
 				if s.runtime != nil {
-					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
+					r.Post("/tokens/batch", handleBatchTokensFromProvider(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry, s.nsfwEnabler))
 				} else {
-					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry))
+					r.Post("/tokens/batch", handleBatchTokens(s.tokenStore, s.tokenPoolSyncer, s.modelRegistry, s.nsfwEnabler))
 				}
 				r.Post("/tokens/batch/refresh", handleBatchRefresh(s.tokenStore, s.tokenRefresher))
 

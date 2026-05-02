@@ -14,9 +14,9 @@ heavy = 150
 [[mode]]
 id = "fast"
 upstream_name = "fast"
-window_seconds = 36000
+window_seconds = 86400
 [mode.default_quota]
-basic = 60
+basic = 30
 super = 140
 heavy = 400
 

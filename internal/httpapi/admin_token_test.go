@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -325,7 +326,7 @@ func TestAdminToken_RefreshToken(t *testing.T) {
 
 func TestAdminToken_BatchImport_UsesLatestConfig(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokensFromProvider(mockStore, nil, nil)
+	handler := handleBatchTokensFromProvider(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"ssoBasic","quotas":{"auto":70}}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -345,7 +346,7 @@ func TestAdminToken_BatchImport_UsesLatestConfig(t *testing.T) {
 
 func TestAdminToken_BatchImport_UsesCatalogLimitsWithOverrides(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokensFromProvider(mockStore, nil, adminTestRegistry())
+	handler := handleBatchTokensFromProvider(mockStore, nil, adminTestRegistry(), nil)
 
 	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"ssoBasic","quotas":{"auto":12}}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -368,7 +369,7 @@ func TestAdminToken_BatchImport_UsesCatalogLimitsWithOverrides(t *testing.T) {
 
 func TestAdminToken_BatchImport_RejectsQuotaAboveCatalogLimit(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokensFromProvider(mockStore, nil, adminTestRegistry())
+	handler := handleBatchTokensFromProvider(mockStore, nil, adminTestRegistry(), nil)
 
 	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"ssoBasic","quotas":{"auto":70}}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -479,7 +480,7 @@ func TestAdminToken_UpdateToken_RejectsNegativeQuota(t *testing.T) {
 
 func TestAdminToken_BatchImport_NormalizesPoolAlias(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokensFromProvider(mockStore, nil, nil)
+	handler := handleBatchTokensFromProvider(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token_value_with_sufficient_length_12345"],"pool":"heavy"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -593,7 +594,7 @@ func TestAdminToken_DeleteToken_NotFound(t *testing.T) {
 
 func TestAdminToken_BatchImport(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test","token3_long_enough_for_test"],"pool":"basic","quotas":{"auto":100}}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -627,7 +628,7 @@ func TestAdminToken_BatchImport(t *testing.T) {
 
 func TestAdminToken_BatchImport_RejectsLegacyQuotaField(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token1_long_enough_for_test"],"pool":"basic","quota":100}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -646,7 +647,7 @@ func TestAdminToken_BatchExport(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", Status: store.TokenStatusActive}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Status: store.TokenStatusActive}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"export"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -680,7 +681,7 @@ func TestAdminToken_BatchExportRaw(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", Status: store.TokenStatusActive}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Status: store.TokenStatusActive}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"export"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch?raw=true", bytes.NewBufferString(body))
@@ -715,7 +716,7 @@ func TestAdminToken_BatchDelete(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2"}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3"}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"delete","ids":[1,3]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -749,7 +750,7 @@ func TestAdminToken_BatchDelete(t *testing.T) {
 
 func TestAdminToken_BatchInvalidOperation(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"invalid"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -952,7 +953,7 @@ func TestAdminToken_BatchEnable(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", Status: store.TokenStatusDisabled}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Status: store.TokenStatusDisabled}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"enable","ids":[1,2]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -990,7 +991,7 @@ func TestAdminToken_BatchDisable(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", Status: store.TokenStatusActive}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Status: store.TokenStatusActive}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"disable","ids":[1,2]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1025,7 +1026,7 @@ func TestAdminToken_BatchEnableNsfw(t *testing.T) {
 	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", NsfwEnabled: false}
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", NsfwEnabled: false}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"enable_nsfw","ids":[1,2]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1057,13 +1058,10 @@ func TestAdminToken_BatchEnableNsfw(t *testing.T) {
 	}
 }
 
-// Test 4: POST /admin/tokens/batch with disable_nsfw sets nsfw_enabled=false
-func TestAdminToken_BatchDisableNsfw(t *testing.T) {
+// Test 4: POST /admin/tokens/batch with disable_nsfw returns invalid operation
+func TestAdminToken_BatchDisableNsfw_Removed(t *testing.T) {
 	mockStore := newMockTokenStore()
-	mockStore.tokens[1] = &store.Token{ID: 1, Token: "token1", NsfwEnabled: true}
-	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", NsfwEnabled: true}
-
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"disable_nsfw","ids":[1,2]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1072,26 +1070,83 @@ func TestAdminToken_BatchDisableNsfw(t *testing.T) {
 
 	handler.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for removed disable_nsfw, got %d: %s", rec.Code, rec.Body.String())
+	}
+}
+
+// fakeNsfwEnabler records upstream calls for testing.
+type fakeNsfwEnabler struct {
+	mu     sync.Mutex
+	called []string
+	wg     sync.WaitGroup
+}
+
+func (f *fakeNsfwEnabler) EnableNsfwUpstream(_ context.Context, tokenStr string) error {
+	f.mu.Lock()
+	f.called = append(f.called, tokenStr)
+	f.mu.Unlock()
+	f.wg.Done()
+	return nil
+}
+
+// Test 4b: Batch enable_nsfw fires async upstream calls via NsfwEnabler
+func TestAdminToken_BatchEnableNsfw_CallsUpstream(t *testing.T) {
+	mockStore := newMockTokenStore()
+	mockStore.tokens[1] = &store.Token{ID: 1, Token: "sso-token-1", NsfwEnabled: false}
+	mockStore.tokens[2] = &store.Token{ID: 2, Token: "sso-token-2", NsfwEnabled: false}
+
+	enabler := &fakeNsfwEnabler{}
+	enabler.wg.Add(2) // expect 2 upstream calls
+
+	handler := handleBatchTokens(mockStore, nil, nil, enabler)
+
+	body := `{"operation":"enable_nsfw","ids":[1,2]}`
+	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	// Response should return immediately with success
 	if rec.Code != http.StatusOK {
-		t.Errorf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
 	var resp BatchTokenResponse
 	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-
-	if resp.Operation != BatchOpDisableNsfw {
-		t.Errorf("expected operation disable_nsfw, got %s", resp.Operation)
-	}
 	if resp.Success != 2 {
 		t.Errorf("expected 2 success, got %d", resp.Success)
 	}
-	if mockStore.tokens[1].NsfwEnabled {
-		t.Error("expected token 1 NsfwEnabled to be false")
+
+	// DB should be updated optimistically
+	if !mockStore.tokens[1].NsfwEnabled {
+		t.Error("expected token 1 NsfwEnabled to be true")
 	}
-	if mockStore.tokens[2].NsfwEnabled {
-		t.Error("expected token 2 NsfwEnabled to be false")
+
+	// Wait for async upstream calls (with timeout)
+	done := make(chan struct{})
+	go func() {
+		enabler.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for upstream NsfwEnabler calls")
+	}
+
+	// Verify enabler received the correct token strings
+	enabler.mu.Lock()
+	defer enabler.mu.Unlock()
+	if len(enabler.called) != 2 {
+		t.Fatalf("expected 2 upstream calls, got %d", len(enabler.called))
+	}
+	tokens := map[string]bool{enabler.called[0]: true, enabler.called[1]: true}
+	if !tokens["sso-token-1"] || !tokens["sso-token-2"] {
+		t.Errorf("expected sso-token-1 and sso-token-2, got %v", enabler.called)
 	}
 }
 
@@ -1102,7 +1157,7 @@ func TestAdminToken_BatchUpdate_ReturnsCount(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2", Status: store.TokenStatusActive}
 	// Note: ID 3 doesn't exist
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"disable","ids":[1,2,3]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1123,7 +1178,7 @@ func TestAdminToken_BatchUpdate_ReturnsCount(t *testing.T) {
 // Test 7: Import rejects short tokens (< 20 characters)
 func TestAdminToken_BatchImport_ShortTokenRejected(t *testing.T) {
 	mockStore := newMockTokenStore()
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["short","also_short_token","valid_token_long_enough_here"],"pool":"basic","quotas":{"auto":100}}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1161,7 +1216,7 @@ func TestAdminToken_BatchImport_ShortTokenRejected(t *testing.T) {
 func TestAdminToken_BatchImport_WithRemarkAndNsfw(t *testing.T) {
 	mockStore := newMockTokenStore()
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token1_long_enough_for_test","token2_long_enough_for_test"],"pool":"ssoBasic","quotas":{"auto":100},"remark":"Imported tokens","nsfw_enabled":true}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1198,7 +1253,7 @@ func TestAdminToken_BatchImport_WithRemarkAndNsfw(t *testing.T) {
 func TestAdminToken_BatchImport_PoolAndRemark(t *testing.T) {
 	mockStore := newMockTokenStore()
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"import","tokens":["token_a_long_enough_for_test","token_b_long_enough_for_test"],"pool":"ssoSuper","remark":"Super pool tokens"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch", bytes.NewBufferString(body))
@@ -1665,7 +1720,7 @@ func TestBatchExport_WithIDs(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2"}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3"}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"export","ids":[1,3]}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch?raw=true", bytes.NewBufferString(body))
@@ -1694,7 +1749,7 @@ func TestBatchExport_WithoutIDs_ExportsAll(t *testing.T) {
 	mockStore.tokens[2] = &store.Token{ID: 2, Token: "token2"}
 	mockStore.tokens[3] = &store.Token{ID: 3, Token: "token3"}
 
-	handler := handleBatchTokens(mockStore, nil, nil)
+	handler := handleBatchTokens(mockStore, nil, nil, nil)
 
 	body := `{"operation":"export"}`
 	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/batch?raw=true", bytes.NewBufferString(body))

@@ -73,7 +73,6 @@ export type BatchOperation =
   | "disable"
   | "delete"
   | "enable_nsfw"
-  | "disable_nsfw"
   | "export"
   | "import";
 

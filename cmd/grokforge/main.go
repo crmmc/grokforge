@@ -287,6 +287,8 @@ func main() {
 	}
 
 	// Create HTTP server
+	nsfwEnabler := &nsfwEnablerImpl{runtime: runtimeCfg}
+
 	srv := httpapi.NewServer(&httpapi.ServerConfig{
 		AppKey:          runtimeCfg.Get().App.AppKey,
 		Version:         version,
@@ -298,6 +300,7 @@ func main() {
 		TokenPoolSyncer: tokenSvc,
 		TokenInflight:   tokenSvc.Manager(),
 		TokenCfgSync:    tokenSvc.Manager().UpdateConfig,
+		NsfwEnabler:     nsfwEnabler,
 		UsageLogStore:   usageLogStore,
 		APIKeyStore:     apiKeyStore,
 		CacheService:    cacheSvc,
@@ -379,13 +382,9 @@ func main() {
 	logging.Info("server stopped")
 }
 
-func newXAIClient(runtime *config.Runtime, token string, noRetry bool) (xai.Client, error) {
-	cfg := runtime.Get()
+func buildXAIOptions(cfg *config.Config) []xai.ClientOption {
 	opts := []xai.ClientOption{
 		xai.WithDynamicStatsig(cfg.App.DynamicStatsig),
-	}
-	if noRetry {
-		opts = append(opts, xai.WithMaxRetry(0))
 	}
 	if cfg.Proxy.Timeout > 0 {
 		opts = append(opts, xai.WithTimeout(time.Duration(cfg.Proxy.Timeout)*time.Second))
@@ -411,6 +410,14 @@ func newXAIClient(runtime *config.Runtime, token string, noRetry bool) (xai.Clie
 	if cfg.Proxy.CFCookies != "" {
 		opts = append(opts, xai.WithCFCookies(cfg.Proxy.CFCookies))
 	}
+	return opts
+}
+
+func newXAIClient(runtime *config.Runtime, token string, noRetry bool) (xai.Client, error) {
+	opts := buildXAIOptions(runtime.Get())
+	if noRetry {
+		opts = append(opts, xai.WithMaxRetry(0))
+	}
 	return xai.NewClient(token, opts...)
 }
 
@@ -433,4 +440,27 @@ func newImagineClient(runtime *config.Runtime, token string) flow.ImagineGenerat
 		opts = append(opts, xai.WithImagineCFCookies(cfg.Proxy.CFCookies))
 	}
 	return xai.NewImagineClient(token, opts...)
+}
+
+// nsfwEnablerImpl implements httpapi.NsfwEnabler using xai.NsfwClient.
+type nsfwEnablerImpl struct {
+	runtime *config.Runtime
+}
+
+func (s *nsfwEnablerImpl) EnableNsfwUpstream(ctx context.Context, tokenStr string) error {
+	cfg := s.runtime.Get()
+	opts := buildXAIOptions(cfg)
+	client, err := xai.NewNsfwClient(tokenStr, opts...)
+	if err != nil {
+		return err
+	}
+	defer client.Close()
+
+	timeout := time.Duration(cfg.Proxy.Timeout) * time.Second
+	if timeout <= 0 {
+		timeout = 90 * time.Second
+	}
+	tctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return xai.EnableNSFW(tctx, client)
 }

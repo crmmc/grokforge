@@ -6,18 +6,20 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 
+	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
 )
 
 // handleBatchTokens returns a handler for batch token operations.
-func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry) http.HandlerFunc {
-	return handleBatchTokensFromProvider(ts, syncer, reg)
+func handleBatchTokens(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry, nsfwEnabler NsfwEnabler) http.HandlerFunc {
+	return handleBatchTokensFromProvider(ts, syncer, reg, nsfwEnabler)
 }
 
-func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry) http.HandlerFunc {
+func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSyncer, reg *registry.ModelRegistry, nsfwEnabler NsfwEnabler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req BatchTokenRequest
 		decoder := json.NewDecoder(r.Body)
@@ -38,11 +40,13 @@ func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSynce
 			resp = handleBatchExport(r.Context(), ts, req.IDs, r.URL.Query().Get("raw") == "true")
 		case BatchOpDelete:
 			resp = handleBatchDelete(r.Context(), ts, syncer, req)
-		case BatchOpEnable, BatchOpDisable, BatchOpEnableNsfw, BatchOpDisableNsfw:
+		case BatchOpEnable, BatchOpDisable:
 			resp = handleBatchUpdate(r.Context(), ts, syncer, req)
+		case BatchOpEnableNsfw:
+			resp = handleBatchEnableNsfw(r.Context(), ts, syncer, req, nsfwEnabler)
 		default:
 			WriteError(w, 400, "invalid_request", "invalid_operation",
-				"Invalid operation. Must be: import, export, delete, enable, disable, enable_nsfw, or disable_nsfw")
+				"Invalid operation. Must be: import, export, delete, enable, disable, or enable_nsfw")
 			return
 		}
 
@@ -55,13 +59,12 @@ func handleBatchTokensFromProvider(ts TokenStoreInterface, syncer TokenPoolSynce
 type BatchOperation string
 
 const (
-	BatchOpImport      BatchOperation = "import"
-	BatchOpExport      BatchOperation = "export"
-	BatchOpDelete      BatchOperation = "delete"
-	BatchOpEnable      BatchOperation = "enable"
-	BatchOpDisable     BatchOperation = "disable"
-	BatchOpEnableNsfw  BatchOperation = "enable_nsfw"
-	BatchOpDisableNsfw BatchOperation = "disable_nsfw"
+	BatchOpImport     BatchOperation = "import"
+	BatchOpExport     BatchOperation = "export"
+	BatchOpDelete     BatchOperation = "delete"
+	BatchOpEnable     BatchOperation = "enable"
+	BatchOpDisable    BatchOperation = "disable"
+	BatchOpEnableNsfw BatchOperation = "enable_nsfw"
 )
 
 // BatchTokenRequest is the request body for batch token operations.
@@ -256,10 +259,6 @@ func handleBatchUpdate(ctx context.Context, ts TokenStoreInterface, syncer Token
 	case BatchOpDisable:
 		batchReq.Status = ptrString(store.TokenStatusDisabled)
 		batchReq.StatusReason = ptrString("manual disable")
-	case BatchOpEnableNsfw:
-		batchReq.NsfwEnabled = ptrBool(true)
-	case BatchOpDisableNsfw:
-		batchReq.NsfwEnabled = ptrBool(false)
 	}
 
 	count, err := ts.BatchUpdateTokens(ctx, batchReq)
@@ -341,4 +340,50 @@ func copyIntMap(src store.IntMap) store.IntMap {
 		dst[key] = val
 	}
 	return dst
+}
+
+// handleBatchEnableNsfw updates DB immediately (optimistic), syncs pool, then fires async upstream calls.
+func handleBatchEnableNsfw(ctx context.Context, ts TokenStoreInterface, syncer TokenPoolSyncer, req BatchTokenRequest, nsfwEnabler NsfwEnabler) BatchTokenResponse {
+	resp := BatchTokenResponse{Operation: req.Operation}
+
+	// 1. Immediate DB update (optimistic mark)
+	count, err := ts.BatchUpdateTokens(ctx, store.BatchUpdateRequest{
+		IDs:         req.IDs,
+		NsfwEnabled: ptrBool(true),
+	})
+	if err != nil {
+		resp.Errors = append(resp.Errors, BatchError{
+			Message: "batch update failed: " + err.Error(),
+		})
+		return resp
+	}
+
+	// 2. Sync in-memory pool
+	if syncer != nil {
+		for _, id := range req.IDs {
+			if err := syncer.SyncToken(ctx, id); err != nil {
+				slog.Warn("failed to sync token to pool", "token_id", id, "error", err)
+			}
+		}
+	}
+
+	// 3. Fire-and-forget upstream enable (async)
+	if nsfwEnabler != nil {
+		ids := slices.Clone(req.IDs)
+		flow.SafeGo("nsfw_enable_batch", func() {
+			for _, id := range ids {
+				tok, err := ts.GetToken(context.Background(), id)
+				if err != nil {
+					slog.Warn("nsfw: get token", "id", id, "err", err)
+					continue
+				}
+				if err := nsfwEnabler.EnableNsfwUpstream(context.Background(), tok.Token); err != nil {
+					slog.Warn("nsfw: upstream enable failed", "id", id, "err", err)
+				}
+			}
+		})
+	}
+
+	resp.Success = count
+	return resp
 }
