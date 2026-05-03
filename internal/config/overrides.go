@@ -198,6 +198,12 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Image.NSFW = parsed
+		case "image.format":
+			format := strings.ToLower(strings.TrimSpace(v))
+			if err := ValidateImageFormat(format); err != nil {
+				return err
+			}
+			c.Image.Format = format
 		case "image.blocked_parallel_attempts":
 			parsed, err := parseIntOverride(k, v)
 			if err != nil {

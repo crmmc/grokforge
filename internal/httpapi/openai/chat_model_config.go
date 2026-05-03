@@ -170,8 +170,9 @@ func (h *Handler) resolveChatVideoConfig(cfg *VideoConfig) (*resolvedChatVideoCo
 func normalizeChatImageResponseFormat(format string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "", "url", "b64_json", "base64":
-		// Chat image responses are rendered as markdown data URIs, so upstream
-		// media URLs never leave the gateway even if the client asks for "url".
+		// Chat image response_format is accepted for compatibility; final media
+		// rendering is controlled by image.format so upstream media URLs never leave
+		// the gateway.
 		return "b64_json", nil
 	default:
 		return "", fmt.Errorf("image_config.response_format must be one of url, b64_json, base64")

@@ -59,6 +59,7 @@ export const tokenConfigSchema = z.object({
 
 export const imageConfigSchema = z.object({
   nsfw: z.boolean(),
+  format: z.enum(["base64", "local_url"]),
   blocked_parallel_attempts: z.number().int().min(1),
   blocked_parallel_enabled: z.boolean(),
 });

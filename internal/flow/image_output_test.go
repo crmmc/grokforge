@@ -81,7 +81,7 @@ func TestResolveBase64_NilDownload(t *testing.T) {
 }
 
 func TestResolveLocalURL_FromB64JSON(t *testing.T) {
-	cacheSvc := cache.NewService(t.TempDir())
+	cacheSvc := cache.NewService(t.TempDir(), nil)
 	f := &ImageFlow{
 		imageConfigFn: func() *config.ImageConfig {
 			return &config.ImageConfig{Format: "local_url"}
@@ -104,7 +104,7 @@ func TestResolveLocalURL_FromB64JSON(t *testing.T) {
 }
 
 func TestResolveLocalURL_FromRawURL(t *testing.T) {
-	cacheSvc := cache.NewService(t.TempDir())
+	cacheSvc := cache.NewService(t.TempDir(), nil)
 	dl := func(ctx context.Context, url string) ([]byte, error) {
 		return []byte("png-bytes"), nil
 	}
@@ -168,7 +168,7 @@ func TestResolveImageOutput_DefaultBase64(t *testing.T) {
 }
 
 func TestResolveImageOutput_NoLeakInURL(t *testing.T) {
-	cacheSvc := cache.NewService(t.TempDir())
+	cacheSvc := cache.NewService(t.TempDir(), nil)
 	dl := func(ctx context.Context, url string) ([]byte, error) {
 		return []byte("data"), nil
 	}

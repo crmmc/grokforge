@@ -8,11 +8,14 @@ import (
 	"errors"
 	"image"
 	"image/png"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
@@ -190,6 +193,29 @@ func TestImageFlow_Generate_Success(t *testing.T) {
 	assert.Equal(t, finalData, resp.Data[0].B64JSON)
 }
 
+func TestImageFlow_Generate_LocalURL(t *testing.T) {
+	mock := &mockImagineClient{
+		events: []xai.ImageEvent{
+			{Type: xai.ImageEventFinal, ImageData: "iVBORw0KGgo=", RequestID: "req-1"},
+		},
+	}
+	flow := newTestImageFlow(mock)
+	flow.SetImageConfig(&config.ImageConfig{Format: config.ImageFormatLocalURL})
+	flow.SetCacheService(cache.NewService(t.TempDir(), nil))
+
+	resp, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
+		Prompt: "local image",
+		Size:   "1024x1024",
+		N:      1,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Data, 1)
+	assert.Empty(t, resp.Data[0].B64JSON)
+	assert.True(t, strings.HasPrefix(resp.Data[0].URL, "/api/files/image/"))
+	assert.Equal(t, "local image", resp.Data[0].RevisedPrompt)
+}
+
 func TestImageFlow_GenerateLite_UsesResolvedMode(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
@@ -214,6 +240,7 @@ func TestImageFlow_GenerateLite_UsesResolvedMode(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, resp.Data, 1)
 	require.Equal(t, []string{"auto"}, tokenSvc.pickModes)
+	require.Equal(t, "draw a lighthouse", resp.Data[0].RevisedPrompt)
 }
 
 func TestImageFlow_Generate_Blocked(t *testing.T) {
@@ -286,6 +313,54 @@ func TestImageFlow_Generate_BlockedRecoverySuccess(t *testing.T) {
 	require.Len(t, resp.Data, 1)
 	assert.Equal(t, "recovered-image", resp.Data[0].B64JSON)
 	assert.Equal(t, []string{"tok-1", "tok-2"}, usedTokens)
+}
+
+func TestImageFlow_Generate_BlockedRecoveryLocalURLCachesOnlyWinner(t *testing.T) {
+	dataDir := t.TempDir()
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{
+			{ID: 1, Token: "tok-1", Pool: "basic"},
+			{ID: 2, Token: "tok-2", Pool: "basic"},
+			{ID: 3, Token: "tok-3", Pool: "basic"},
+		},
+	}
+	flow := NewImageFlow(tokenSvc, func(token string) ImagineGenerator {
+		return imagineGeneratorFunc(func(ctx context.Context, prompt, aspectRatio string, enableNSFW, enablePro bool) (<-chan xai.ImageEvent, error) {
+			events := []xai.ImageEvent{{Type: xai.ImageEventFinal, ImageData: "iVBORw0KGgo=", RequestID: token}}
+			if token == "tok-1" {
+				events = []xai.ImageEvent{{Type: xai.ImageEventBlocked, RequestID: "req-1"}}
+			}
+			ch := make(chan xai.ImageEvent, len(events))
+			for _, event := range events {
+				ch <- event
+			}
+			close(ch)
+			return ch, nil
+		})
+	})
+	flow.SetModelResolver(testModelResolver())
+	flow.SetCacheService(cache.NewService(dataDir, nil))
+	enabled := true
+	flow.SetImageConfig(&config.ImageConfig{
+		Format:                  config.ImageFormatLocalURL,
+		BlockedParallelAttempts: 2,
+		BlockedParallelEnabled:  &enabled,
+	})
+
+	resp, err := flow.Generate(context.Background(), &ImageRequest{
+		Model:  "grok-imagine-image",
+		Prompt: "recover to local url",
+		Size:   "1024x1024",
+		N:      1,
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Data, 1)
+	assert.Empty(t, resp.Data[0].B64JSON)
+	assert.True(t, strings.HasPrefix(resp.Data[0].URL, "/api/files/image/"))
+
+	entries, err := os.ReadDir(filepath.Join(dataDir, "tmp", "image"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
 }
 
 func TestImageFlow_Generate_UsesConfigNSFWDefault(t *testing.T) {

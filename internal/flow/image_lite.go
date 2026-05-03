@@ -2,7 +2,6 @@ package flow
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -137,18 +136,15 @@ func (f *ImageFlow) generateLiteSingle(
 	// Use the first image URL
 	imgURL := imageURLs[0]
 
-	if req.ResponseFormat == "url" {
-		return &ImageData{URL: imgURL}, nil
-	}
-
-	// Download and convert to base64
-	imgBytes, err := client.DownloadURL(ctx, imgURL)
+	data, err := f.resolveImageOutput(ctx, imageOutputInput{
+		RawURL:   imgURL,
+		Prompt:   req.Prompt,
+		Download: client.DownloadURL,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("download lite image: %w", err)
+		return nil, err
 	}
-	return &ImageData{
-		B64JSON: base64.StdEncoding.EncodeToString(imgBytes),
-	}, nil
+	return &data, nil
 }
 
 // extractImageURLsFromEvent extracts image URLs from a stream event's JSON data.

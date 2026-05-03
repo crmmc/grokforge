@@ -3,7 +3,7 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, Loader2 } from 'lucide-react'
-import { Button, Input, Label, Switch } from '@/components/ui'
+import { Button, Input, Label, Select, SelectOption, Switch } from '@/components/ui'
 import { ConfigSection } from './config-section'
 import { SensitiveInput } from './sensitive-input'
 import { ProxyConfigSection } from './proxy-config-section'
@@ -55,6 +55,7 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
       proxy: config.proxy,
       retry: config.retry,
       image: {
+        format: config.image?.format ?? 'base64',
         blocked_parallel_enabled: config.image?.blocked_parallel_enabled ?? true,
         blocked_parallel_attempts: config.image?.blocked_parallel_attempts ?? 5,
       },
@@ -162,6 +163,14 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
 
       {/* Image Blocked Parallel Settings */}
       <ConfigSection title={t.config.imageSettings} description={t.config.imageSettingsDesc}>
+        <div className="max-w-xs space-y-2">
+          <Label htmlFor="image.format">{t.config.imageOutputFormat}</Label>
+          <Select id="image.format" {...register('image.format')}>
+            <SelectOption value="base64">{t.config.imageOutputFormatBase64}</SelectOption>
+            <SelectOption value="local_url">{t.config.imageOutputFormatLocalURL}</SelectOption>
+          </Select>
+          <p className="text-xs text-muted">{t.config.imageOutputFormatDesc}</p>
+        </div>
         <div className="flex items-center space-x-2">
           <Switch id="image.blocked_parallel_enabled" checked={watch('image.blocked_parallel_enabled')} onCheckedChange={(v: boolean) => setValue('image.blocked_parallel_enabled', v, { shouldDirty: true })} />
           <div>

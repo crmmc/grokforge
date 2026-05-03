@@ -49,7 +49,9 @@ func (s *streamResponseState) ensureMediaRewriter(event flow.StreamEvent) {
 	if s.rewriter != nil || event.Downloader == nil || s.cfg == nil || !s.cfg.App.MediaGenerationEnabled {
 		return
 	}
-	s.rewriter = newMediaRewriter(event.Downloader)
+	imageFormat := s.h.imageOutputFormat()
+	localURL := func(name string) string { return buildFileURL(s.r, "image", name) }
+	s.rewriter = newMediaRewriter(event.Downloader, s.h.CacheService, imageFormat, localURL)
 }
 
 func (s *streamResponseState) finish() error {

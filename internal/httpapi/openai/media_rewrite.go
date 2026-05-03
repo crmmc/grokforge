@@ -15,6 +15,8 @@ import (
 
 const assetsGrokBaseURL = "https://assets.grok.com/"
 const grokImagePathPrefix = "img/"
+const mediaRewriteFormatBase64 = "base64"
+const mediaRewriteFormatLocalURL = "local_url"
 
 var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
 var absoluteURLRe = regexp.MustCompile(`https?://[^'"\s)<>]+`)
@@ -28,12 +30,24 @@ type mediaRewriter struct {
 }
 
 // newMediaRewriter creates a rewriter. Returns nil if dl is nil.
-func newMediaRewriter(dl flow.DownloadFunc) *mediaRewriter {
+func newMediaRewriter(
+	dl flow.DownloadFunc,
+	cacheSvc *cache.Service,
+	format string,
+	localURLFunc func(filename string) string,
+) *mediaRewriter {
 	if dl == nil {
 		return nil
 	}
+	format = strings.ToLower(strings.TrimSpace(format))
+	if format == "" {
+		format = mediaRewriteFormatBase64
+	}
 	return &mediaRewriter{
-		download: dl,
+		download:     dl,
+		cacheSvc:     cacheSvc,
+		format:       format,
+		localURLFunc: localURLFunc,
 	}
 }
 
@@ -102,8 +116,28 @@ func (m *mediaRewriter) renderImage(ctx context.Context, alt, assetURL string) (
 	if !strings.HasPrefix(mime, "image/") {
 		return "", fmt.Errorf("downloaded media is not an image: %s", mime)
 	}
+	if m.format == mediaRewriteFormatLocalURL {
+		return m.renderLocalImage(alt, data)
+	}
+	if m.format != mediaRewriteFormatBase64 {
+		return "", fmt.Errorf("media rewrite: unsupported format %q", m.format)
+	}
 	dataURI := fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))
 	return fmt.Sprintf("![%s](%s)", alt, dataURI), nil
+}
+
+func (m *mediaRewriter) renderLocalImage(alt string, data []byte) (string, error) {
+	if m.cacheSvc == nil {
+		return "", fmt.Errorf("media rewrite: local_url requires cache service")
+	}
+	if m.localURLFunc == nil {
+		return "", fmt.Errorf("media rewrite: local_url requires local URL builder")
+	}
+	name, err := m.cacheSvc.SaveFile("image", data, detectRewriteImageExt(data))
+	if err != nil {
+		return "", fmt.Errorf("cache save: %w", err)
+	}
+	return fmt.Sprintf("![%s](%s)", alt, m.localURLFunc(name)), nil
 }
 
 // isGrokImageTarget checks if a markdown image target should be rewritten.
@@ -239,4 +273,17 @@ func isGrokMediaURLTarget(rawURL string) bool {
 
 func isGrokImagePath(host, path string) bool {
 	return host == "grok.com" && strings.HasPrefix(path, grokImagePathPrefix)
+}
+
+func detectRewriteImageExt(data []byte) string {
+	switch http.DetectContentType(data) {
+	case "image/jpeg":
+		return ".jpg"
+	case "image/webp":
+		return ".webp"
+	case "image/gif":
+		return ".gif"
+	default:
+		return ".png"
+	}
 }

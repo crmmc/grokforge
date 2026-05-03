@@ -63,6 +63,8 @@ admin_window_sec = 300
 [image]
 # Allow NSFW content
 nsfw = false
+# Image output format: base64 or local_url
+format = "base64"
 # Parallel attempts when image is blocked
 blocked_parallel_attempts = 5
 # Enable blocked parallel retry

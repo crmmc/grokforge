@@ -66,6 +66,37 @@ func TestLoad_RejectsNegativeCacheVideoLimit(t *testing.T) {
 	}
 }
 
+func TestLoad_RejectsInvalidImageFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[image]\nformat = \"url\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "image.format") {
+		t.Fatalf("expected image.format error, got %v", err)
+	}
+}
+
+func TestLoad_AllowsLocalURLImageFormat(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := "[image]\nformat = \"local_url\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cfg.Image.Format != ImageFormatLocalURL {
+		t.Fatalf("expected local_url, got %q", cfg.Image.Format)
+	}
+}
+
 func TestLoad_RejectsNegativeRecentUsePenalty(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -77,6 +108,31 @@ func TestLoad_RejectsNegativeRecentUsePenalty(t *testing.T) {
 	_, err := Load(path)
 	if err == nil || !strings.Contains(err.Error(), "token.recent_use_penalty_sec") {
 		t.Fatalf("expected token.recent_use_penalty_sec error, got %v", err)
+	}
+}
+
+func TestApplyDBOverrides_ImageFormat(t *testing.T) {
+	cfg := DefaultConfig()
+
+	err := cfg.ApplyDBOverrides(map[string]string{
+		"image.format": " local_url ",
+	})
+	if err != nil {
+		t.Fatalf("apply overrides: %v", err)
+	}
+	if cfg.Image.Format != ImageFormatLocalURL {
+		t.Fatalf("expected local_url, got %q", cfg.Image.Format)
+	}
+}
+
+func TestApplyDBOverrides_RejectsInvalidImageFormat(t *testing.T) {
+	cfg := DefaultConfig()
+
+	err := cfg.ApplyDBOverrides(map[string]string{
+		"image.format": "url",
+	})
+	if err == nil || !strings.Contains(err.Error(), "image.format") {
+		t.Fatalf("expected image.format error, got %v", err)
 	}
 }
 

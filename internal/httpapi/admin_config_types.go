@@ -54,9 +54,10 @@ type ProxyConfigResponse struct {
 
 // ImageConfigResponse is the API response for image config.
 type ImageConfigResponse struct {
-	NSFW                    bool `json:"nsfw"`
-	BlockedParallelAttempts int  `json:"blocked_parallel_attempts"`
-	BlockedParallelEnabled  bool `json:"blocked_parallel_enabled"`
+	NSFW                    bool   `json:"nsfw"`
+	Format                  string `json:"format"`
+	BlockedParallelAttempts int    `json:"blocked_parallel_attempts"`
+	BlockedParallelEnabled  bool   `json:"blocked_parallel_enabled"`
 }
 
 // RetryConfigResponse is the API response for retry config.
@@ -96,9 +97,10 @@ type ConfigUpdateRequest struct {
 
 // ImageConfigUpdate contains hot-reloadable image config fields.
 type ImageConfigUpdate struct {
-	NSFW                    *bool `json:"nsfw,omitempty"`
-	BlockedParallelAttempts *int  `json:"blocked_parallel_attempts,omitempty"`
-	BlockedParallelEnabled  *bool `json:"blocked_parallel_enabled,omitempty"`
+	NSFW                    *bool   `json:"nsfw,omitempty"`
+	Format                  *string `json:"format,omitempty"`
+	BlockedParallelAttempts *int    `json:"blocked_parallel_attempts,omitempty"`
+	BlockedParallelEnabled  *bool   `json:"blocked_parallel_enabled,omitempty"`
 }
 
 // ProxyConfigUpdate contains hot-reloadable proxy config fields.

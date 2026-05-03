@@ -586,6 +586,10 @@ export const en = {
     imageNsfw: "Allow NSFW",
     imageNsfwDesc:
       "Default NSFW setting for image generation. Can be overridden per-request via image_config.enable_nsfw.",
+    imageOutputFormat: "Image Output Format",
+    imageOutputFormatDesc: "base64 returns inline image data; local_url caches files and returns /api/files links.",
+    imageOutputFormatBase64: "Base64",
+    imageOutputFormatLocalURL: "Local URL",
     blockedParallelEnabled: "Enable Blocked Parallel Retry",
     blockedParallelEnabledDesc:
       "Retry image generation in parallel when blocked",

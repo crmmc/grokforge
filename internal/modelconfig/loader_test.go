@@ -63,19 +63,19 @@ func TestLoad_EmbeddedCatalog(t *testing.T) {
 		t.Fatalf("Load embedded: %v", err)
 	}
 
-	if got := len(models); got != 11 {
-		t.Fatalf("expected 11 models, got %d", got)
+	if got := len(models); got != 20 {
+		t.Fatalf("expected 20 models, got %d", got)
 	}
 	if got := len(modes); got != 5 {
 		t.Fatalf("expected 5 modes, got %d", got)
 	}
 
 	first := models[0]
-	if first.ID != "grok-4.20" {
-		t.Errorf("first model id = %q, want %q", first.ID, "grok-4.20")
+	if first.ID != "grok-4.20-0309-non-reasoning" {
+		t.Errorf("first model id = %q, want %q", first.ID, "grok-4.20-0309-non-reasoning")
 	}
-	if first.Mode != "auto" {
-		t.Errorf("first model mode = %q, want %q", first.Mode, "auto")
+	if first.Mode != "fast" {
+		t.Errorf("first model mode = %q, want %q", first.Mode, "fast")
 	}
 
 	m0 := modes[0]

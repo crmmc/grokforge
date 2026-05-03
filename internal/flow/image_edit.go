@@ -127,7 +127,7 @@ func (f *ImageFlow) collectEditedImages(
 			}
 			seen[rawURL] = struct{}{}
 
-			imageData, err := resolveImageEditOutput(ctx, client, req.ResponseFormat, req.Prompt, rawURL)
+			imageData, err := f.resolveImageEditOutput(ctx, client, req.Prompt, rawURL)
 			if err != nil {
 				return nil, err
 			}
@@ -297,26 +297,17 @@ func collectImageURLs(payload any) []string {
 	return urls
 }
 
-func resolveImageEditOutput(
+func (f *ImageFlow) resolveImageEditOutput(
 	ctx context.Context,
 	client ImageEditClient,
-	responseFormat string,
 	prompt string,
 	rawURL string,
 ) (ImageData, error) {
-	if responseFormat == "url" {
-		return ImageData{URL: rawURL, RevisedPrompt: prompt}, nil
-	}
-
-	content, err := client.DownloadURL(ctx, rawURL)
-	if err != nil {
-		return ImageData{}, fmt.Errorf("download edited image: %w", err)
-	}
-
-	return ImageData{
-		B64JSON:       base64.StdEncoding.EncodeToString(content),
-		RevisedPrompt: prompt,
-	}, nil
+	return f.resolveImageOutput(ctx, imageOutputInput{
+		RawURL:   rawURL,
+		Prompt:   prompt,
+		Download: client.DownloadURL,
+	})
 }
 
 func appendImageURL(urls *[]string, seen map[string]struct{}, rawURL string) {

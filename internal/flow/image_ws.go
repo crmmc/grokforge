@@ -45,7 +45,16 @@ func (f *ImageFlow) generateWS(ctx context.Context, req *ImageRequest) (*ImageRe
 			return nil, err
 		}
 		tok = result.token
-		images = append(images, *result.data)
+		data, err := f.resolveImageOutput(ctx, imageOutputInput{
+			B64JSON: result.b64JSON,
+			Prompt:  req.Prompt,
+		})
+		if err != nil {
+			f.reportWSImageError(req.Model, tok.ID, err, req.CooldownSeconds)
+			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
+			return nil, err
+		}
+		images = append(images, data)
 		usedTokenIDs[tok.ID] = struct{}{}
 	}
 

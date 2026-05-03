@@ -19,14 +19,14 @@ const (
 var errImageGenerationBlocked = errors.New("content blocked by safety filter")
 
 type imageGenerationResult struct {
-	data  *ImageData
-	token *store.Token
+	b64JSON string
+	token   *store.Token
 }
 
 type imageAttemptResult struct {
-	data  *ImageData
-	token *store.Token
-	err   error
+	b64JSON string
+	token   *store.Token
+	err     error
 }
 
 func (f *ImageFlow) generateWithRecovery(
@@ -38,12 +38,12 @@ func (f *ImageFlow) generateWithRecovery(
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
 ) (*imageGenerationResult, error) {
-	data, err := f.generateSingle(ctx, f.clientFactory(token.Token), prompt, aspectRatio, enableNSFW, enablePro)
+	b64JSON, err := f.generateSingle(ctx, f.clientFactory(token.Token), prompt, aspectRatio, enableNSFW, enablePro)
 	if !errors.Is(err, errImageGenerationBlocked) {
 		if err != nil {
 			return nil, err
 		}
-		return &imageGenerationResult{data: data, token: token}, nil
+		return &imageGenerationResult{b64JSON: b64JSON, token: token}, nil
 	}
 	if !blockedParallelEnabled(f.imageConfig()) {
 		f.tokenSvc.ReleaseToken(token.ID)
@@ -59,13 +59,13 @@ func (f *ImageFlow) generateSingle(
 	client ImagineGenerator,
 	prompt, aspectRatio string,
 	enableNSFW, enablePro bool,
-) (*ImageData, error) {
+) (string, error) {
 	if client == nil {
-		return nil, errors.New("image client is nil")
+		return "", errors.New("image client is nil")
 	}
 	eventCh, err := client.Generate(ctx, prompt, aspectRatio, enableNSFW, enablePro)
 	if err != nil {
-		return nil, fmt.Errorf("start generation: %w", err)
+		return "", fmt.Errorf("start generation: %w", err)
 	}
 
 	var finalImage string
@@ -74,19 +74,18 @@ func (f *ImageFlow) generateSingle(
 		case xai.ImageEventFinal:
 			finalImage = event.ImageData
 		case xai.ImageEventBlocked:
-			return nil, errImageGenerationBlocked
+			return "", errImageGenerationBlocked
 		case xai.ImageEventError:
 			if event.Error != nil {
-				return nil, fmt.Errorf("generation error: %w", event.Error)
+				return "", fmt.Errorf("generation error: %w", event.Error)
 			}
-			return nil, errors.New("unknown generation error")
+			return "", errors.New("unknown generation error")
 		}
 	}
 	if finalImage == "" {
-		return nil, errors.New("no final image received")
+		return "", errors.New("no final image received")
 	}
-
-	return &ImageData{B64JSON: finalImage, RevisedPrompt: prompt}, nil
+	return finalImage, nil
 }
 
 func (f *ImageFlow) generateBlockedRecovery(
@@ -118,7 +117,7 @@ func (f *ImageFlow) generateBlockedRecovery(
 		SafeGo("image_blocked_recovery_attempt", func() {
 			defer wg.Done()
 			result := imageAttemptResult{token: tok}
-			result.data, result.err = f.generateSingle(
+			result.b64JSON, result.err = f.generateSingle(
 				retryCtx,
 				f.clientFactory(tok.Token),
 				prompt,
@@ -175,8 +174,8 @@ func (f *ImageFlow) selectImageRecoveryResult(
 		if result.err == nil && winner == nil {
 			cancel()
 			winner = &imageGenerationResult{
-				data:  result.data,
-				token: result.token,
+				b64JSON: result.b64JSON,
+				token:   result.token,
 			}
 			if mode != "" {
 				f.tokenSvc.ReportSuccess(result.token.ID)
