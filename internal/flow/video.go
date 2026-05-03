@@ -3,6 +3,7 @@ package flow
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -12,6 +13,13 @@ import (
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
+)
+
+var (
+	// ErrVideoCache indicates that the generated video could not be cached locally.
+	ErrVideoCache = errors.New("video cache failed")
+	// ErrVideoPostProcess indicates that post-generation video processing failed.
+	ErrVideoPostProcess = errors.New("video postprocess failed")
 )
 
 // VideoClient defines the interface for video generation API calls.
@@ -34,16 +42,16 @@ type VideoFlowConfig struct {
 
 // VideoRequest represents a video generation request.
 type VideoRequest struct {
-	Prompt         string
-	Model          string
-	UpstreamModel  string
-	UpstreamMode   string
-	Mode           string // mode from registry for quota tracking
-	Size           string
-	AspectRatio    string // e.g. "16:9", "3:2" — passed directly to xAI
-	Seconds        int
-	Quality        string
-	Preset         string
+	Prompt          string
+	Model           string
+	UpstreamModel   string
+	UpstreamMode    string
+	Mode            string // mode from registry for quota tracking
+	Size            string
+	AspectRatio     string // e.g. "16:9", "3:2" — passed directly to xAI
+	Seconds         int
+	Quality         string
+	Preset          string
 	ReferenceImages [][]byte
 }
 
@@ -147,6 +155,11 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 			return "", err
 		}
+		if errors.Is(err, ErrVideoCache) || isNonTokenVideoPostProcessError(err) {
+			f.tokenSvc.ReportSuccess(tok.ID)
+			f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
+			return "", err
+		}
 		f.reportTokenError(tok.ID, mode, err)
 		f.recordUsage(apiKeyID, tok.ID, req.Model, 500, time.Since(start))
 		return "", err
@@ -155,6 +168,16 @@ func (f *VideoFlow) GenerateSync(ctx context.Context, req *VideoRequest) (string
 	f.tokenSvc.ReportSuccess(tok.ID)
 	f.recordUsage(apiKeyID, tok.ID, req.Model, 200, time.Since(start))
 	return videoURL, nil
+}
+
+func isNonTokenVideoPostProcessError(err error) bool {
+	if !errors.Is(err, ErrVideoPostProcess) {
+		return false
+	}
+	return !errors.Is(err, xai.ErrInvalidToken) &&
+		!errors.Is(err, xai.ErrForbidden) &&
+		!errors.Is(err, xai.ErrCFChallenge) &&
+		!errors.Is(err, xai.ErrRateLimited)
 }
 
 // reportTokenError reports the appropriate token error based on error type.
@@ -203,25 +226,36 @@ func (f *VideoFlow) pickTokenForModel(model, mode string) (*store.Token, error) 
 	return nil, tkn.ErrNoTokenAvailable
 }
 
-func (f *VideoFlow) cacheVideo(ctx context.Context, client VideoClient, videoURL string) string {
+func (f *VideoFlow) cacheVideo(ctx context.Context, client VideoClient, videoURL string) (string, error) {
 	if f.cacheSvc == nil {
-		return videoURL
+		return "", fmt.Errorf("%w: cache service is not configured", ErrVideoCache)
 	}
 	reader, writer := io.Pipe()
 	doneCh := make(chan error, 1)
 	SafeGo("video_cache_download", func() {
-		err := client.DownloadTo(ctx, videoURL, writer)
-		doneCh <- err
-		writer.CloseWithError(err)
+		var dlErr error
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				dlErr = fmt.Errorf("download video panic: %v", recovered)
+				slog.Error("video cache download panic", "panic", recovered)
+			}
+			_ = writer.CloseWithError(dlErr)
+			doneCh <- dlErr
+		}()
+		dlErr = client.DownloadTo(ctx, videoURL, writer)
 	})
 	filename, saveErr := f.cacheSvc.SaveStream("video", reader, ".mp4")
+	if saveErr != nil {
+		_ = reader.CloseWithError(saveErr)
+	}
 	if dlErr := <-doneCh; dlErr != nil {
-		slog.Warn("video: stream download failed, using original URL", "error", dlErr)
-		return videoURL
+		if saveErr != nil && errors.Is(dlErr, io.ErrClosedPipe) {
+			return "", fmt.Errorf("%w: save video: %w", ErrVideoCache, saveErr)
+		}
+		return "", fmt.Errorf("%w: download video: %w", ErrVideoCache, dlErr)
 	}
 	if saveErr != nil {
-		slog.Warn("video: cache save failed, using original URL", "error", saveErr)
-		return videoURL
+		return "", fmt.Errorf("%w: save video: %w", ErrVideoCache, saveErr)
 	}
-	return "/api/files/video/" + filename
+	return "/api/files/video/" + filename, nil
 }

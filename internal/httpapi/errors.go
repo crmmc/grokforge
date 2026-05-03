@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 )
@@ -78,6 +79,14 @@ func MapXAIError(err error) (int, *APIError) {
 	case errors.Is(err, token.ErrModelNotFound):
 		return 404, NewAPIError(404, "not_found", "model_not_found",
 			"The requested model is not configured")
+
+	case errors.Is(err, flow.ErrVideoCache):
+		return 502, NewAPIError(502, "server_error", "media_proxy_failed",
+			"Failed to proxy upstream media")
+
+	case errors.Is(err, flow.ErrVideoPostProcess):
+		return 502, NewAPIError(502, "server_error", "video_postprocess_failed",
+			"Video post-processing failed")
 
 	default:
 		// ErrNetwork, ErrStreamClosed, and unknown errors

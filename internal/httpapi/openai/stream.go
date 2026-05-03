@@ -1,6 +1,8 @@
 package openai
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -29,8 +31,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 	writer := httpapi.NewSSEWriter(w)
 	w.WriteHeader(http.StatusOK)
 
-	cfg := h.currentConfig()
-	adapter := newChatStreamAdapter(req, cfg)
+	adapter := newChatStreamAdapter(req, h.currentConfig())
 	writer.WriteSSE(adapter.RoleChunk())
 	flusher.Flush()
 
@@ -57,17 +58,12 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 				return
 			}
 
-			// Lazily create rewriter on first event with a downloader
-			if rewriter == nil && event.Downloader != nil && cfg != nil && cfg.App.MediaGenerationEnabled {
-				rewriter = newMediaRewriter(event.Downloader)
+			if err := rewriteEventContent(r.Context(), &event, &rewriter); err != nil {
+				writer.WriteSSEError(mediaRewriteAPIError(err))
+				return
 			}
-			event.Content = rewriteContent(rewriter, r.Context(), event.Content)
 
-			chunks := adapter.HandleEvent(event)
-			for _, chunk := range chunks {
-				writer.WriteSSE(chunk)
-				flusher.Flush()
-			}
+			writeStreamChunks(writer, flusher, adapter.HandleEvent(event))
 		case <-timer.C:
 			w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
@@ -77,18 +73,21 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 		}
 	}
 done:
-	for _, chunk := range adapter.FinishChunks() {
+	writeStreamChunks(writer, flusher, adapter.FinishChunks())
+	writer.WriteSSEDone()
+}
+
+func writeStreamChunks(writer *httpapi.SSEWriter, flusher http.Flusher, chunks []chatStreamChunk) {
+	for _, chunk := range chunks {
 		writer.WriteSSE(chunk)
 		flusher.Flush()
 	}
-	writer.WriteSSEDone()
 }
 
 // blockingResponse collects all events and returns a single response.
 func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, eventCh <-chan flow.StreamEvent, req *ChatRequest) {
-	cfg := h.currentConfig()
-	collector := newChatResponseCollector(req, cfg)
-	var dl flow.DownloadFunc
+	collector := newChatResponseCollector(req, h.currentConfig())
+	var rewriter *mediaRewriter
 
 	for event := range eventCh {
 		if event.Error != nil {
@@ -96,20 +95,15 @@ func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, event
 			httpapi.WriteJSON(w, status, apiErr)
 			return
 		}
-		if dl == nil && event.Downloader != nil {
-			dl = event.Downloader
+		if err := rewriteEventContent(r.Context(), &event, &rewriter); err != nil {
+			apiErr := mediaRewriteAPIError(err)
+			httpapi.WriteJSON(w, apiErr.Status, apiErr)
+			return
 		}
 		collector.AddEvent(event)
 	}
 
 	resp := collector.Build()
-
-	// Rewrite image URLs in the final assembled content
-	if dl != nil && len(resp.Choices) > 0 && cfg != nil && cfg.App.MediaGenerationEnabled {
-		rewriter := newMediaRewriter(dl)
-		resp.Choices[0].Message.Content = rewriteContent(rewriter, r.Context(), resp.Choices[0].Message.Content)
-	}
-
 	httpapi.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -128,6 +122,38 @@ func writeStreamingErrorResponse(w http.ResponseWriter, apiErr *httpapi.APIError
 	writer := httpapi.NewSSEWriter(w)
 	w.WriteHeader(http.StatusOK)
 	writer.WriteSSEError(apiErr)
+}
+
+func writeMediaProxyError(w http.ResponseWriter, stream *bool, err error) {
+	apiErr := mediaRewriteAPIError(err)
+	if isStreamEnabled(stream) {
+		writeStreamingErrorResponse(w, apiErr)
+		return
+	}
+	httpapi.WriteJSON(w, apiErr.Status, apiErr)
+}
+
+func rewriteEventContent(
+	ctx context.Context,
+	event *flow.StreamEvent,
+	rewriter **mediaRewriter,
+) error {
+	if event.Downloader != nil {
+		*rewriter = newMediaRewriter(event.Downloader)
+	}
+	var err error
+	event.Content, err = rewriteContent(*rewriter, ctx, event.Content)
+	return err
+}
+
+func mediaRewriteAPIError(err error) *httpapi.APIError {
+	slog.Warn("chat media rewrite failed", "error", err)
+	return httpapi.NewAPIError(
+		http.StatusBadGateway,
+		"server_error",
+		"media_proxy_failed",
+		"Failed to proxy upstream media",
+	)
 }
 
 func generateChatID() string {

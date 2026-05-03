@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -46,8 +45,6 @@ func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, 
 	if err != nil {
 		return "", fmt.Errorf("start video generation: %w", err)
 	}
-	f.tokenSvc.RecordFirstUse(tok.ID, mode)
-
 	result, err := collectVideoStreamState(eventCh)
 	if err != nil {
 		return "", err
@@ -61,10 +58,13 @@ func (f *VideoFlow) generateVideoViaChat(ctx context.Context, tok *store.Token, 
 
 	videoURL := result.videoURL
 	if shouldUpscaleVideo(tok.Pool, videoResolutionFromQuality(req.Quality)) {
-		videoURL = f.upscaleVideoURL(ctx, client, videoURL)
+		videoURL, err = f.upscaleVideoURL(ctx, client, videoURL)
+		if err != nil {
+			return "", err
+		}
 	}
 
-	return f.cacheVideo(ctx, client, videoURL), nil
+	return f.cacheVideo(ctx, client, videoURL)
 }
 
 func (f *VideoFlow) resolveVideoSeedPost(
@@ -228,20 +228,21 @@ func videoGenerationResolution(pool, quality string) string {
 	return videoResolutionFromQuality(quality)
 }
 
-func (f *VideoFlow) upscaleVideoURL(ctx context.Context, client VideoClient, videoURL string) string {
+func (f *VideoFlow) upscaleVideoURL(ctx context.Context, client VideoClient, videoURL string) (string, error) {
 	videoID := extractGeneratedVideoID(videoURL)
 	if videoID == "" {
-		slog.Warn("video: skip upscale, missing generated id", "url", videoURL)
-		return videoURL
+		return "", fmt.Errorf("%w: missing generated video id", ErrVideoPostProcess)
 	}
 
 	interval := time.Duration(f.cfg.PollIntervalSeconds) * time.Second
 	upscaledURL, err := client.PollUpscale(ctx, videoID, interval)
-	if err != nil || strings.TrimSpace(upscaledURL) == "" {
-		slog.Warn("video: upscale failed, fallback to original", "error", err, "video_id", videoID)
-		return videoURL
+	if err != nil {
+		return "", fmt.Errorf("%w: upscale video: %w", ErrVideoPostProcess, err)
 	}
-	return upscaledURL
+	if strings.TrimSpace(upscaledURL) == "" {
+		return "", fmt.Errorf("%w: upscale video returned empty url", ErrVideoPostProcess)
+	}
+	return upscaledURL, nil
 }
 
 func extractGeneratedVideoID(videoURL string) string {

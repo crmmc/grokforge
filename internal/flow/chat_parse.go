@@ -12,124 +12,191 @@ import (
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
+const chatAssetsGrokBaseURL = "https://assets.grok.com/"
+
+type chatStreamPayload struct {
+	Result struct {
+		Response chatStreamResponse `json:"response"`
+	} `json:"result"`
+}
+
+type chatStreamResponse struct {
+	Token            string                `json:"token"`
+	IsThinking       bool                  `json:"isThinking"`
+	RolloutID        string                `json:"rolloutId"`
+	ModelResponse    *chatModelResponse    `json:"modelResponse"`
+	CardAttachment   *chatCardAttachment   `json:"cardAttachment"`
+	WebSearchResults *chatWebSearchResults `json:"webSearchResults"`
+	XSearchResults   *chatXSearchResults   `json:"xSearchResults"`
+}
+
+type chatModelResponse struct {
+	GeneratedImageUrls []string `json:"generatedImageUrls"`
+}
+
+type chatCardAttachment struct {
+	JSONData string `json:"jsonData"`
+}
+
+type chatWebSearchResults struct {
+	Results []struct {
+		URL   string `json:"url"`
+		Title string `json:"title"`
+	} `json:"results"`
+}
+
+type chatXSearchResults struct {
+	Results []struct {
+		PostID   string `json:"postId"`
+		Username string `json:"username"`
+		Text     string `json:"text"`
+	} `json:"results"`
+}
+
+var markdownImageAltReplacer = strings.NewReplacer("[", " ", "]", " ")
+
 func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
 	// Parse the raw JSON from xai event — field names match xAI's actual API:
 	// "token" = text chunk, "isThinking" = boolean flag for reasoning content.
-	var result struct {
-		Result struct {
-			Response struct {
-				Token      string `json:"token"`
-				IsThinking bool   `json:"isThinking"`
-				RolloutID  string `json:"rolloutId"`
-				// modelResponse contains generated images and final message
-				ModelResponse *struct {
-					Message            string   `json:"message"`
-					GeneratedImageUrls []string `json:"generatedImageUrls"`
-				} `json:"modelResponse"`
-				// cardAttachment contains external image/link cards
-				CardAttachment *struct {
-					JSONData string `json:"jsonData"`
-				} `json:"cardAttachment"`
-				// webSearchResults contains web search citations
-				WebSearchResults *struct {
-					Results []struct {
-						URL   string `json:"url"`
-						Title string `json:"title"`
-					} `json:"results"`
-				} `json:"webSearchResults"`
-				// xSearchResults contains X/Twitter post citations
-				XSearchResults *struct {
-					Results []struct {
-						PostID   string `json:"postId"`
-						Username string `json:"username"`
-						Text     string `json:"text"`
-					} `json:"results"`
-				} `json:"xSearchResults"`
-			} `json:"response"`
-		} `json:"result"`
-	}
+	var result chatStreamPayload
 	if err := json.Unmarshal(event.Data, &result); err != nil {
 		return StreamEvent{Error: err}
 	}
 
 	resp := result.Result.Response
-	token := resp.Token
-
 	if resp.IsThinking {
-		slog.Debug("flow: thinking token received", "len", len(token))
+		slog.Debug("flow: thinking token received", "len", len(resp.Token))
 	}
 
-	var content, reasoning string
+	content, reasoning := splitThinkingToken(resp.Token, resp.IsThinking)
+	content = appendModelResponseImages(content, resp.ModelResponse)
+	content = appendCardAttachmentImage(content, resp.CardAttachment)
 
-	// Route token based on isThinking flag
-	if resp.IsThinking {
-		reasoning = token
-	} else {
-		content = token
-	}
-
-	// Extract images from modelResponse
-	if mr := resp.ModelResponse; mr != nil {
-		for _, imgURL := range mr.GeneratedImageUrls {
-			parts := strings.Split(imgURL, "/")
-			imgID := "image"
-			if len(parts) >= 2 {
-				imgID = parts[len(parts)-2]
-			}
-			content += fmt.Sprintf("\n![%s](%s)", imgID, imgURL)
-		}
-	}
-
-	// Extract images from cardAttachment
-	if ca := resp.CardAttachment; ca != nil && ca.JSONData != "" {
-		var card struct {
-			Image struct {
-				Original string `json:"original"`
-				Title    string `json:"title"`
-			} `json:"image"`
-		}
-		if json.Unmarshal([]byte(ca.JSONData), &card) == nil && card.Image.Original != "" {
-			title := strings.ReplaceAll(strings.TrimSpace(card.Image.Title), "\n", " ")
-			if title == "" {
-				title = "image"
-			}
-			content += fmt.Sprintf("\n![%s](%s)", title, card.Image.Original)
-		}
-	}
-
-	// Extract search sources from web and X search results
-	var sources []SearchSource
-	if wsr := resp.WebSearchResults; wsr != nil {
-		for _, item := range wsr.Results {
-			if item.URL != "" {
-				sources = append(sources, SearchSource{
-					URL:   item.URL,
-					Title: item.Title,
-					Type:  "web",
-				})
-			}
-		}
-	}
-	if xsr := resp.XSearchResults; xsr != nil {
-		for _, item := range xsr.Results {
-			if item.PostID != "" && item.Username != "" {
-				sources = append(sources, SearchSource{
-					URL:   fmt.Sprintf("https://x.com/%s/status/%s", item.Username, item.PostID),
-					Title: normalizeXTitle(item.Username, item.Text),
-					Type:  "x_post",
-				})
-			}
-		}
-	}
-
-	// Parse tool calls from response content
 	return StreamEvent{
 		Content:          content,
 		ReasoningContent: reasoning,
 		IsThinking:       resp.IsThinking,
 		RolloutID:        strings.TrimSpace(resp.RolloutID),
-		SearchSources:    sources,
+		SearchSources:    collectSearchSources(resp),
 	}
+}
+
+func splitThinkingToken(token string, isThinking bool) (string, string) {
+	if isThinking {
+		return "", token
+	}
+	return token, ""
+}
+
+func appendModelResponseImages(content string, mr *chatModelResponse) string {
+	if mr == nil {
+		return content
+	}
+	for _, imgURL := range mr.GeneratedImageUrls {
+		content = appendMarkdownImage(content, generatedImageAlt(imgURL), imgURL)
+	}
+	return content
+}
+
+func generatedImageAlt(imgURL string) string {
+	parts := strings.Split(imgURL, "/")
+	if len(parts) < 2 {
+		return "image"
+	}
+	return parts[len(parts)-2]
+}
+
+func appendCardAttachmentImage(content string, ca *chatCardAttachment) string {
+	if ca == nil || ca.JSONData == "" {
+		return content
+	}
+	var card struct {
+		Image struct {
+			Original string `json:"original"`
+			Title    string `json:"title"`
+		} `json:"image"`
+		ImageChunk struct {
+			ImageURL  string `json:"imageUrl"`
+			ImageUUID string `json:"imageUuid"`
+			Progress  int    `json:"progress"`
+			Moderated bool   `json:"moderated"`
+		} `json:"image_chunk"`
+	}
+	if json.Unmarshal([]byte(ca.JSONData), &card) != nil {
+		return content
+	}
+	if strings.TrimSpace(card.Image.Original) != "" {
+		return appendMarkdownImage(content, card.Image.Title, cardAttachmentImageURL(card.Image.Original))
+	}
+	if card.ImageChunk.Progress == 100 &&
+		!card.ImageChunk.Moderated &&
+		strings.TrimSpace(card.ImageChunk.ImageURL) != "" {
+		return appendMarkdownImage(content, card.ImageChunk.ImageUUID, cardAttachmentImageURL(card.ImageChunk.ImageURL))
+	}
+	return content
+}
+
+func cardAttachmentImageURL(rawURL string) string {
+	trimmed := strings.TrimSpace(rawURL)
+	if strings.HasPrefix(trimmed, "//") {
+		return "https:" + trimmed
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return trimmed
+	}
+	return chatAssetsGrokBaseURL + strings.TrimLeft(trimmed, "/")
+}
+
+func appendMarkdownImage(content, alt, target string) string {
+	trimmedTarget := strings.TrimSpace(target)
+	if trimmedTarget == "" {
+		return content
+	}
+	return content + fmt.Sprintf("\n![%s](%s)", markdownImageAlt(alt), trimmedTarget)
+}
+
+func markdownImageAlt(value string) string {
+	normalized := strings.Join(strings.Fields(value), " ")
+	normalized = markdownImageAltReplacer.Replace(normalized)
+	normalized = strings.Join(strings.Fields(normalized), " ")
+	if normalized == "" {
+		return "image"
+	}
+	return normalized
+}
+
+func collectSearchSources(resp chatStreamResponse) []SearchSource {
+	sources := appendWebSearchSources(nil, resp.WebSearchResults)
+	return appendXSearchSources(sources, resp.XSearchResults)
+}
+
+func appendWebSearchSources(sources []SearchSource, wsr *chatWebSearchResults) []SearchSource {
+	if wsr == nil {
+		return sources
+	}
+	for _, item := range wsr.Results {
+		if item.URL != "" {
+			sources = append(sources, SearchSource{URL: item.URL, Title: item.Title, Type: "web"})
+		}
+	}
+	return sources
+}
+
+func appendXSearchSources(sources []SearchSource, xsr *chatXSearchResults) []SearchSource {
+	if xsr == nil {
+		return sources
+	}
+	for _, item := range xsr.Results {
+		if item.PostID != "" && item.Username != "" {
+			sources = append(sources, SearchSource{
+				URL:   fmt.Sprintf("https://x.com/%s/status/%s", item.Username, item.PostID),
+				Title: normalizeXTitle(item.Username, item.Text),
+				Type:  "x_post",
+			})
+		}
+	}
+	return sources
 }
 
 // estimatePromptTokens estimates input token count from request messages.

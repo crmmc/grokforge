@@ -20,6 +20,9 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 	}
 
 	for k, v := range kvs {
+		if _, deprecated := deprecatedConfigKeys[k]; deprecated {
+			continue
+		}
 		switch k {
 		case "app.app_key":
 			c.App.AppKey = v
@@ -230,24 +233,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.Token.MaxInflight = parsed
-		case "token.cool_duration_basic_sec":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.CoolDurationBasicSec = parsed
-		case "token.cool_duration_super_sec":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.CoolDurationSuperSec = parsed
-		case "token.cool_duration_heavy_sec":
-			parsed, err := parseIntOverride(k, v)
-			if err != nil {
-				return err
-			}
-			c.Token.CoolDurationHeavySec = parsed
 		case "token.recent_use_penalty_sec":
 			parsed, err := parseIntOverride(k, v)
 			if err != nil {

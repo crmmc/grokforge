@@ -120,8 +120,6 @@ func (f *ImageFlow) generateLiteSingle(
 	if err != nil {
 		return nil, fmt.Errorf("lite image chat: %w", err)
 	}
-	f.tokenSvc.RecordFirstUse(tokenID, mode)
-
 	// Collect image URLs from SSE stream
 	var imageURLs []string
 	for event := range eventCh {

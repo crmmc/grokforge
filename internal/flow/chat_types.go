@@ -34,7 +34,6 @@ type TokenServicer interface {
 	Pick(pool string, mode string) (*store.Token, error)
 	PickExcluding(pool string, mode string, exclude map[uint]struct{}) (*store.Token, error)
 	PickAnyExcluding(pool string, exclude map[uint]struct{}) (*store.Token, error)
-	RecordFirstUse(id uint, mode string)
 	RefundQuota(id uint, mode string)
 	ReportSuccess(id uint)
 	ReportRateLimit(id uint, mode string, reason string)
@@ -123,13 +122,13 @@ type SearchSource struct {
 
 // StreamEvent represents a flow-level stream event.
 type StreamEvent struct {
-	Content          string       `json:"content,omitempty"`
-	ReasoningContent string       `json:"reasoning_content,omitempty"`
-	FinishReason     *string      `json:"finish_reason,omitempty"`
-	Usage            *Usage       `json:"usage,omitempty"`
-	ToolCalls        []ToolCall   `json:"tool_calls,omitempty"`
-	Error            error        `json:"-"`
-	IsThinking       bool         `json:"-"`
+	Content          string         `json:"content,omitempty"`
+	ReasoningContent string         `json:"reasoning_content,omitempty"`
+	FinishReason     *string        `json:"finish_reason,omitempty"`
+	Usage            *Usage         `json:"usage,omitempty"`
+	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
+	Error            error          `json:"-"`
+	IsThinking       bool           `json:"-"`
 	RolloutID        string         `json:"-"`
 	SearchSources    []SearchSource `json:"-"`
 	Downloader       DownloadFunc   `json:"-"`

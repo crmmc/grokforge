@@ -106,7 +106,7 @@ type TokenSnapshotData struct {
 	LimitQuotas  IntMap
 	FailCount    int
 	LastUsed     *time.Time
-	CoolUntils   IntMap
+	ResumeAts    IntMap
 }
 
 // UpdateTokenSnapshots batch updates token snapshots.
@@ -120,7 +120,7 @@ func (s *TokenStore) UpdateTokenSnapshots(ctx context.Context, snapshots []Token
 				"limit_quotas":  snap.LimitQuotas,
 				"fail_count":    snap.FailCount,
 				"last_used":     snap.LastUsed,
-				"cool_untils":   snap.CoolUntils,
+				"resume_ats":    snap.ResumeAts,
 			}
 			if err := tx.Model(&Token{}).Where("id = ?", snap.ID).Updates(updates).Error; err != nil {
 				return err

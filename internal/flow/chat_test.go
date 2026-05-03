@@ -67,14 +67,13 @@ type mockTokenService struct {
 	pickIndex      int
 	pickErr        error
 	successCalls   []uint
-	firstUseCalls  []uint
-	firstUseModes  []string
 	rateLimitCalls []uint
 	errorCalls     []uint
 	keepErrorCalls []uint
 	expiredCalls   []uint
 	releaseCalls   []uint
 	pickCalls      []uint
+	pickModes      []string
 	inflight       map[uint]int
 }
 
@@ -96,6 +95,7 @@ func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[u
 		}
 		m.addInflightLocked(t.ID)
 		m.pickCalls = append(m.pickCalls, t.ID)
+		m.pickModes = append(m.pickModes, mode)
 		return t, nil
 	}
 	return nil, errors.New("no tokens available")
@@ -103,13 +103,6 @@ func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[u
 
 func (m *mockTokenService) PickAnyExcluding(pool string, exclude map[uint]struct{}) (*store.Token, error) {
 	return m.PickExcluding(pool, "", exclude)
-}
-
-func (m *mockTokenService) RecordFirstUse(id uint, mode string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.firstUseCalls = append(m.firstUseCalls, id)
-	m.firstUseModes = append(m.firstUseModes, mode)
 }
 
 func (m *mockTokenService) RefundQuota(id uint, mode string) {}
@@ -1110,6 +1103,18 @@ func TestChatFlow_ParseEvent_CardAttachment(t *testing.T) {
 	got := f.parseEvent(event)
 	if !strings.Contains(got.Content, "![A photo](https://example.com/photo.jpg)") {
 		t.Errorf("Content missing card image, got: %q", got.Content)
+	}
+}
+
+func TestChatFlow_ParseEvent_CardAttachmentSanitizesMarkdownAlt(t *testing.T) {
+	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
+
+	cardJSON := `{"image":{"original":"https://assets.grok.com/users/u/generated/id/image.png","title":"bad ] title"}}`
+	data := fmt.Sprintf(`{"result":{"response":{"token":"","isThinking":false,"cardAttachment":{"jsonData":%s}}}}`, strconv.Quote(cardJSON))
+	event := xai.StreamEvent{Data: json.RawMessage(data)}
+	got := f.parseEvent(event)
+	if !strings.Contains(got.Content, "![bad title](https://assets.grok.com/users/u/generated/id/image.png)") {
+		t.Errorf("Content has unsafe or missing card image markdown, got: %q", got.Content)
 	}
 }
 

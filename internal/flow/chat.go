@@ -243,8 +243,6 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			continue
 		}
 
-		f.tokenSvc.RecordFirstUse(currentToken.ID, req.Mode)
-
 		// Stream events
 		success, usage, estimated, ttft, streamErr := f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
 		if success {

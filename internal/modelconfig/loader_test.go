@@ -192,6 +192,23 @@ heavy = 150
 	mustContain(t, err, "window_seconds must be > 0")
 }
 
+func TestValidate_WindowSecondsNegative(t *testing.T) {
+	content := `version = 1
+
+[[mode]]
+id = "auto"
+upstream_name = "auto"
+window_seconds = -100
+[mode.default_quota]
+basic = 20
+super = 50
+heavy = 150
+` + validModelTOML
+	fs := makeFS(content)
+	_, _, err := Load(fs, "")
+	mustContain(t, err, "window_seconds must be > 0")
+}
+
 func TestValidate_DefaultQuotaMissingPool(t *testing.T) {
 	content := `version = 1
 

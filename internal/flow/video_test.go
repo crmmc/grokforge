@@ -1,10 +1,12 @@
 package flow
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,11 @@ type mockVideoClient struct {
 	mu             sync.Mutex
 	chatErr        error
 	chatDelay      time.Duration
+	downloadErr    error
+	downloadBytes  int
+	downloadPanic  any
+	pollErr        error
+	pollURL        string
 	videoURL       string
 	pollCalls      int
 	uploadCalls    int
@@ -67,8 +74,16 @@ func (m *mockVideoClient) CreateVideoPost(ctx context.Context, prompt string) (s
 func (m *mockVideoClient) PollUpscale(ctx context.Context, jobID string, interval time.Duration) (string, error) {
 	m.mu.Lock()
 	m.pollCalls++
+	pollErr := m.pollErr
+	pollURL := m.pollURL
 	videoURL := m.videoURL
 	m.mu.Unlock()
+	if pollErr != nil {
+		return "", pollErr
+	}
+	if pollURL != "" {
+		return pollURL, nil
+	}
 	return videoURL, nil
 }
 
@@ -77,7 +92,17 @@ func (m *mockVideoClient) DownloadURL(ctx context.Context, url string) ([]byte, 
 }
 
 func (m *mockVideoClient) DownloadTo(ctx context.Context, url string, w io.Writer) error {
-	_, err := io.WriteString(w, "video-data")
+	if m.downloadPanic != nil {
+		panic(m.downloadPanic)
+	}
+	if m.downloadErr != nil {
+		return m.downloadErr
+	}
+	body := []byte("video-data")
+	if m.downloadBytes > 0 {
+		body = bytes.Repeat([]byte("x"), m.downloadBytes)
+	}
+	_, err := w.Write(body)
 	return err
 }
 
@@ -110,6 +135,7 @@ func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 	vf.SetModeResolver(testModeResolver())
+	setTestVideoCache(t, vf)
 
 	url, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "A sunset over mountains",
@@ -119,11 +145,11 @@ func TestVideoFlow_GenerateSync_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateSync() error = %v", err)
 	}
-	if url == "" {
-		t.Error("GenerateSync() returned empty URL")
+	if !strings.HasPrefix(url, "/api/files/video/") {
+		t.Fatalf("GenerateSync() URL = %q, want local cache URL", url)
 	}
-	if len(tokenSvc.firstUseModes) != 1 || tokenSvc.firstUseModes[0] != "auto" {
-		t.Fatalf("expected first use mode auto, got %+v", tokenSvc.firstUseModes)
+	if len(tokenSvc.pickModes) != 1 || tokenSvc.pickModes[0] != "auto" {
+		t.Fatalf("expected picked mode auto, got %+v", tokenSvc.pickModes)
 	}
 }
 
@@ -189,6 +215,7 @@ func TestVideoFlow_GenerateSync_PresetAppended(t *testing.T) {
 		PollIntervalSeconds: 1,
 		ModelResolver:       testModelResolver(),
 	})
+	setTestVideoCache(t, vf)
 
 	_, err := vf.GenerateSync(context.Background(), &VideoRequest{
 		Prompt:        "make it move",
@@ -244,6 +271,7 @@ func TestVideoFlow_GenerateSync_AspectRatioDirect(t *testing.T) {
 			vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, &VideoFlowConfig{
 				TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver(),
 			})
+			setTestVideoCache(t, vf)
 
 			_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 				Prompt:      "test",
@@ -359,6 +387,7 @@ func TestVideoFlow_GenerateSync_ConsumeOnSuccess(t *testing.T) {
 
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
+	setTestVideoCache(t, vf)
 
 	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "Test",

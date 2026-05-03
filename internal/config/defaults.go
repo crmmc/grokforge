@@ -77,9 +77,6 @@ func DefaultConfig() *Config {
 			UsageFlushIntervalSec: 30,
 			SelectionAlgorithm:    "high_quota_first",
 			MaxInflight:           8,
-			CoolDurationBasicSec:  86400,
-			CoolDurationSuperSec:  7200,
-			CoolDurationHeavySec:  7200,
 			RecentUsePenaltySec:   15,
 		},
 		Cache: CacheConfig{

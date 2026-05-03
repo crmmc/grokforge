@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/token"
 	"github.com/crmmc/grokforge/internal/xai"
 	"github.com/stretchr/testify/assert"
@@ -123,4 +124,20 @@ func TestMapXAIError_ModelNotFound(t *testing.T) {
 	assert.Equal(t, 404, status)
 	assert.Equal(t, "not_found", apiErr.Error.Type)
 	assert.Equal(t, "model_not_found", apiErr.Error.Code)
+}
+
+func TestMapXAIError_VideoCache(t *testing.T) {
+	status, apiErr := MapXAIError(flow.ErrVideoCache)
+
+	assert.Equal(t, 502, status)
+	assert.Equal(t, "server_error", apiErr.Error.Type)
+	assert.Equal(t, "media_proxy_failed", apiErr.Error.Code)
+}
+
+func TestMapXAIError_VideoPostProcess(t *testing.T) {
+	status, apiErr := MapXAIError(flow.ErrVideoPostProcess)
+
+	assert.Equal(t, 502, status)
+	assert.Equal(t, "server_error", apiErr.Error.Type)
+	assert.Equal(t, "video_postprocess_failed", apiErr.Error.Code)
 }

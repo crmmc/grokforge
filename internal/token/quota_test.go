@@ -62,6 +62,51 @@ func TestSyncModeQuota_UpdatesQuotaFromAPI(t *testing.T) {
 	}
 }
 
+func TestRateLimitsResponse_ParsesWaitTimeSeconds(t *testing.T) {
+	body := []byte(`{"remainingQueries":0,"totalQueries":30,"windowSizeSeconds":86400,"waitTimeSeconds":66777}`)
+
+	resp, err := decodeRateLimitsResponse(body)
+	if err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.WaitTimeSeconds != 66777 {
+		t.Errorf("expected WaitTimeSeconds=66777, got %d", resp.WaitTimeSeconds)
+	}
+}
+
+func TestRateLimitsResponse_WaitTimeSecondsDefaultZero(t *testing.T) {
+	body := []byte(`{"remainingQueries":0,"totalQueries":30,"windowSizeSeconds":86400}`)
+
+	resp, err := decodeRateLimitsResponse(body)
+	if err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+
+	if resp.WaitTimeSeconds != 0 {
+		t.Errorf("expected WaitTimeSeconds=0 when absent, got %d", resp.WaitTimeSeconds)
+	}
+}
+
+func TestRateLimitsResponse_RejectsMissingRequiredFields(t *testing.T) {
+	tests := []struct {
+		name string
+		body []byte
+	}{
+		{name: "empty object", body: []byte(`{}`)},
+		{name: "missing remaining", body: []byte(`{"totalQueries":30}`)},
+		{name: "missing total", body: []byte(`{"remainingQueries":0}`)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := decodeRateLimitsResponse(tt.body); err == nil {
+				t.Fatal("expected missing required fields to fail")
+			}
+		})
+	}
+}
+
 func TestSyncModeQuota_MarksDirtyAfterUpdate(t *testing.T) {
 	cfg := &config.TokenConfig{FailThreshold: 3}
 	m := NewTokenManager(cfg)

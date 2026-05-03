@@ -39,6 +39,8 @@ type TokenRefresher interface {
 	RefreshToken(ctx context.Context, id uint) (*store.Token, error)
 }
 
+const tokenRefreshFailedMessage = "Token refresh failed"
+
 // NsfwEnabler enables NSFW on the upstream for a given token string.
 type NsfwEnabler interface {
 	EnableNsfwUpstream(ctx context.Context, tokenString string) error
@@ -65,7 +67,7 @@ type TokenResponse struct {
 	DisplayStatus string       `json:"display_status"`
 	Quotas        store.IntMap `json:"quotas"`
 	LimitQuotas   store.IntMap `json:"limit_quotas"`
-	CoolUntils    store.IntMap `json:"cool_untils,omitempty"`
+	ResumeAts     store.IntMap `json:"resume_ats,omitempty"`
 	Inflight      int          `json:"inflight"`
 	FailCount     int          `json:"fail_count"`
 	LastUsed      *time.Time   `json:"last_used,omitempty"`
@@ -87,7 +89,7 @@ func tokenToResponse(t *store.Token, reg *registry.ModelRegistry, inflight int) 
 		DisplayStatus: deriveDisplayStatus(t, reg),
 		Quotas:        filterModeMap(t.Quotas, reg),
 		LimitQuotas:   filterModeMap(t.LimitQuotas, reg),
-		CoolUntils:    filterModeMap(t.CoolUntils, reg),
+		ResumeAts:     filterModeMap(t.ResumeAts, reg),
 		Inflight:      inflight,
 		FailCount:     t.FailCount,
 		LastUsed:      t.LastUsed,
@@ -109,54 +111,26 @@ func deriveDisplayStatus(t *store.Token, reg *registry.ModelRegistry) string {
 		return "expired"
 	}
 
-	// Check if any mode is cooling.
-	nowUnix := int(time.Now().Unix())
-	anyCooling := false
-	for _, until := range t.CoolUntils {
-		if until > nowUnix {
-			anyCooling = true
-			break
-		}
-	}
-
 	if reg == nil {
 		for _, remaining := range t.Quotas {
 			if remaining > 0 {
-				if anyCooling {
-					return "cooling"
-				}
 				return "active"
 			}
 		}
 		if len(t.Quotas) > 0 {
-			if anyCooling {
-				return "cooling"
-			}
 			return "exhausted"
-		}
-		if anyCooling {
-			return "cooling"
 		}
 		return "active"
 	}
 
 	supportedModes := supportedModesForPool(reg, t.Pool)
 	if len(supportedModes) == 0 {
-		if anyCooling {
-			return "cooling"
-		}
 		return "active"
 	}
 	for _, mode := range supportedModes {
 		if t.Quotas[mode] > 0 {
-			if anyCooling {
-				return "cooling"
-			}
 			return "active"
 		}
-	}
-	if anyCooling {
-		return "cooling"
 	}
 	return "exhausted"
 }
@@ -564,7 +538,8 @@ func handleRefreshToken(
 				WriteError(w, 404, "not_found", "token_not_found", "Token not found")
 				return
 			}
-			WriteError(w, 502, "server_error", "refresh_failed", err.Error())
+			slog.Warn("admin token refresh failed", "token_id", id, "error", err)
+			WriteError(w, 502, "server_error", "refresh_failed", tokenRefreshFailedMessage)
 			return
 		}
 		if token == nil {

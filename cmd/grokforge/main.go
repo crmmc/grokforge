@@ -129,8 +129,7 @@ func main() {
 	tokenStore := store.NewTokenStore(db)
 	tokenSvc := token.NewTokenService(&cfg.Token, tokenStore, modeSpecs, "https://grok.com")
 	scheduler := token.NewScheduler(tokenSvc.Manager(), modeSpecs, "https://grok.com")
-	tokenSvc.SetFirstUseTracker(scheduler)
-	tokenSvc.SetManualRefresher(scheduler)
+	tokenSvc.SetRefreshRequester(scheduler)
 	if err := tokenSvc.LoadTokens(rootCtx); err != nil {
 		logging.Error("failed to load tokens", "error", err)
 		os.Exit(1)
@@ -141,7 +140,7 @@ func main() {
 	}
 	logging.Info("token service ready", "stats", tokenSvc.Stats())
 
-	// Start quota refresh scheduler (mode-based, first_used_at driven)
+	// Start quota refresh scheduler.
 	scheduler.Start(rootCtx)
 	logging.Info("token quota refresh scheduler started")
 

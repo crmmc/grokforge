@@ -139,6 +139,33 @@ func TestTokenModel_AutoMigratePreservesData(t *testing.T) {
 	}
 }
 
+func TestTokenModel_AutoMigrateResetsLegacyCoolingStatus(t *testing.T) {
+	db := setupTokenTestDB(t)
+	ctx := context.Background()
+
+	token := &Token{
+		Token:  "test_token_legacy_cooling",
+		Pool:   "ssoSuper",
+		Status: "cooling",
+		Quotas: IntMap{"auto": 0},
+	}
+	if err := db.WithContext(ctx).Create(token).Error; err != nil {
+		t.Fatalf("failed to create legacy cooling token: %v", err)
+	}
+
+	if err := AutoMigrate(db); err != nil {
+		t.Fatalf("failed to run AutoMigrate: %v", err)
+	}
+
+	var found Token
+	if err := db.WithContext(ctx).First(&found, token.ID).Error; err != nil {
+		t.Fatalf("failed to find token after AutoMigrate: %v", err)
+	}
+	if found.Status != TokenStatusActive {
+		t.Errorf("expected legacy cooling status to reset to active, got %q", found.Status)
+	}
+}
+
 // Test 4: Token can be created with remark and nsfw_enabled
 func TestTokenStore_CreateWithRemarkAndNsfw(t *testing.T) {
 	db := setupTokenTestDB(t)

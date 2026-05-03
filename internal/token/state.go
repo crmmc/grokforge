@@ -87,3 +87,16 @@ func NormalizePoolName(pool string) (string, error) {
 	}
 }
 
+// PoolToShort converts canonical pool name to short form for catalog lookup.
+func PoolToShort(pool string) string {
+	switch pool {
+	case PoolBasic:
+		return "basic"
+	case PoolSuper:
+		return "super"
+	case PoolHeavy:
+		return "heavy"
+	default:
+		return pool
+	}
+}

@@ -120,10 +120,6 @@ usage_flush_interval_sec = 30
 selection_algorithm = "high_quota_first"
 # Max concurrent requests per token (0 = unlimited)
 max_inflight = 8
-# Cooling duration after 429 rate limit, per pool tier (seconds)
-cool_duration_basic_sec = 86400
-cool_duration_super_sec = 7200
-cool_duration_heavy_sec = 7200
 # Recent-use penalty window (seconds). Tokens picked within this window are
 # deprioritized (soft exclude). 0 = disabled.
 recent_use_penalty_sec = 15
