@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/modelconfig"
 	"github.com/crmmc/grokforge/internal/store"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestScheduler_Stop(t *testing.T) {
@@ -30,91 +33,303 @@ func TestScheduler_Stop(t *testing.T) {
 
 	select {
 	case <-done:
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Second):
 		t.Error("Stop() blocked for too long")
 	}
 }
 
-func TestScheduler_RecordFirstUsed(t *testing.T) {
+func TestScheduler_ScanRefreshesDueExhaustedMode(t *testing.T) {
 	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
-	scheduler := NewScheduler(manager, nil, "https://example.com")
+	manager.AddToken(&store.Token{
+		ID: 1, Token: "test-token", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 0}, ResumeAts: store.IntMap{"auto": 0},
+	})
 
-	scheduler.RecordFirstUsed(1, "auto")
-
-	// Record again — should not overwrite
-	scheduler.RecordFirstUsed(1, "auto")
-
-	scheduler.mu.Lock()
-	defer scheduler.mu.Unlock()
-	if _, ok := scheduler.firstUsedAt[1]; !ok {
-		t.Fatal("expected firstUsedAt[1] to exist")
-	}
-	if _, ok := scheduler.firstUsedAt[1]["auto"]; !ok {
-		t.Fatal("expected firstUsedAt[1][auto] to exist")
-	}
-}
-
-func TestScheduler_SetFirstUsedAt(t *testing.T) {
-	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
-	scheduler := NewScheduler(manager, nil, "https://example.com")
-
-	ts := time.Now().Add(-1 * time.Hour)
-	scheduler.SetFirstUsedAt(1, "auto", ts)
-
-	scheduler.mu.Lock()
-	defer scheduler.mu.Unlock()
-	got := scheduler.firstUsedAt[1]["auto"]
-	if !got.Equal(ts) {
-		t.Errorf("expected firstUsedAt = %v, got %v", ts, got)
-	}
-}
-
-func TestScheduler_RefreshesExpiredMode(t *testing.T) {
-	cfg := &config.TokenConfig{FailThreshold: 3}
-	manager := NewTokenManager(cfg)
-
-	tok := &store.Token{
-		ID:     1,
-		Token:  "test-token",
-		Pool:   PoolBasic,
-		Status: string(StatusActive),
-		Quotas: store.IntMap{"auto": 0},
-	}
-	manager.AddToken(tok)
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := RateLimitsResponse{
-			RemainingQueries:  42,
-			TotalQueries:      80,
-			WindowSizeSeconds: 7200,
-		}
-		json.NewEncoder(w).Encode(resp)
-	}))
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries:  42,
+		TotalQueries:      80,
+		WindowSizeSeconds: 7200,
+	}, nil)
 	defer server.Close()
 
-	modes := []modelconfig.ModeSpec{
+	scheduler := NewScheduler(manager, testModeSpecs(), server.URL)
+	scheduler.scan(context.Background())
+
+	waitForCondition(t, func() bool {
+		return manager.GetToken(1).Quotas["auto"] == 42
+	})
+	assert.Equal(t, 80, manager.GetToken(1).LimitQuotas["auto"])
+	assert.Empty(t, manager.GetToken(1).ResumeAts)
+}
+
+func TestScheduler_RequestRefreshDebouncesConcurrent429(t *testing.T) {
+	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
+	manager.AddToken(&store.Token{
+		ID: 1, Token: "test-token", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 0},
+	})
+
+	var calls atomic.Int64
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries: 10,
+		TotalQueries:     50,
+	}, &calls)
+	defer server.Close()
+
+	scheduler := NewScheduler(manager, testModeSpecs(), server.URL)
+	scheduler.RequestRefresh(1, "auto")
+	scheduler.RequestRefresh(1, "auto")
+
+	waitForCondition(t, func() bool {
+		return manager.GetToken(1).Quotas["auto"] == 10
+	})
+	assert.Equal(t, int64(1), calls.Load())
+}
+
+func TestScheduler_RequestRefreshUsesLifecycleContext(t *testing.T) {
+	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
+	manager.AddToken(&store.Token{
+		ID: 1, Token: "test-token", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 0},
+	})
+
+	var calls atomic.Int64
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries: 10,
+		TotalQueries:     50,
+	}, &calls)
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	scheduler := NewScheduler(manager, testModeSpecs(), server.URL)
+	scheduler.Start(ctx)
+	cancel()
+
+	scheduler.RequestRefresh(1, "auto")
+	scheduler.Stop()
+
+	assert.Equal(t, int64(0), calls.Load())
+	assert.Equal(t, 0, manager.GetToken(1).Quotas["auto"])
+}
+
+func TestScheduler_RefreshModeQuotaSetsResumeAt(t *testing.T) {
+	tests := []struct {
+		name        string
+		resp        RateLimitsResponse
+		wantSeconds int
+	}{
 		{
-			ID:            "auto",
-			UpstreamName:  "auto",
-			WindowSeconds: 1, // 1 second window so it expires immediately
-			DefaultQuota:  map[string]int{"basic": 50},
+			name:        "wait time wins",
+			resp:        RateLimitsResponse{RemainingQueries: 0, TotalQueries: 50, WaitTimeSeconds: 67, WindowSizeSeconds: 89},
+			wantSeconds: 67,
+		},
+		{
+			name:        "window time fallback",
+			resp:        RateLimitsResponse{RemainingQueries: 0, TotalQueries: 50, WindowSizeSeconds: 89},
+			wantSeconds: 89,
+		},
+		{
+			name:        "mode window fallback",
+			resp:        RateLimitsResponse{RemainingQueries: 0, TotalQueries: 50},
+			wantSeconds: 123,
 		},
 	}
 
-	scheduler := NewScheduler(manager, modes, server.URL)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			manager := newRefreshTestManager()
+			server := rateLimitServer(t, tt.resp, nil)
+			defer server.Close()
+			mode := testRefreshMode(123)
+			scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
 
-	// Set first_used_at to the past so the window is expired
-	scheduler.SetFirstUsedAt(1, "auto", time.Now().Add(-10*time.Second))
+			now := time.Now()
+			err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+			require.NoError(t, err)
 
-	// Directly trigger a scan instead of waiting for the ticker
-	scheduler.scan(context.Background())
-
-	// Verify quota was updated
-	updated := manager.GetToken(1)
-	if updated.Quotas["auto"] != 42 {
-		t.Errorf("expected Quotas[auto]=42, got %d", updated.Quotas["auto"])
+			token := manager.GetToken(1)
+			assert.Equal(t, 0, token.Quotas["auto"])
+			assert.Equal(t, 50, token.LimitQuotas["auto"])
+			assert.InDelta(t, now.Add(time.Duration(tt.wantSeconds)*time.Second).Unix(), token.ResumeAts["auto"], 2)
+		})
 	}
-	if updated.LimitQuotas["auto"] != 80 {
-		t.Errorf("expected LimitQuotas[auto]=80, got %d", updated.LimitQuotas["auto"])
+}
+
+func TestScheduler_RefreshModeQuotaClearsResumeAtWhenRemaining(t *testing.T) {
+	manager := newRefreshTestManager()
+	manager.SetResumeAt(1, "auto", int(time.Now().Add(time.Hour).Unix()))
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries:  12,
+		TotalQueries:      50,
+		WindowSizeSeconds: 7200,
+	}, nil)
+	defer server.Close()
+
+	mode := testRefreshMode(7200)
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 12, token.Quotas["auto"])
+	assert.Equal(t, 50, token.LimitQuotas["auto"])
+	assert.Empty(t, token.ResumeAts)
+}
+
+func TestScheduler_RefreshModeQuotaFailureKeepsResumeAt(t *testing.T) {
+	manager := newRefreshTestManager()
+	resumeAt := int(time.Now().Add(time.Hour).Unix())
+	manager.SetResumeAt(1, "auto", resumeAt)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream failed", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	mode := testRefreshMode(7200)
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	require.Error(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["auto"])
+	assert.Equal(t, resumeAt, token.ResumeAts["auto"])
+}
+
+func TestScheduler_RefreshModeQuotaFailureSetsBackoffWhenDue(t *testing.T) {
+	manager := newRefreshTestManager()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "upstream failed", http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+
+	mode := testRefreshMode(7200)
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
+	now := time.Now()
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	require.Error(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["auto"])
+	assert.InDelta(t, now.Add(30*time.Minute).Unix(), token.ResumeAts["auto"], 2)
+}
+
+func TestScheduler_RefreshModeQuotaProtocolErrorKeepsState(t *testing.T) {
+	manager := newRefreshTestManager()
+	resumeAt := int(time.Now().Add(time.Hour).Unix())
+	manager.SetResumeAt(1, "auto", resumeAt)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	mode := testRefreshMode(7200)
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	require.Error(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["auto"])
+	assert.Equal(t, 50, token.LimitQuotas["auto"])
+	assert.Equal(t, resumeAt, token.ResumeAts["auto"])
+}
+
+func TestScheduler_RefreshTokenBypassesDebounce(t *testing.T) {
+	manager := newRefreshTestManager()
+	var calls atomic.Int64
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries: 7,
+		TotalQueries:     50,
+	}, &calls)
+	defer server.Close()
+
+	mode := testRefreshMode(7200)
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
+	require.True(t, scheduler.checkAndMarkLastRefresh(1, "auto", time.Now()))
+
+	err := scheduler.RefreshToken(context.Background(), 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1), calls.Load())
+	assert.Equal(t, 7, manager.GetToken(1).Quotas["auto"])
+}
+
+func newRefreshTestManager() *TokenManager {
+	manager := NewTokenManager(&config.TokenConfig{FailThreshold: 3})
+	manager.AddToken(&store.Token{
+		ID: 1, Token: "test-token", Pool: PoolSuper, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 0}, LimitQuotas: store.IntMap{"auto": 50},
+	})
+	return manager
+}
+
+func refreshTarget() ExhaustedModeTarget {
+	return ExhaustedModeTarget{
+		TokenID:   1,
+		AuthToken: "test-token",
+		Pool:      PoolSuper,
+		Mode:      "auto",
 	}
+}
+
+func testRefreshMode(windowSeconds int) modelconfig.ModeSpec {
+	return modelconfig.ModeSpec{
+		ID:            "auto",
+		UpstreamName:  "auto",
+		WindowSeconds: windowSeconds,
+		DefaultQuota:  map[string]int{"super": 50},
+	}
+}
+
+func rateLimitServer(
+	t *testing.T,
+	resp RateLimitsResponse,
+	calls *atomic.Int64,
+) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls != nil {
+			calls.Add(1)
+		}
+		require.Equal(t, rateLimitsPath, r.URL.Path)
+		require.NoError(t, json.NewEncoder(w).Encode(resp))
+	}))
+}
+
+func waitForCondition(t *testing.T, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	require.True(t, condition())
+}
+
+func TestCalculateResumeAt_AllZeroFallsToModeWindow(t *testing.T) {
+	now := time.Now()
+	resp := &RateLimitsResponse{RemainingQueries: 0, TotalQueries: 30}
+	mode := modelconfig.ModeSpec{WindowSeconds: 7200}
+	resumeAt := calculateResumeAt(now, resp, mode)
+	assert.InDelta(t, now.Add(7200*time.Second).Unix(), int64(resumeAt), 2)
+}
+
+func TestScheduler_ForgetTokenClearsLastRefresh(t *testing.T) {
+	manager := newRefreshTestManager()
+	server := rateLimitServer(t, RateLimitsResponse{
+		RemainingQueries: 10,
+		TotalQueries:     50,
+	}, nil)
+	defer server.Close()
+
+	scheduler := NewScheduler(manager, testModeSpecs(), server.URL)
+
+	// Mark debounce for token 1, mode "auto"
+	require.True(t, scheduler.checkAndMarkLastRefresh(1, "auto", time.Now()))
+
+	// Forget the token
+	scheduler.ForgetToken(1)
+
+	// Should allow refresh again (debounce cleared)
+	require.True(t, scheduler.checkAndMarkLastRefresh(1, "auto", time.Now()))
 }

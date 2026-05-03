@@ -36,28 +36,25 @@ func (m *mockTokenStore) UpdateTokenSnapshots(ctx context.Context, snapshots []s
 	return nil
 }
 
-type trackerStub struct {
-	recorded map[uint][]string
-	setAt    map[uint]map[string]time.Time
+type refreshRequesterStub struct {
+	requested  map[uint][]string
+	refreshErr error
+	refreshIDs []uint
 }
 
-func (t *trackerStub) RecordFirstUsed(tokenID uint, mode string) {
-	if t.recorded == nil {
-		t.recorded = make(map[uint][]string)
+func (r *refreshRequesterStub) RequestRefresh(tokenID uint, mode string) {
+	if r.requested == nil {
+		r.requested = make(map[uint][]string)
 	}
-	t.recorded[tokenID] = append(t.recorded[tokenID], mode)
+	r.requested[tokenID] = append(r.requested[tokenID], mode)
 }
 
-func (t *trackerStub) SetFirstUsedAt(tokenID uint, mode string, ts time.Time) {
-	if t.setAt == nil {
-		t.setAt = make(map[uint]map[string]time.Time)
-	}
-	if t.setAt[tokenID] == nil {
-		t.setAt[tokenID] = make(map[string]time.Time)
-	}
-	t.setAt[tokenID][mode] = ts
-	t.RecordFirstUsed(tokenID, mode)
+func (r *refreshRequesterStub) RefreshToken(ctx context.Context, tokenID uint) error {
+	r.refreshIDs = append(r.refreshIDs, tokenID)
+	return r.refreshErr
 }
+
+func (r *refreshRequesterStub) ForgetToken(tokenID uint) {}
 
 func newTestTokenService(cfg *config.TokenConfig, store TokenStore) *TokenService {
 	return NewTokenService(cfg, store, []modelconfig.ModeSpec{
@@ -120,9 +117,7 @@ func TestService_LoadTokens_NormalizesModeMapsAndPrimesZeroModes(t *testing.T) {
 	}
 
 	cfg := &config.TokenConfig{FailThreshold: 3}
-	tracker := &trackerStub{}
 	svc := newTestTokenService(cfg, mockStore)
-	svc.SetFirstUseTracker(tracker)
 
 	err := svc.LoadTokens(context.Background())
 	require.NoError(t, err)
@@ -139,8 +134,7 @@ func TestService_LoadTokens_NormalizesModeMapsAndPrimesZeroModes(t *testing.T) {
 	token2 := svc.manager.GetToken(2)
 	require.NotNil(t, token2)
 	assert.Equal(t, 20, token2.LimitQuotas["auto"])
-	assert.Equal(t, []string{"auto"}, tracker.recorded[2])
-	assert.WithinDuration(t, time.Now(), tracker.setAt[2]["auto"], 2*time.Second)
+	assert.WithinDuration(t, time.Now(), time.Unix(int64(token2.ResumeAts["auto"]), 0), 2*time.Second)
 
 	dirty := svc.manager.GetDirtyTokens()
 	assert.Len(t, dirty, 2)
@@ -212,13 +206,21 @@ func TestService_ReportRateLimit(t *testing.T) {
 	mockStore := &mockTokenStore{}
 	cfg := &config.TokenConfig{FailThreshold: 3}
 	svc := newTestTokenService(cfg, mockStore)
+	refresher := &refreshRequesterStub{}
+	svc.SetRefreshRequester(refresher)
 
-	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive), Quotas: store.IntMap{"auto": 80}})
+	svc.manager.AddToken(&store.Token{
+		ID: 1, Token: "t1", Pool: PoolBasic, Status: string(StatusActive),
+		Quotas: store.IntMap{"auto": 80}, ResumeAts: store.IntMap{"auto": 123},
+	})
 
 	svc.ReportRateLimit(1, "auto", "rate limited")
 
 	token := svc.manager.GetToken(1)
 	assert.Equal(t, 0, token.Quotas["auto"], "ReportRateLimit should clear mode quota to 0")
+	_, hasResumeAt := token.ResumeAts["auto"]
+	assert.False(t, hasResumeAt, "ReportRateLimit should clear stale resume_at")
+	assert.Equal(t, []string{"auto"}, refresher.requested[1])
 }
 
 func TestService_ReportError_Recoverable(t *testing.T) {
@@ -316,18 +318,21 @@ func TestService_Stats(t *testing.T) {
 	assert.Equal(t, 1, stats[PoolSuper].Active)
 }
 
-func TestService_ReportRateLimitSetsCooling(t *testing.T) {
+func TestService_ReportRateLimitReleasesInflight(t *testing.T) {
 	mockStore := &mockTokenStore{}
-	cfg := &config.TokenConfig{FailThreshold: 3, CoolDurationSuperSec: 7200}
+	cfg := &config.TokenConfig{FailThreshold: 3, MaxInflight: 8}
 	svc := newTestTokenService(cfg, mockStore)
 
 	svc.manager.AddToken(&store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}})
+	_, err := svc.Pick(PoolSuper, "auto")
+	require.NoError(t, err)
+	assert.Equal(t, 1, svc.manager.GetInflight(1))
 
 	svc.ReportRateLimit(1, "auto", "429 rate limited")
 
 	token := svc.manager.GetToken(1)
 	assert.Equal(t, 0, token.Quotas["auto"], "quota should be cleared")
-	assert.Greater(t, token.CoolUntils["auto"], 0, "CoolUntils[auto] should be set")
+	assert.Equal(t, 0, svc.manager.GetInflight(1), "inflight should be released")
 }
 
 func TestService_ReleaseToken(t *testing.T) {

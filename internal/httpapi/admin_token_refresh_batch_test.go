@@ -59,7 +59,8 @@ func TestHandleBatchRefresh_WithIDs(t *testing.T) {
 	assert.Equal(t, "progress", events[1].Type)
 	assert.Equal(t, uint(2), events[1].TokenID)
 	assert.Equal(t, "error", events[1].Status)
-	assert.Contains(t, events[1].Error, "quota sync failed")
+	assert.Equal(t, tokenRefreshFailedMessage, events[1].Error)
+	assert.NotContains(t, w.Body.String(), "quota sync failed")
 
 	assert.Equal(t, "progress", events[2].Type)
 	assert.Equal(t, uint(3), events[2].TokenID)

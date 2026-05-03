@@ -154,7 +154,6 @@ export const zh = {
     usedToday: "今日已用:",
     failCount: "失败次数:",
     lastUsed: "最后使用:",
-    coolUntil: "冷却至:",
     createdAt: "创建时间:",
     refreshed: "Token 已刷新",
     refreshFailed: "刷新失败",

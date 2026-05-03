@@ -100,7 +100,8 @@ func streamBatchRefresh(ctx context.Context, sse *SSEWriter, refresher TokenRefr
 
 		if _, err := refresher.RefreshToken(ctx, id); err != nil {
 			evt.Status = "error"
-			evt.Error = err.Error()
+			evt.Error = tokenRefreshFailedMessage
+			slog.Warn("admin batch token refresh failed", "token_id", id, "error", err)
 			failed++
 		} else {
 			evt.Status = "success"

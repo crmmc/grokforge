@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -215,10 +216,32 @@ const assetsBaseURL = "https://assets.grok.com/"
 // relative paths like "users/xxx/generated_video.mp4" without the base URL.
 func normalizeAssetURL(rawURL string) string {
 	trimmed := strings.TrimSpace(rawURL)
-	if strings.HasPrefix(trimmed, "http://") || strings.HasPrefix(trimmed, "https://") {
-		return trimmed
+	if strings.HasPrefix(trimmed, "//") {
+		return canonicalAssetURL("https:" + trimmed)
+	}
+	lower := strings.ToLower(trimmed)
+	if strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://") {
+		return canonicalAssetURL(trimmed)
 	}
 	return assetsBaseURL + strings.TrimPrefix(trimmed, "/")
+}
+
+func canonicalAssetURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return rawURL
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host != "assets.grok.com" && host != "grok.com" {
+		return rawURL
+	}
+	copied := *parsed
+	copied.Scheme = "https"
+	return copied.String()
 }
 
 // DownloadURL downloads the content at the given URL using the client's session (cookies/proxy).

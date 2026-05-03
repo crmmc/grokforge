@@ -79,8 +79,6 @@ func (f *ImageFlow) Edit(ctx context.Context, req *ImageEditRequest) (*ImageResp
 	if err != nil {
 		return handleErr(err)
 	}
-	f.tokenSvc.RecordFirstUse(tok.ID, mode)
-
 	parentPostID, err := resolveImageEditParentPostID(ctx, client, uploadedURLs)
 	if err != nil {
 		return handleErr(err)

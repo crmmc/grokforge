@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
@@ -227,7 +228,6 @@ func (m *chatMockTokenSvc) PickExcluding(pool string, mode string, _ map[uint]st
 func (m *chatMockTokenSvc) PickAnyExcluding(pool string, _ map[uint]struct{}) (*store.Token, error) {
 	return m.Pick(pool, "")
 }
-func (m *chatMockTokenSvc) RecordFirstUse(id uint, mode string)                               {}
 func (m *chatMockTokenSvc) RefundQuota(id uint, mode string)                                  {}
 func (m *chatMockTokenSvc) ReportSuccess(id uint)                                             {}
 func (m *chatMockTokenSvc) ReportRateLimit(id uint, mode string, reason string)               {}
@@ -250,7 +250,6 @@ func (m *chatUnavailableTokenSvc) PickExcluding(pool string, mode string, _ map[
 func (m *chatUnavailableTokenSvc) PickAnyExcluding(pool string, _ map[uint]struct{}) (*store.Token, error) {
 	return nil, m.err
 }
-func (m *chatUnavailableTokenSvc) RecordFirstUse(id uint, mode string)                 {}
 func (m *chatUnavailableTokenSvc) RefundQuota(id uint, mode string)                    {}
 func (m *chatUnavailableTokenSvc) ReportSuccess(id uint)                               {}
 func (m *chatUnavailableTokenSvc) ReportRateLimit(id uint, mode string, reason string) {}
@@ -443,6 +442,7 @@ func TestHandleChat_VideoModelRoute(t *testing.T) {
 		func(token string) flow.VideoClient { return &chatVideoClientMock{} },
 		&flow.VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: flowTestModelResolver()},
 	)
+	videoFlow.SetCacheService(cache.NewService(t.TempDir(), nil))
 	s := httpapi.NewServer(&httpapi.ServerConfig{ChatProvider: &Handler{VideoFlow: videoFlow, ModelRegistry: testMediaRegistry()}})
 
 	body := `{"model":"grok-imagine-video","messages":[{"role":"user","content":"make a short clip"}]}`
@@ -454,6 +454,8 @@ func TestHandleChat_VideoModelRoute(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, w.Code)
 	assert.Contains(t, w.Body.String(), "[video](")
+	assert.Contains(t, w.Body.String(), "/api/files/video/")
+	assert.NotContains(t, w.Body.String(), "https://example.com/video.mp4")
 }
 
 func TestHandleChat_VideoModelRoute_NoTokenAvailable(t *testing.T) {

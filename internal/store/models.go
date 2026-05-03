@@ -9,14 +9,6 @@ import (
 	"gorm.io/gorm"
 )
 
-var obsoleteConfigKeys = []string{
-	"retry.cooling_status_codes",
-	"token.cool_check_interval_sec",
-	"token.basic_cool_duration_min",
-	"token.super_cool_duration_min",
-	"token.heavy_cool_duration_min",
-}
-
 // StringSlice is a custom type for JSON-encoded []string in SQLite.
 type StringSlice []string
 
@@ -115,7 +107,7 @@ type Token struct {
 	NsfwEnabled  bool           `gorm:"default:false;index" json:"nsfw_enabled"`
 	StatusReason string         `gorm:"size:256" json:"status_reason,omitempty"`
 	Priority     int            `gorm:"default:0;index" json:"priority"`
-	CoolUntils   IntMap         `gorm:"type:text" json:"cool_untils,omitempty"` // mode → unix timestamp
+	ResumeAts    IntMap         `gorm:"type:text" json:"resume_ats,omitempty"` // mode -> unix timestamp
 	CreatedAt    time.Time      `json:"created_at"`
 	UpdatedAt    time.Time      `json:"updated_at"`
 	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
@@ -163,9 +155,10 @@ func AutoMigrate(db *gorm.DB) error {
 	if err := db.AutoMigrate(AllModels()...); err != nil {
 		return err
 	}
-	// Migrate cooling tokens to active (cooling is no longer a persisted status).
-	db.Exec("UPDATE tokens SET status = ? WHERE status = ?", TokenStatusActive, "cooling")
-	// Remove obsolete config overrides from the pre-mode-quota cooling model.
-	db.Exec("DELETE FROM config_entries WHERE key IN ?", obsoleteConfigKeys)
+	if err := db.Exec("UPDATE tokens SET status = ? WHERE status = ?", TokenStatusActive, "cooling").Error; err != nil {
+		return err
+	}
+	// Drop obsolete column from prior schema (harmless if already absent).
+	_ = db.Exec("ALTER TABLE tokens DROP COLUMN IF EXISTS cool_untils").Error
 	return nil
 }

@@ -190,7 +190,7 @@ func TestImageFlow_Generate_Success(t *testing.T) {
 	assert.Equal(t, finalData, resp.Data[0].B64JSON)
 }
 
-func TestImageFlow_GenerateLite_RecordsResolvedMode(t *testing.T) {
+func TestImageFlow_GenerateLite_UsesResolvedMode(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
 	}
@@ -213,7 +213,7 @@ func TestImageFlow_GenerateLite_RecordsResolvedMode(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Data, 1)
-	require.Equal(t, []string{"auto"}, tokenSvc.firstUseModes)
+	require.Equal(t, []string{"auto"}, tokenSvc.pickModes)
 }
 
 func TestImageFlow_Generate_Blocked(t *testing.T) {

@@ -123,6 +123,6 @@ func (p *Persister) updateToken(tx *gorm.DB, snapshot TokenSnapshot) error {
 		"limit_quotas":  snapshot.LimitQuotas,
 		"fail_count":    snapshot.FailCount,
 		"last_used":     snapshot.LastUsed,
-		"cool_untils":   snapshot.CoolUntils,
+		"resume_ats":    snapshot.ResumeAts,
 	}).Error
 }

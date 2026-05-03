@@ -152,7 +152,6 @@ export const en = {
     usedToday: "Used Today:",
     failCount: "Fail Count:",
     lastUsed: "Last Used:",
-    coolUntil: "Cool Until:",
     createdAt: "Created:",
     refreshed: "Token refreshed",
     refreshFailed: "Refresh failed",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -321,6 +322,38 @@ func TestAdminToken_RefreshToken(t *testing.T) {
 	}
 	if resp.Quotas["auto"] != 30 {
 		t.Fatalf("expected refreshed quota auto=30, got %v", resp.Quotas)
+	}
+}
+
+func TestAdminToken_RefreshTokenRedactsError(t *testing.T) {
+	mockStore := newMockTokenStore()
+	handler := handleRefreshToken(
+		mockStore,
+		&mockTokenRefresher{err: errors.New("fetch rate limits for auto: upstream detail")},
+		nil,
+		&mockInflightProvider{},
+	)
+
+	req := httptest.NewRequest(http.MethodPost, "/admin/tokens/1/refresh", nil)
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "1")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("expected 502, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp APIError
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Error.Message != tokenRefreshFailedMessage {
+		t.Fatalf("expected redacted message %q, got %q", tokenRefreshFailedMessage, resp.Error.Message)
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte("upstream detail")) {
+		t.Fatalf("refresh error leaked internal detail: %s", rec.Body.String())
 	}
 }
 

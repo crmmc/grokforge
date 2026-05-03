@@ -5,9 +5,9 @@ version = 1
 [[mode]]
 id = "auto"
 upstream_name = "auto"
-window_seconds = 72000
+window_seconds = 7200
 [mode.default_quota]
-basic = 20
+basic = 0
 super = 50
 heavy = 150
 
@@ -23,9 +23,9 @@ heavy = 400
 [[mode]]
 id = "expert"
 upstream_name = "expert"
-window_seconds = 36000
+window_seconds = 7200
 [mode.default_quota]
-basic = 8
+basic = 0
 super = 50
 heavy = 150
 
@@ -72,7 +72,7 @@ id = "grok-4.20-think"
 display_name = "Grok 4.20 Think"
 type = "chat"
 enabled = true
-pool_floor = "basic"
+pool_floor = "super"
 mode = "auto"
 upstream_mode = "auto"
 force_thinking = true

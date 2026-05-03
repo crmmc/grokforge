@@ -18,6 +18,7 @@ func TestVideoFlow_GenerateSync_MultipleReferences(t *testing.T) {
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 	vf.SetModeResolver(testModeResolver())
+	setTestVideoCache(t, vf)
 
 	images := [][]byte{
 		[]byte("fake-png-1"),
@@ -83,6 +84,7 @@ func TestVideoFlow_GenerateSync_SingleReference(t *testing.T) {
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 	vf.SetModeResolver(testModeResolver())
+	setTestVideoCache(t, vf)
 
 	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt:          "animate this",
@@ -130,6 +132,7 @@ func TestVideoFlow_GenerateSync_NoReference_NoImageFields(t *testing.T) {
 	cfg := &VideoFlowConfig{TimeoutSeconds: 5, PollIntervalSeconds: 1, ModelResolver: testModelResolver()}
 	vf := NewVideoFlow(tokenSvc, func(token string) VideoClient { return client }, cfg)
 	vf.SetModeResolver(testModeResolver())
+	setTestVideoCache(t, vf)
 
 	_, err := vf.GenerateSync(context.Background(), withVideoUpstream(&VideoRequest{
 		Prompt: "generate a sunset",

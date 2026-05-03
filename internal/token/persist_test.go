@@ -186,22 +186,22 @@ func TestPersister_Stop(t *testing.T) {
 	}
 }
 
-func TestPersist_CoolUntilsSurvivesFlush(t *testing.T) {
+func TestPersist_ResumeAtsSurvivesFlush(t *testing.T) {
 	db := setupTestDB(t)
-	cfg := &config.TokenConfig{FailThreshold: 3, CoolDurationSuperSec: 7200}
+	cfg := &config.TokenConfig{FailThreshold: 3}
 	m := NewTokenManager(cfg)
 
 	tok := &store.Token{ID: 1, Token: "t1", Pool: PoolSuper, Status: string(StatusActive), Quotas: store.IntMap{"auto": 50}}
 	db.Create(tok)
 	m.AddToken(tok)
 
-	// Trigger cooling
-	m.ClearModeQuotaAndCool(1, "auto")
+	resumeAt := int(time.Now().Add(time.Hour).Unix())
+	m.SetResumeAt(1, "auto", resumeAt)
 
 	// Verify in-memory
 	memToken := m.GetToken(1)
-	if memToken.CoolUntils["auto"] == 0 {
-		t.Fatal("expected CoolUntils[auto] to be set in memory")
+	if memToken.ResumeAts["auto"] != resumeAt {
+		t.Fatal("expected ResumeAts[auto] to be set in memory")
 	}
 
 	// Flush to DB
@@ -219,10 +219,10 @@ func TestPersist_CoolUntilsSurvivesFlush(t *testing.T) {
 	if err := db.First(&dbToken, 1).Error; err != nil {
 		t.Fatalf("failed to read token from DB: %v", err)
 	}
-	if dbToken.CoolUntils["auto"] == 0 {
-		t.Error("expected CoolUntils[auto] to be persisted in DB")
+	if dbToken.ResumeAts["auto"] == 0 {
+		t.Error("expected ResumeAts[auto] to be persisted in DB")
 	}
-	if dbToken.CoolUntils["auto"] != memToken.CoolUntils["auto"] {
-		t.Errorf("DB CoolUntils[auto]=%d != memory CoolUntils[auto]=%d", dbToken.CoolUntils["auto"], memToken.CoolUntils["auto"])
+	if dbToken.ResumeAts["auto"] != memToken.ResumeAts["auto"] {
+		t.Errorf("DB ResumeAts[auto]=%d != memory ResumeAts[auto]=%d", dbToken.ResumeAts["auto"], memToken.ResumeAts["auto"])
 	}
 }

@@ -85,6 +85,34 @@ func (h *Handler) resolveChatImageConfig(req *ChatRequest) (*resolvedChatImageCo
 	return cfg, nil
 }
 
+func (h *Handler) resolveChatLiteImageConfig(req *ChatRequest) (*resolvedChatImageConfig, error) {
+	if req == nil {
+		return nil, fmt.Errorf("chat request is nil")
+	}
+
+	cfg := &resolvedChatImageConfig{
+		n:              defaultChatImageCount,
+		responseFormat: h.defaultChatImageFormat(),
+	}
+	if req.ImageConfig != nil {
+		if req.ImageConfig.N > 0 {
+			cfg.n = req.ImageConfig.N
+		}
+		if req.ImageConfig.ResponseFormat != "" {
+			cfg.responseFormat = req.ImageConfig.ResponseFormat
+		}
+	}
+	responseFormat, err := normalizeChatImageResponseFormat(cfg.responseFormat)
+	if err != nil {
+		return nil, err
+	}
+	cfg.responseFormat = responseFormat
+	if cfg.n < 1 || cfg.n > 4 {
+		return nil, fmt.Errorf("image_config.n must be between 1 and 4")
+	}
+	return cfg, nil
+}
+
 func (h *Handler) resolveChatVideoConfig(cfg *VideoConfig) (*resolvedChatVideoConfig, error) {
 	aspectRatio := "3:2"
 	seconds := defaultChatVideoSeconds
@@ -139,8 +167,15 @@ func (h *Handler) resolveChatVideoConfig(cfg *VideoConfig) (*resolvedChatVideoCo
 	}, nil
 }
 
-func normalizeChatImageResponseFormat(_ string) (string, error) {
-	return "b64_json", nil // 统一 base64，忽略输入
+func normalizeChatImageResponseFormat(format string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "", "url", "b64_json", "base64":
+		// Chat image responses are rendered as markdown data URIs, so upstream
+		// media URLs never leave the gateway even if the client asks for "url".
+		return "b64_json", nil
+	default:
+		return "", fmt.Errorf("image_config.response_format must be one of url, b64_json, base64")
+	}
 }
 
 func (h *Handler) defaultChatImageFormat() string {

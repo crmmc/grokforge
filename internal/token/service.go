@@ -27,13 +27,12 @@ type PoolStats struct {
 
 // TokenService provides the high-level API for token management.
 type TokenService struct {
-	cfg             *config.TokenConfig
-	store           TokenStore
-	manager         *TokenManager
-	modes           []modelconfig.ModeSpec
-	baseURL         string
-	firstUseTracker FirstUseTracker
-	manualRefresher ManualQuotaRefresher
+	cfg              *config.TokenConfig
+	store            TokenStore
+	manager          *TokenManager
+	modes            []modelconfig.ModeSpec
+	baseURL          string
+	refreshRequester RefreshRequester
 }
 
 // NewTokenService creates a new token service.
@@ -52,14 +51,9 @@ func NewTokenService(
 	}
 }
 
-// SetFirstUseTracker wires a refresh-window tracker into the token service.
-func (s *TokenService) SetFirstUseTracker(tracker FirstUseTracker) {
-	s.firstUseTracker = tracker
-}
-
-// SetManualRefresher wires a manual quota refresher into the token service.
-func (s *TokenService) SetManualRefresher(refresher ManualQuotaRefresher) {
-	s.manualRefresher = refresher
+// SetRefreshRequester wires upstream quota refresh requests into the service.
+func (s *TokenService) SetRefreshRequester(requester RefreshRequester) {
+	s.refreshRequester = requester
 }
 
 // LoadTokens loads all tokens from the store into the manager.
@@ -74,15 +68,10 @@ func (s *TokenService) LoadTokens(ctx context.Context) error {
 			return err
 		}
 		normalized := normalizeTokenQuotas(t, s.modes)
+		primeChanged := s.primeZeroModeResumeAts(t, normalized.zeroModes, time.Now())
 		s.manager.AddToken(t)
-		if normalized.changed {
+		if normalized.changed || primeChanged {
 			s.manager.MarkDirty(t.ID)
-		}
-		if s.firstUseTracker != nil {
-			now := time.Now()
-			for _, mode := range normalized.zeroModes {
-				s.firstUseTracker.SetFirstUsedAt(t.ID, mode, now)
-			}
 		}
 	}
 
@@ -109,19 +98,12 @@ func (s *TokenService) ReportSuccess(id uint) {
 	s.manager.MarkSuccess(id)
 }
 
-// RecordFirstUse marks the token+mode as having observed upstream traffic.
-func (s *TokenService) RecordFirstUse(id uint, mode string) {
-	if s.firstUseTracker == nil || mode == "" {
-		return
-	}
-	s.firstUseTracker.RecordFirstUsed(id, mode)
-}
-
-// ReportRateLimit clears quota and sets cooling for the given mode on a token (429 response).
+// ReportRateLimit clears local quota and asks the scheduler for authoritative state.
 func (s *TokenService) ReportRateLimit(id uint, mode string, reason string) {
-	s.manager.ClearModeQuotaAndCool(id, mode)
-	if s.firstUseTracker != nil && mode != "" {
-		s.firstUseTracker.RecordFirstUsed(id, mode)
+	s.manager.ClearModeQuota(id, mode)
+	s.manager.ClearResumeAt(id, mode)
+	if s.refreshRequester != nil && mode != "" {
+		s.refreshRequester.RequestRefresh(id, mode)
 	}
 }
 
@@ -180,7 +162,7 @@ func (s *TokenService) FlushDirty(ctx context.Context) error {
 			LimitQuotas:  d.LimitQuotas,
 			FailCount:    d.FailCount,
 			LastUsed:     d.LastUsed,
-			CoolUntils:   d.CoolUntils,
+			ResumeAts:    d.ResumeAts,
 		}
 	}
 	if err := s.store.UpdateTokenSnapshots(ctx, snapshots); err != nil {
@@ -232,6 +214,9 @@ func (s *TokenService) AddToPool(token *store.Token) error {
 // RemoveFromPool removes a token from the in-memory pool (called after admin delete).
 func (s *TokenService) RemoveFromPool(id uint) {
 	s.manager.RemoveToken(id)
+	if s.refreshRequester != nil {
+		s.refreshRequester.ForgetToken(id)
+	}
 }
 
 // SyncToken reloads a single token from DB into memory (called after admin update).
@@ -244,16 +229,19 @@ func (s *TokenService) SyncToken(ctx context.Context, id uint) error {
 		return err
 	}
 	s.manager.RemoveToken(id)
+	if s.refreshRequester != nil {
+		s.refreshRequester.ForgetToken(id)
+	}
 	s.manager.AddToken(dbToken)
 	return nil
 }
 
 // RefreshToken forces an immediate upstream quota refresh and persists the result.
 func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token, error) {
-	if s.manualRefresher == nil {
+	if s.refreshRequester == nil {
 		return nil, fmt.Errorf("token refresh not configured")
 	}
-	if err := s.manualRefresher.RefreshToken(ctx, id); err != nil {
+	if err := s.refreshRequester.RefreshToken(ctx, id); err != nil {
 		if errors.Is(err, ErrTokenNotFound) {
 			return nil, store.ErrNotFound
 		}
@@ -267,6 +255,28 @@ func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token,
 		return nil, store.ErrNotFound
 	}
 	return token, nil
+}
+
+func (s *TokenService) primeZeroModeResumeAts(
+	token *store.Token,
+	zeroModes []string,
+	now time.Time,
+) bool {
+	if len(zeroModes) == 0 {
+		return false
+	}
+	if token.ResumeAts == nil {
+		token.ResumeAts = make(store.IntMap)
+	}
+	changed := false
+	for _, mode := range zeroModes {
+		if _, exists := token.ResumeAts[mode]; exists {
+			continue
+		}
+		token.ResumeAts[mode] = int(now.Unix())
+		changed = true
+	}
+	return changed
 }
 
 func normalizeTokenPool(token *store.Token) error {

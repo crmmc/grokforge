@@ -21,6 +21,23 @@ func TestLoad_RejectsUnknownKeys(t *testing.T) {
 	}
 }
 
+func TestLoad_IgnoresDeprecatedCoolDurationKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.toml")
+	content := `[token]
+cool_duration_basic_sec = 86400
+cool_duration_super_sec = 7200
+cool_duration_heavy_sec = 7200
+`
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("deprecated config keys should be ignored, got %v", err)
+	}
+}
+
 func TestLoad_RejectsNegativeCacheImageLimit(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.toml")
@@ -99,6 +116,19 @@ func TestApplyDBOverrides_RejectsUnknownKey(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "unknown db override key") {
 		t.Fatalf("expected unknown db override key error, got %v", err)
+	}
+}
+
+func TestApplyDBOverrides_IgnoresDeprecatedCoolDurationKeys(t *testing.T) {
+	cfg := DefaultConfig()
+
+	err := cfg.ApplyDBOverrides(map[string]string{
+		"token.cool_duration_basic_sec": "86400",
+		"token.cool_duration_super_sec": "7200",
+		"token.cool_duration_heavy_sec": "7200",
+	})
+	if err != nil {
+		t.Fatalf("deprecated db override keys should be ignored, got %v", err)
 	}
 }
 

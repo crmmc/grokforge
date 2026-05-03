@@ -29,9 +29,22 @@ type RateLimitsResponse struct {
 	RemainingQueries  int `json:"remainingQueries"`
 	TotalQueries      int `json:"totalQueries"`
 	WindowSizeSeconds int `json:"windowSizeSeconds"`
+	WaitTimeSeconds   int `json:"waitTimeSeconds,omitempty"`
 }
 
-const rateLimitsPath = "/rest/rate-limits"
+type rawRateLimitsResponse struct {
+	RemainingQueries  *int `json:"remainingQueries"`
+	TotalQueries      *int `json:"totalQueries"`
+	WindowSizeSeconds int  `json:"windowSizeSeconds"`
+	WaitTimeSeconds   int  `json:"waitTimeSeconds,omitempty"`
+}
+
+const (
+	rateLimitsPath                 = "/rest/rate-limits"
+	rateLimitsBodyPreviewLimit     = int64(1024)
+	rateLimitsResponseBodyLimit    = int64(1 << 20)
+	rateLimitsClientTimeoutSeconds = 10
+)
 
 type rateLimitsHTTPError struct {
 	statusCode    int
@@ -73,7 +86,7 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", "sso="+authToken)
 
-	client, err := tls_client.NewHttpClient(nil, tls_client.WithTimeoutSeconds(10))
+	client, err := tls_client.NewHttpClient(nil, tls_client.WithTimeoutSeconds(rateLimitsClientTimeoutSeconds))
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +97,7 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyPreview, truncated, readErr := readBodyPreview(resp.Body, 1024)
+		bodyPreview, truncated, readErr := readBodyPreview(resp.Body, rateLimitsBodyPreviewLimit)
 		if readErr != nil {
 			return nil, readErr
 		}
@@ -95,22 +108,35 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 		}
 	}
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, rateLimitsResponseBodyLimit))
 	if err != nil {
 		return nil, err
 	}
+	return decodeRateLimitsResponse(respBody)
+}
 
-	var result RateLimitsResponse
-	if err := json.Unmarshal(respBody, &result); err != nil {
+func decodeRateLimitsResponse(body []byte) (*RateLimitsResponse, error) {
+	var raw rawRateLimitsResponse
+	if err := json.Unmarshal(body, &raw); err != nil {
 		return nil, err
 	}
-
-	return &result, nil
+	if raw.RemainingQueries == nil {
+		return nil, errors.New("rate-limits response missing remainingQueries")
+	}
+	if raw.TotalQueries == nil {
+		return nil, errors.New("rate-limits response missing totalQueries")
+	}
+	return &RateLimitsResponse{
+		RemainingQueries:  *raw.RemainingQueries,
+		TotalQueries:      *raw.TotalQueries,
+		WindowSizeSeconds: raw.WindowSizeSeconds,
+		WaitTimeSeconds:   raw.WaitTimeSeconds,
+	}, nil
 }
 
 func readBodyPreview(r io.Reader, limit int64) (string, bool, error) {
 	if limit <= 0 {
-		limit = 1024
+		limit = rateLimitsBodyPreviewLimit
 	}
 	body, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
