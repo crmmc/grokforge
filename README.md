@@ -110,34 +110,40 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 ## Supported Models
 
 <details>
-<summary><b>Chat Models</b></summary>
+<summary><b>Chat Models (8)</b></summary>
 
 | Model | Mode | Pool Floor | Description |
 |-------|------|------------|-------------|
-| `grok-4.20-0309-non-reasoning` | fast | basic | 0309 Non-Reasoning, Basic pool |
-| `grok-4.20-0309` | auto | super | 0309 default |
-| `grok-4.20-0309-reasoning` | expert | super | 0309 Reasoning |
-| `grok-4.20-0309-*-super` | fast/auto/expert | super | 0309 Super variants |
-| `grok-4.20-0309-*-heavy` | fast/auto/expert | heavy | 0309 Heavy variants |
-| `grok-4.20-multi-agent-0309` | heavy | heavy | 0309 Multi-Agent |
-| `grok-4.20-fast` | fast | basic | Fast, reverse-pool selection |
-| `grok-4.20-auto` | auto | super | Auto, reverse-pool selection |
-| `grok-4.20-expert` | expert | super | Expert, reverse-pool selection |
-| `grok-4.20-heavy` | heavy | heavy | Heavy, reverse-pool selection |
+| `grok-4.20-fast` | fast | basic | Fast, Basic pool |
+| `grok-4.20` | auto | super | Default (auto) |
+| `grok-4.20-think` | expert | super | Think (reasoning) |
+| `grok-4.20-fast-super` | fast | super | Fast, Super pool |
+| `grok-4.20-fast-heavy` | fast | heavy | Fast, Heavy pool |
+| `grok-4.20-heavy` | auto | heavy | Default (auto), Heavy pool |
+| `grok-4.20-think-heavy` | expert | heavy | Think, Heavy pool |
+| `grok-4.20-multi-agent` | heavy | heavy | Multi-Agent |
+
+</details>
+
+<details>
+<summary><b>Special Chat (1)</b></summary>
+
+| Model | Mode | Pool Floor | Description |
+|-------|------|------------|-------------|
 | `grok-4.3-beta` | grok43 | super | Grok 4.3 beta |
 
 </details>
 
 <details>
-<summary><b>Media Models</b></summary>
+<summary><b>Media Models (5)</b></summary>
 
 | Model | Type | Pool Floor | Description |
 |-------|------|------------|-------------|
-| `grok-imagine-image` | image_ws (WebSocket) | super | Full image generation (no quota sync) |
-| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro image generation (no quota sync) |
 | `grok-imagine-image-lite` | image_lite (HTTP) | basic | Lightweight image generation, Basic pool |
 | `grok-imagine-image-edit` | image_edit | super | Image editing (supports reference images) |
 | `grok-imagine-video` | video | super | Video generation |
+| `grok-imagine-image` | image_ws (WebSocket) | super | Full image generation (no quota sync) |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro image generation (no quota sync) |
 
 </details>
 
@@ -393,7 +399,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4.20-expert",
+    "model": "grok-4.20-think",
     "messages": [{"role": "user", "content": "Prove that √2 is irrational"}],
     "reasoning_effort": "high"
   }'
