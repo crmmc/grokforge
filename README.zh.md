@@ -44,6 +44,8 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 - **多池 Token 路由** — ssoBasic / ssoSuper / ssoHeavy 按 `pool_floor` 路由，支持 3 种选择算法、优先级分层和近期使用惩罚
 - **静态模型目录** — 模型定义嵌入二进制的 TOML 文件中，支持外部文件覆盖
 - **按 mode 动态配额** — 配额窗口由模型目录驱动；`image_ws` 仅使用临时冷却
+- **图像输出模式** — 可配置 `base64`（内联数据 URI）或 `local_url`（本地缓存，通过 `/api/files/` 提供访问）
+- **媒体泄漏防护** — 流式安全的 URL 重写，确保上游 Grok URL 不会泄漏给客户端
 - **SSE 心跳保活** — 2KB 初始填充 + 15s 心跳，防止反代/CDN 超时断连
 - **DeepSearch** — 透传 `deepsearch` 参数，启用 Grok 深度搜索能力
 - **配置热重载** — 管理面板修改即时生效，无需重启
