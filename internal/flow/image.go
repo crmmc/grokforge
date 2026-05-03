@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
@@ -133,6 +134,7 @@ type ImageFlow struct {
 	enableProFn       func(model string) bool
 	cooldownMu        sync.Mutex
 	cooldownUntil     map[string]time.Time
+	cacheSvc          *cache.Service
 }
 
 // NewImageFlow creates a new image flow with per-request token selection.
@@ -152,6 +154,11 @@ func (f *ImageFlow) SetUsageRecorder(ur UsageRecorder) {
 // SetEditClientFactory sets the app-chat client factory used by image edits.
 func (f *ImageFlow) SetEditClientFactory(factory ImageEditClientFactory) {
 	f.editClientFactory = factory
+}
+
+// SetCacheService sets the cache service for local_url image output.
+func (f *ImageFlow) SetCacheService(svc *cache.Service) {
+	f.cacheSvc = svc
 }
 
 // SetAppConfig sets app-level defaults for app-chat based image edits.

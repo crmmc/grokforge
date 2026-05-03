@@ -50,7 +50,7 @@ func decodeImageDataURI(dataURI string) ([]byte, error) {
 	return decoded, nil
 }
 
-func (h *Handler) renderImagesForChat(result *flow.ImageResponse) (string, error) {
+func (h *Handler) renderImagesForChat(r *http.Request, result *flow.ImageResponse) (string, error) {
 	if result == nil {
 		return "", fmt.Errorf("image response is nil")
 	}
@@ -61,10 +61,16 @@ func (h *Handler) renderImagesForChat(result *flow.ImageResponse) (string, error
 			continue
 		}
 		if img.URL != "" {
-			if _, ok := mediaDownloadURL(img.URL); ok {
-				return "", fmt.Errorf("image response contains upstream media URL")
+			// Check if URL is an upstream media URL that should have been rewritten
+			if isGrokImageTarget(img.URL) {
+				return "", fmt.Errorf("image response contains upstream media URL: %s", img.URL)
 			}
-			parts = append(parts, fmt.Sprintf("![image](%s)", img.URL))
+			fullURL := img.URL
+			if strings.HasPrefix(img.URL, "/api/files/image/") {
+				filename := strings.TrimPrefix(img.URL, "/api/files/image/")
+				fullURL = buildFileURL(r, "image", filename)
+			}
+			parts = append(parts, fmt.Sprintf("![image](%s)", fullURL))
 		}
 	}
 	return strings.Join(parts, "\n"), nil

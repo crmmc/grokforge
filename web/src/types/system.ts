@@ -76,6 +76,7 @@ export interface ImageConfigResponse {
   nsfw: boolean;
   blocked_parallel_attempts: number;
   blocked_parallel_enabled: boolean;
+  format: 'base64' | 'local_url';
 }
 
 export interface CacheConfigResponse {

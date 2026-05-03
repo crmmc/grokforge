@@ -31,7 +31,9 @@ func (s *SSEWriter) WriteSSE(data any) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(s.w, "data: %s\n\n", bytes)
+	if _, err := fmt.Fprintf(s.w, "data: %s\n\n", bytes); err != nil {
+		return err
+	}
 	if s.flusher != nil {
 		s.flusher.Flush()
 	}

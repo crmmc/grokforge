@@ -31,15 +31,24 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 	writer := httpapi.NewSSEWriter(w)
 	w.WriteHeader(http.StatusOK)
 
-	adapter := newChatStreamAdapter(req, h.currentConfig())
-	writer.WriteSSE(adapter.RoleChunk())
+	cfg := h.currentConfig()
+	state := newStreamResponseState(streamResponseOptions{
+		h:       h,
+		r:       r,
+		writer:  writer,
+		flusher: flusher,
+		req:     req,
+		cfg:     cfg,
+	})
+	if err := writer.WriteSSE(state.adapter.RoleChunk()); err != nil {
+		state.writeError(err)
+		return
+	}
 	flusher.Flush()
 
 	// Send initial padding to force proxy/CDN buffer flush
 	w.Write([]byte(": heartbeat stream connected\n" + strings.Repeat(" ", 2048) + "\n\n"))
 	flusher.Flush()
-
-	var rewriter *mediaRewriter
 
 	timer := time.NewTimer(heartbeatInterval)
 	defer timer.Stop()
@@ -53,17 +62,14 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 			timer.Reset(heartbeatInterval)
 
 			if event.Error != nil {
-				_, apiErr := httpapi.MapXAIError(event.Error)
-				writer.WriteSSEError(apiErr)
+				state.writeError(event.Error)
 				return
 			}
 
-			if err := rewriteEventContent(r.Context(), &event, &rewriter); err != nil {
-				writer.WriteSSEError(mediaRewriteAPIError(err))
+			if err := state.handleEvent(event); err != nil {
+				state.writeError(err)
 				return
 			}
-
-			writeStreamChunks(writer, flusher, adapter.HandleEvent(event))
 		case <-timer.C:
 			w.Write([]byte(": ping\n\n"))
 			flusher.Flush()
@@ -73,8 +79,10 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 		}
 	}
 done:
-	writeStreamChunks(writer, flusher, adapter.FinishChunks())
-	writer.WriteSSEDone()
+	if err := state.finish(); err != nil {
+		state.writeError(err)
+		return
+	}
 }
 
 func writeStreamChunks(writer *httpapi.SSEWriter, flusher http.Flusher, chunks []chatStreamChunk) {
