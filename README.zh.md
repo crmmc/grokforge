@@ -114,11 +114,12 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 | 模型 | Mode | 池门槛 | 描述 |
 |------|------|--------|------|
-| `grok-4.20` | default | basic | Grok 4.20 默认模式 |
+| `grok-4.20` | auto | super | Grok 4.20 默认模式 |
 | `grok-4.20-fast` | fast | basic | Grok 4.20 快速模式 |
-| `grok-4.20-think` | think (force_thinking) | basic | 深度推理模式 |
-| `grok-4.20-expert` | expert | basic | 专家模式 |
+| `grok-4.20-think` | auto (force_thinking) | super | 深度推理模式 |
+| `grok-4.20-expert` | expert | super | 专家模式 |
 | `grok-4.20-heavy` | heavy | heavy | 仅 Heavy 池可用 |
+| `grok-4.3-beta` | grok43 | super | Grok 4.3 测试版 |
 
 </details>
 
@@ -127,9 +128,9 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 | 模型 | 类型 | 池门槛 | 描述 |
 |------|------|--------|------|
-| `grok-imagine-image` | image_ws (WebSocket) | super | 完整图片生成 |
-| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro 图片生成 |
-| `grok-imagine-image-lite` | image (HTTP) | basic | 轻量图片生成，Basic 池可用 |
+| `grok-imagine-image` | image_ws (WebSocket) | super | 完整图片生成（无配额同步） |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro 图片生成（无配额同步） |
+| `grok-imagine-image-lite` | image_lite (HTTP) | basic | 轻量图片生成，Basic 池可用 |
 | `grok-imagine-image-edit` | image_edit | super | 图片编辑（支持参考图） |
 | `grok-imagine-video` | video | super | 视频生成 |
 

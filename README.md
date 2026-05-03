@@ -114,11 +114,12 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 | Model | Mode | Pool Floor | Description |
 |-------|------|------------|-------------|
-| `grok-4.20` | default | basic | Default Grok 4.20 mode |
+| `grok-4.20` | auto | super | Default Grok 4.20 mode |
 | `grok-4.20-fast` | fast | basic | Faster Grok 4.20 variant |
-| `grok-4.20-think` | think (force_thinking) | basic | Deep reasoning mode |
-| `grok-4.20-expert` | expert | basic | Expert mode |
+| `grok-4.20-think` | auto (force_thinking) | super | Deep reasoning mode |
+| `grok-4.20-expert` | expert | super | Expert mode |
 | `grok-4.20-heavy` | heavy | heavy | Heavy pool only |
+| `grok-4.3-beta` | grok43 | super | Grok 4.3 beta |
 
 </details>
 
@@ -127,9 +128,9 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 | Model | Type | Pool Floor | Description |
 |-------|------|------------|-------------|
-| `grok-imagine-image` | image_ws (WebSocket) | super | Full image generation |
-| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro image generation |
-| `grok-imagine-image-lite` | image (HTTP) | basic | Lightweight image generation, Basic pool |
+| `grok-imagine-image` | image_ws (WebSocket) | super | Full image generation (no quota sync) |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro image generation (no quota sync) |
+| `grok-imagine-image-lite` | image_lite (HTTP) | basic | Lightweight image generation, Basic pool |
 | `grok-imagine-image-edit` | image_edit | super | Image editing (supports reference images) |
 | `grok-imagine-video` | video | super | Video generation |
 
