@@ -4,6 +4,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -13,6 +14,11 @@ var deprecatedConfigKeys = map[string]struct{}{
 	"token.cool_duration_super_sec": {},
 	"token.cool_duration_heavy_sec": {},
 }
+
+const (
+	ImageFormatBase64   = "base64"
+	ImageFormatLocalURL = "local_url"
+)
 
 // Config is the root configuration structure.
 type Config struct {
@@ -61,10 +67,10 @@ type AppConfig struct {
 
 // ImageConfig contains image-generation behavior flags.
 type ImageConfig struct {
-	NSFW                    bool  `toml:"nsfw"`
+	NSFW                    bool   `toml:"nsfw"`
 	Format                  string `toml:"format"`
-	BlockedParallelAttempts int   `toml:"blocked_parallel_attempts"`
-	BlockedParallelEnabled  *bool `toml:"blocked_parallel_enabled"`
+	BlockedParallelAttempts int    `toml:"blocked_parallel_attempts"`
+	BlockedParallelEnabled  *bool  `toml:"blocked_parallel_enabled"`
 }
 
 // ProxyConfig contains proxy settings.
@@ -147,6 +153,9 @@ func activeUndecodedKeys(keys []toml.Key) []toml.Key {
 }
 
 func validateConfig(cfg *Config) error {
+	if err := ValidateImageFormat(cfg.Image.Format); err != nil {
+		return err
+	}
 	if cfg.Token.RecentUsePenaltySec < 0 {
 		return fmt.Errorf("token.recent_use_penalty_sec must be >= 0, got %d", cfg.Token.RecentUsePenaltySec)
 	}
@@ -157,4 +166,24 @@ func validateConfig(cfg *Config) error {
 		return fmt.Errorf("cache.video_max_mb must be >= 0, got %d", cfg.Cache.VideoMaxMB)
 	}
 	return nil
+}
+
+func EffectiveImageFormat(cfg *ImageConfig) string {
+	if cfg == nil {
+		return ImageFormatBase64
+	}
+	format := strings.ToLower(strings.TrimSpace(cfg.Format))
+	if format == "" {
+		return ImageFormatBase64
+	}
+	return format
+}
+
+func ValidateImageFormat(format string) error {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case ImageFormatBase64, ImageFormatLocalURL:
+		return nil
+	default:
+		return fmt.Errorf("image.format must be one of %s, %s", ImageFormatBase64, ImageFormatLocalURL)
+	}
 }

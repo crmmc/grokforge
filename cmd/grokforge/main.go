@@ -273,6 +273,7 @@ func main() {
 	logging.Info("cache service ready", "data_dir", "data")
 
 	// Wire cache service to video flow for download proxy
+	imageFlow.SetCacheService(cacheSvc)
 	videoFlow.SetCacheService(cacheSvc)
 
 	// Create OpenAI provider
@@ -280,6 +281,7 @@ func main() {
 		ChatFlow:      chatFlow,
 		VideoFlow:     videoFlow,
 		ImageFlow:     imageFlow,
+		CacheService:  cacheSvc,
 		Cfg:           runtimeCfg.Get(),
 		Runtime:       runtimeCfg,
 		ModelRegistry: reg,

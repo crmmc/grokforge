@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { appConfigSchema, cacheConfigSchema, proxyConfigSchema, retryConfigSchema } from '@/lib/validations/config'
 
 const imageBlockedSchema = z.object({
+  format: z.enum(['base64', 'local_url']),
   blocked_parallel_enabled: z.boolean(),
   blocked_parallel_attempts: z.number().int().min(1),
 })

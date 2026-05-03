@@ -31,10 +31,7 @@ func (h *Handler) currentConfig() *config.Config {
 func (h *Handler) imageOutputFormat() string {
 	cfg := h.currentConfig()
 	if cfg == nil {
-		return "base64"
+		return config.ImageFormatBase64
 	}
-	if cfg.Image.Format == "" {
-		return "base64"
-	}
-	return cfg.Image.Format
+	return config.EffectiveImageFormat(&cfg.Image)
 }

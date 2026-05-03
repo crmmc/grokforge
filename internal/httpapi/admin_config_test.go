@@ -52,6 +52,9 @@ func TestAdminConfig_GetConfig(t *testing.T) {
 	if resp.Retry.MaxTokens != 3 {
 		t.Errorf("expected max_tokens 3, got %d", resp.Retry.MaxTokens)
 	}
+	if resp.Image.Format != config.ImageFormatBase64 {
+		t.Errorf("expected image format base64, got %s", resp.Image.Format)
+	}
 }
 
 func TestAdminConfig_PutConfig_HotReloadable(t *testing.T) {
@@ -116,6 +119,75 @@ func TestAdminConfig_PutConfig_IgnoresUnknownFields(t *testing.T) {
 	// Retry should have been updated
 	if cfg.Retry.MaxTokens != 5 {
 		t.Errorf("expected max_tokens 5, got %d", cfg.Retry.MaxTokens)
+	}
+}
+
+func TestAdminConfig_PutConfig_ImageFormat(t *testing.T) {
+	cfg := config.DefaultConfig()
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"image": {"format": "local_url"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Image.Format != config.ImageFormatLocalURL {
+		t.Fatalf("expected local_url, got %s", cfg.Image.Format)
+	}
+
+	var resp ConfigResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Image.Format != config.ImageFormatLocalURL {
+		t.Fatalf("expected response local_url, got %s", resp.Image.Format)
+	}
+}
+
+func TestAdminConfig_PutConfig_RejectsInvalidImageFormat(t *testing.T) {
+	cfg := config.DefaultConfig()
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"image": {"format": "url"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Image.Format != config.ImageFormatBase64 {
+		t.Fatalf("config should not have changed, got %s", cfg.Image.Format)
+	}
+}
+
+func TestAdminConfig_PutConfig_InvalidImageFormatDoesNotPartiallyApply(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Image.NSFW = false
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"image": {"nsfw": true, "format": "url"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Image.NSFW {
+		t.Fatalf("image.nsfw should not have changed")
+	}
+	if cfg.Image.Format != config.ImageFormatBase64 {
+		t.Fatalf("image.format should not have changed, got %s", cfg.Image.Format)
 	}
 }
 

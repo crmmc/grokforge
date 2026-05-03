@@ -46,6 +46,7 @@ func DefaultConfig() *Config {
 			AdminWindowSec:         300, // 5 minutes
 		},
 		Image: ImageConfig{
+			Format:                  ImageFormatBase64,
 			NSFW:                    false,
 			BlockedParallelAttempts: 5,
 			BlockedParallelEnabled:  boolPtr(true),

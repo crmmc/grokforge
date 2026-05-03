@@ -577,6 +577,10 @@ export const zh = {
     imageNsfw: "允许 NSFW",
     imageNsfwDesc:
       "图像生成的默认 NSFW 设置。可通过请求中的 image_config.enable_nsfw 逐次覆盖。",
+    imageOutputFormat: "图片输出格式",
+    imageOutputFormatDesc: "base64 返回内联图片数据；local_url 缓存文件并返回 /api/files 链接。",
+    imageOutputFormatBase64: "Base64",
+    imageOutputFormatLocalURL: "本地 URL",
     blockedParallelEnabled: "启用并行重试",
     blockedParallelEnabledDesc: "图像被拦截时启用并行重试",
     blockedParallelAttempts: "并行重试次数",

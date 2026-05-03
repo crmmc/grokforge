@@ -1,12 +1,12 @@
 package openai
 
 import (
-	"context"
 	"log/slog"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/httpapi"
 	"github.com/google/uuid"
@@ -46,9 +46,7 @@ func (h *Handler) streamResponse(w http.ResponseWriter, r *http.Request, eventCh
 	}
 	flusher.Flush()
 
-	// Send initial padding to force proxy/CDN buffer flush
-	w.Write([]byte(": heartbeat stream connected\n" + strings.Repeat(" ", 2048) + "\n\n"))
-	flusher.Flush()
+	writeStreamPadding(w, flusher)
 
 	timer := time.NewTimer(heartbeatInterval)
 	defer timer.Stop()
@@ -83,19 +81,19 @@ done:
 		state.writeError(err)
 		return
 	}
+	writer.WriteSSEDone()
 }
 
-func writeStreamChunks(writer *httpapi.SSEWriter, flusher http.Flusher, chunks []chatStreamChunk) {
-	for _, chunk := range chunks {
-		writer.WriteSSE(chunk)
-		flusher.Flush()
-	}
+func writeStreamPadding(w http.ResponseWriter, flusher http.Flusher) {
+	w.Write([]byte(": heartbeat stream connected\n" + strings.Repeat(" ", 2048) + "\n\n"))
+	flusher.Flush()
 }
 
 // blockingResponse collects all events and returns a single response.
 func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, eventCh <-chan flow.StreamEvent, req *ChatRequest) {
-	collector := newChatResponseCollector(req, h.currentConfig())
-	var rewriter *mediaRewriter
+	cfg := h.currentConfig()
+	collector := newChatResponseCollector(req, cfg)
+	var dl flow.DownloadFunc
 
 	for event := range eventCh {
 		if event.Error != nil {
@@ -103,15 +101,27 @@ func (h *Handler) blockingResponse(w http.ResponseWriter, r *http.Request, event
 			httpapi.WriteJSON(w, status, apiErr)
 			return
 		}
-		if err := rewriteEventContent(r.Context(), &event, &rewriter); err != nil {
-			apiErr := mediaRewriteAPIError(err)
-			httpapi.WriteJSON(w, apiErr.Status, apiErr)
-			return
+		if dl == nil && event.Downloader != nil {
+			dl = event.Downloader
 		}
 		collector.AddEvent(event)
 	}
 
 	resp := collector.Build()
+	if len(resp.Choices) > 0 {
+		rewritten, err := h.rewriteBlockingContent(blockingRewriteInput{
+			r:        r,
+			cfg:      cfg,
+			download: dl,
+			content:  resp.Choices[0].Message.Content,
+		})
+		if err != nil {
+			apiErr := mediaRewriteAPIError(err)
+			httpapi.WriteJSON(w, apiErr.Status, apiErr)
+			return
+		}
+		resp.Choices[0].Message.Content = rewritten
+	}
 	httpapi.WriteJSON(w, http.StatusOK, resp)
 }
 
@@ -141,17 +151,21 @@ func writeMediaProxyError(w http.ResponseWriter, stream *bool, err error) {
 	httpapi.WriteJSON(w, apiErr.Status, apiErr)
 }
 
-func rewriteEventContent(
-	ctx context.Context,
-	event *flow.StreamEvent,
-	rewriter **mediaRewriter,
-) error {
-	if event.Downloader != nil {
-		*rewriter = newMediaRewriter(event.Downloader)
+type blockingRewriteInput struct {
+	r        *http.Request
+	cfg      *config.Config
+	download flow.DownloadFunc
+	content  string
+}
+
+func (h *Handler) rewriteBlockingContent(in blockingRewriteInput) (string, error) {
+	var rewriter *mediaRewriter
+	if in.cfg != nil && in.cfg.App.MediaGenerationEnabled {
+		imageFormat := h.imageOutputFormat()
+		localURL := func(name string) string { return buildFileURL(in.r, "image", name) }
+		rewriter = newMediaRewriter(in.download, h.CacheService, imageFormat, localURL)
 	}
-	var err error
-	event.Content, err = rewriteContent(*rewriter, ctx, event.Content)
-	return err
+	return rewriteContent(rewriter, in.r.Context(), in.content)
 }
 
 func mediaRewriteAPIError(err error) *httpapi.APIError {

@@ -49,14 +49,99 @@ heavy = 150
 
 # ── Quota-Tracked Models ─────────────────────────────────────
 
+# === 0309 series (per-pool variants) ===
+
 [[model]]
-id = "grok-4.20"
-display_name = "Grok 4.20"
+id = "grok-4.20-0309-non-reasoning"
+display_name = "Grok 4.20 0309 Non-Reasoning"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-4.20-0309"
+display_name = "Grok 4.20 0309"
 type = "chat"
 enabled = true
 pool_floor = "super"
 mode = "auto"
 upstream_mode = "auto"
+
+[[model]]
+id = "grok-4.20-0309-reasoning"
+display_name = "Grok 4.20 0309 Reasoning"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "expert"
+upstream_mode = "expert"
+
+[[model]]
+id = "grok-4.20-0309-non-reasoning-super"
+display_name = "Grok 4.20 0309 Non-Reasoning Super"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-4.20-0309-super"
+display_name = "Grok 4.20 0309 Super"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "auto"
+upstream_mode = "auto"
+
+[[model]]
+id = "grok-4.20-0309-reasoning-super"
+display_name = "Grok 4.20 0309 Reasoning Super"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "expert"
+upstream_mode = "expert"
+
+[[model]]
+id = "grok-4.20-0309-non-reasoning-heavy"
+display_name = "Grok 4.20 0309 Non-Reasoning Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-4.20-0309-heavy"
+display_name = "Grok 4.20 0309 Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "auto"
+upstream_mode = "auto"
+
+[[model]]
+id = "grok-4.20-0309-reasoning-heavy"
+display_name = "Grok 4.20 0309 Reasoning Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "expert"
+upstream_mode = "expert"
+
+[[model]]
+id = "grok-4.20-multi-agent-0309"
+display_name = "Grok 4.20 Multi-Agent 0309"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "heavy"
+upstream_mode = "heavy"
+
+# === Hard-priority reverse-pool selection ===
 
 [[model]]
 id = "grok-4.20-fast"
@@ -68,14 +153,13 @@ mode = "fast"
 upstream_mode = "fast"
 
 [[model]]
-id = "grok-4.20-think"
-display_name = "Grok 4.20 Think"
+id = "grok-4.20-auto"
+display_name = "Grok 4.20 Auto"
 type = "chat"
 enabled = true
 pool_floor = "super"
 mode = "auto"
 upstream_mode = "auto"
-force_thinking = true
 
 [[model]]
 id = "grok-4.20-expert"
@@ -95,6 +179,8 @@ pool_floor = "heavy"
 mode = "heavy"
 upstream_mode = "heavy"
 
+# === grok-4.3 (grok-420-computer-use-sa) ===
+
 [[model]]
 id = "grok-4.3-beta"
 display_name = "Grok 4.3 Beta"
@@ -103,6 +189,8 @@ enabled = true
 pool_floor = "super"
 mode = "grok43"
 upstream_mode = "grok-420-computer-use-sa"
+
+# === Image ===
 
 [[model]]
 id = "grok-imagine-image-lite"
@@ -113,6 +201,8 @@ pool_floor = "basic"
 mode = "fast"
 upstream_mode = "fast"
 
+# === Image Edit ===
+
 [[model]]
 id = "grok-imagine-image-edit"
 display_name = "Grok Imagine Image Edit"
@@ -122,6 +212,8 @@ pool_floor = "super"
 mode = "auto"
 upstream_model = "imagine-image-edit"
 upstream_mode = "auto"
+
+# === Video ===
 
 [[model]]
 id = "grok-imagine-video"

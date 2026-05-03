@@ -114,11 +114,16 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 
 | Model | Mode | Pool Floor | Description |
 |-------|------|------------|-------------|
-| `grok-4.20` | auto | super | Default Grok 4.20 mode |
-| `grok-4.20-fast` | fast | basic | Faster Grok 4.20 variant |
-| `grok-4.20-think` | auto (force_thinking) | super | Deep reasoning mode |
-| `grok-4.20-expert` | expert | super | Expert mode |
-| `grok-4.20-heavy` | heavy | heavy | Heavy pool only |
+| `grok-4.20-0309-non-reasoning` | fast | basic | 0309 Non-Reasoning, Basic pool |
+| `grok-4.20-0309` | auto | super | 0309 default |
+| `grok-4.20-0309-reasoning` | expert | super | 0309 Reasoning |
+| `grok-4.20-0309-*-super` | fast/auto/expert | super | 0309 Super variants |
+| `grok-4.20-0309-*-heavy` | fast/auto/expert | heavy | 0309 Heavy variants |
+| `grok-4.20-multi-agent-0309` | heavy | heavy | 0309 Multi-Agent |
+| `grok-4.20-fast` | fast | basic | Fast, reverse-pool selection |
+| `grok-4.20-auto` | auto | super | Auto, reverse-pool selection |
+| `grok-4.20-expert` | expert | super | Expert, reverse-pool selection |
+| `grok-4.20-heavy` | heavy | heavy | Heavy, reverse-pool selection |
 | `grok-4.3-beta` | grok43 | super | Grok 4.3 beta |
 
 </details>

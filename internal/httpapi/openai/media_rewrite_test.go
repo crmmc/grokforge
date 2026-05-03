@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/crmmc/grokforge/internal/cache"
 )
 
 // mockDownloadFunc tracks calls and returns preset data.
@@ -91,7 +92,7 @@ func TestRewriteContent_Base64_RelativePath(t *testing.T) {
 	// PNG magic bytes so http.DetectContentType returns "image/png"
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
 	dl := &mockDownloadFunc{data: pngData}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![img](users/xxx/generated/yyy.png)")
 	if err != nil {
@@ -111,7 +112,7 @@ func TestRewriteContent_Base64_RelativePath(t *testing.T) {
 func TestRewriteContent_Base64_AbsoluteGrokURL(t *testing.T) {
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
 	dl := &mockDownloadFunc{data: pngData}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![img](https://assets.grok.com/users/xxx/generated/yyy.png)")
 	if err != nil {
@@ -125,7 +126,7 @@ func TestRewriteContent_Base64_AbsoluteGrokURL(t *testing.T) {
 func TestRewriteContent_Base64_ContentPath(t *testing.T) {
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
 	dl := &mockDownloadFunc{data: pngData}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![img](users/u/file/content)")
 	if err != nil {
@@ -136,12 +137,51 @@ func TestRewriteContent_Base64_ContentPath(t *testing.T) {
 	}
 }
 
+func TestRewriteContent_LocalURL(t *testing.T) {
+	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	dl := &mockDownloadFunc{data: pngData}
+	cacheSvc := cache.NewService(t.TempDir(), nil)
+	localURL := func(name string) string {
+		return "http://localhost:8080/api/files/image/" + name
+	}
+	rewriter := newMediaRewriter(dl.call, cacheSvc, "local_url", localURL)
+	result, err := rewriteContent(rewriter, context.Background(),
+		"![img](users/xxx/generated/yyy.png)")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasPrefix(result, "![img](http://localhost:8080/api/files/image/") {
+		t.Errorf("expected local URL, got %s", result)
+	}
+}
 
+func TestRewriteContent_LocalURL_NilCacheSvc(t *testing.T) {
+	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	dl := &mockDownloadFunc{data: pngData}
+	localURL := func(name string) string { return "/api/files/image/" + name }
+	rewriter := newMediaRewriter(dl.call, nil, "local_url", localURL)
+	_, err := rewriteContent(rewriter, context.Background(),
+		"![img](users/xxx/generated/yyy.png)")
+	if err == nil {
+		t.Fatal("expected error for nil cache service")
+	}
+}
 
+func TestRewriteContent_LocalURL_NilLocalURLFunc(t *testing.T) {
+	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
+	dl := &mockDownloadFunc{data: pngData}
+	cacheSvc := cache.NewService(t.TempDir(), nil)
+	rewriter := newMediaRewriter(dl.call, cacheSvc, "local_url", nil)
+	_, err := rewriteContent(rewriter, context.Background(),
+		"![img](users/xxx/generated/yyy.png)")
+	if err == nil {
+		t.Fatal("expected error for nil local URL func")
+	}
+}
 
 func TestRewriteContent_DownloadFailure(t *testing.T) {
 	dl := &mockDownloadFunc{err: errors.New("network error")}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	_, err := rewriteContent(rewriter, context.Background(),
 		"![img](users/xxx/generated/yyy.png)")
 	if err == nil {
@@ -151,7 +191,7 @@ func TestRewriteContent_DownloadFailure(t *testing.T) {
 
 func TestRewriteContent_NonGrokImage_Preserved(t *testing.T) {
 	dl := &mockDownloadFunc{data: []byte("data")}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![x](https://example.com/image.png)")
 	if err != nil {
@@ -167,7 +207,7 @@ func TestRewriteContent_NonGrokImage_Preserved(t *testing.T) {
 
 func TestRewriteContent_DataURI_Preserved(t *testing.T) {
 	dl := &mockDownloadFunc{data: []byte("data")}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![x](data:image/png;base64,abc123)")
 	if err != nil {
@@ -180,7 +220,7 @@ func TestRewriteContent_DataURI_Preserved(t *testing.T) {
 
 func TestRewriteContent_LocalAPIFiles_Preserved(t *testing.T) {
 	dl := &mockDownloadFunc{data: []byte("data")}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	result, err := rewriteContent(rewriter, context.Background(),
 		"![x](/api/files/image/test.png)")
 	if err != nil {
@@ -197,7 +237,7 @@ func TestRewriteContent_Base64_ReasoningContent_GrokURL(t *testing.T) {
 	// containsGrokImageReference gate catches them and returns error.
 	pngData := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D}
 	dl := &mockDownloadFunc{data: pngData}
-	rewriter := newMediaRewriter(dl.call)
+	rewriter := newMediaRewriter(dl.call, nil, "base64", nil)
 	_, err := rewriteContent(rewriter, context.Background(),
 		"check https://assets.grok.com/users/x/generated/y.png")
 	if err == nil {

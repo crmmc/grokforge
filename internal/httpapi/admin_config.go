@@ -58,6 +58,7 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 		},
 		Image: ImageConfigResponse{
 			NSFW:                    cfg.Image.NSFW,
+			Format:                  config.EffectiveImageFormat(&cfg.Image),
 			BlockedParallelAttempts: cfg.Image.BlockedParallelAttempts,
 			BlockedParallelEnabled:  config.EffectiveBlockedParallelEnabled(&cfg.Image),
 		},

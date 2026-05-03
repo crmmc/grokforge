@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/stretchr/testify/assert"
@@ -149,6 +150,38 @@ func TestStreamResponse_SplitMarkdownGrokImage_RewritesWithoutError(t *testing.T
 	assert.Contains(t, body, "data:image/png;base64,")
 }
 
+func TestStreamResponse_LocalURLImageRewrite(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.App.MediaGenerationEnabled = true
+	cfg.Image.Format = config.ImageFormatLocalURL
+	h := &Handler{Cfg: cfg, CacheService: cache.NewService(t.TempDir(), nil)}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	w := httptest.NewRecorder()
+	streamReq := &ChatRequest{
+		Model:    "grok-3",
+		Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+		Stream:   streamBoolPtr(true),
+	}
+	dl := func(ctx context.Context, url string) ([]byte, error) {
+		return testPNGBytes(), nil
+	}
+
+	eventCh := make(chan flow.StreamEvent, 2)
+	eventCh <- flow.StreamEvent{
+		Content:    "![img](https://assets.grok.com/users/x/generated/y.png)",
+		Downloader: dl,
+	}
+	close(eventCh)
+
+	h.streamResponse(w, req, eventCh, streamReq)
+
+	body := w.Body.String()
+	assert.NotContains(t, body, "error")
+	assert.NotContains(t, body, "data:image")
+	assert.Contains(t, body, "/api/files/image/")
+}
+
 func TestStreamResponse_SplitMarkdownGrokImageBeforeClose_RewritesWithoutError(t *testing.T) {
 	cfg := config.DefaultConfig()
 	cfg.App.MediaGenerationEnabled = true
@@ -218,6 +251,36 @@ func TestStreamResponse_FinishFlushesMediaGateBeforeThinkClose(t *testing.T) {
 	assert.NotContains(t, body, "error")
 	assert.Contains(t, body, `"content":"https://example.com/final"`)
 	assert.Contains(t, body, `\u003c/think\u003e`)
+}
+
+func TestBlockingResponse_RewritesAfterAssemblingSplitContent(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.App.MediaGenerationEnabled = true
+	h := &Handler{Cfg: cfg}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+	w := httptest.NewRecorder()
+	chatReq := &ChatRequest{
+		Model:    "grok-3",
+		Messages: []ChatMessage{{Role: "user", Content: "hello"}},
+	}
+	dl := func(ctx context.Context, url string) ([]byte, error) {
+		return testPNGBytes(), nil
+	}
+
+	eventCh := make(chan flow.StreamEvent, 3)
+	eventCh <- flow.StreamEvent{
+		Content:    "![img](https://assets.grok",
+		Downloader: dl,
+	}
+	eventCh <- flow.StreamEvent{Content: ".com/users/x/generated/y.png)"}
+	close(eventCh)
+
+	h.blockingResponse(w, req, eventCh, chatReq)
+
+	body := w.Body.String()
+	assert.NotContains(t, body, "assets.grok")
+	assert.Contains(t, body, "data:image/png;base64,")
 }
 
 func streamBoolPtr(b bool) *bool { return &b }

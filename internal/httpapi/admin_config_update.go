@@ -24,6 +24,12 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			return
 		}
 
+		imageFormat, err := validateImageFormatUpdate(&req, cfg.Image.Format)
+		if err != nil {
+			WriteError(w, 400, "invalid_request", "invalid_value", err.Error())
+			return
+		}
+
 		// Apply hot-reloadable updates
 		if req.App != nil {
 			// Skip masked placeholder — only update if user entered a real value
@@ -84,6 +90,9 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 		if req.Image != nil {
 			if req.Image.NSFW != nil {
 				cfg.Image.NSFW = *req.Image.NSFW
+			}
+			if req.Image.Format != nil {
+				cfg.Image.Format = imageFormat
 			}
 			if req.Image.BlockedParallelAttempts != nil {
 				cfg.Image.BlockedParallelAttempts = *req.Image.BlockedParallelAttempts
@@ -258,6 +267,9 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.Image.NSFW != nil {
 				dbUpdates["image.nsfw"] = fmt.Sprintf("%t", *req.Image.NSFW)
 			}
+			if req.Image.Format != nil {
+				dbUpdates["image.format"] = cfg.Image.Format
+			}
 			if req.Image.BlockedParallelAttempts != nil {
 				dbUpdates["image.blocked_parallel_attempts"] = fmt.Sprintf("%d", *req.Image.BlockedParallelAttempts)
 			}
@@ -383,6 +395,17 @@ func handlePutConfigRuntime(runtime *config.Runtime, configStore *store.ConfigSt
 			onSuccess(snapshot)
 		}
 	}
+}
+
+func validateImageFormatUpdate(req *ConfigUpdateRequest, currentFormat string) (string, error) {
+	if req.Image == nil || req.Image.Format == nil {
+		return currentFormat, nil
+	}
+	format := strings.ToLower(strings.TrimSpace(*req.Image.Format))
+	if err := config.ValidateImageFormat(format); err != nil {
+		return "", err
+	}
+	return format, nil
 }
 
 // filterEmptyStrings filters empty strings and trims whitespace from a string slice.

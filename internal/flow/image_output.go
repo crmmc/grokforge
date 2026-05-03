@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"net/http"
+
+	"github.com/crmmc/grokforge/internal/config"
 )
 
 const (
@@ -32,11 +34,7 @@ func (f *ImageFlow) resolveImageOutput(ctx context.Context, in imageOutputInput)
 }
 
 func (f *ImageFlow) imageFormat() string {
-	cfg := f.imageConfig()
-	if cfg == nil {
-		return imageFormatBase64
-	}
-	return cfg.Format
+	return config.EffectiveImageFormat(f.imageConfig())
 }
 
 func (f *ImageFlow) resolveBase64(ctx context.Context, in imageOutputInput) (ImageData, error) {

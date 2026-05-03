@@ -114,11 +114,16 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 
 | 模型 | Mode | 池门槛 | 描述 |
 |------|------|--------|------|
-| `grok-4.20` | auto | super | Grok 4.20 默认模式 |
-| `grok-4.20-fast` | fast | basic | Grok 4.20 快速模式 |
-| `grok-4.20-think` | auto (force_thinking) | super | 深度推理模式 |
-| `grok-4.20-expert` | expert | super | 专家模式 |
-| `grok-4.20-heavy` | heavy | heavy | 仅 Heavy 池可用 |
+| `grok-4.20-0309-non-reasoning` | fast | basic | 0309 非推理，Basic 池 |
+| `grok-4.20-0309` | auto | super | 0309 默认 |
+| `grok-4.20-0309-reasoning` | expert | super | 0309 推理 |
+| `grok-4.20-0309-*-super` | fast/auto/expert | super | 0309 Super 变体 |
+| `grok-4.20-0309-*-heavy` | fast/auto/expert | heavy | 0309 Heavy 变体 |
+| `grok-4.20-multi-agent-0309` | heavy | heavy | 0309 多智能体 |
+| `grok-4.20-fast` | fast | basic | 快速模式，反向选池 |
+| `grok-4.20-auto` | auto | super | 自动模式，反向选池 |
+| `grok-4.20-expert` | expert | super | 专家模式，反向选池 |
+| `grok-4.20-heavy` | heavy | heavy | 重度模式，反向选池 |
 | `grok-4.3-beta` | grok43 | super | Grok 4.3 测试版 |
 
 </details>
