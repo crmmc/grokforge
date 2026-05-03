@@ -114,9 +114,29 @@ feea09c: fix: upgrade Go 1.24.1 → 1.25.8 to resolve 19 stdlib vulnerabilities
 
 ---
 
-## Unreleased
+## v0.4.0-beta
 
 更新内容:
+
+a65feda: refactor: 重构 token 管理器并优化错误处理
+- 将单体 manager.go 拆分为 7 个专注模块（pick、inflight、quota、refresh、snapshot 等）
+- 移除 FirstUseTracker，改用 primeZeroModeResumeAts 初始化零配额模式的恢复时间
+- 简化 TokenService 接口，统一使用 RefreshRequester
+- Video 错误处理增强：新增 ErrVideoCache 和 ErrVideoPostProcess 错误类型
+- 为视频缓存下载添加 panic 恢复机制
+
+43d7645: fix: 收窄媒体引用泄漏检测范围，修复流式双重rewrite
+- rewriteContent 收窄语义为"媒体引用重写+重写后泄漏检查"
+- 移除 bareGrokHostRe 正则，精确匹配媒体资源路径
+- streamingSafeFlushIndex 防止流式输出不完整 URL（streamMediaGate）
+- 新增 streamResponseState 统一流式响应状态管理
+- 图像输出模式：支持 base64 和 local_url 两种格式（ImageConfig.Format）
+- Handler 新增 CacheService 字段和 imageOutputFormat 方法
+- chat_routing.go: renderImagesForChat 接受 *http.Request 构建本地文件 URL
+
+8c6a7ed: feat: add upstream NSFW enable via gRPC-Web sequence
+
+fb83e8c: feat: support multiple video reference images
 
 486d88a: feat: add recent-use token penalty and batch quota refresh
 - Token 选择新增 recent-use 惩罚机制（可配置窗口，默认 15s，soft exclude + fallback）

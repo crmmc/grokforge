@@ -44,6 +44,8 @@ GrokForge wraps all Grok web capabilities (chat, reasoning, image generation/edi
 - **Multi-pool token routing** — ssoBasic / ssoSuper / ssoHeavy routed by `pool_floor`, with 3 selection algorithms + priority tiers + recent-use penalty
 - **Static model catalog** — Models defined in a TOML file embedded in the binary, overridable via external file
 - **Mode-based dynamic quotas** — Quota windows driven by the model catalog; `image_ws` uses transient cooldown only
+- **Image output modes** — Configurable `base64` (inline data URI) or `local_url` (cache to disk, serve via `/api/files/`)
+- **Media leak protection** — Stream-safe URL rewriting ensures no upstream Grok URLs leak to clients
 - **SSE heartbeat** — 2KB initial padding + 15s ping keeps connections alive through proxies and CDNs
 - **DeepSearch** — Pass `deepsearch` parameter to enable Grok's deep search capability
 - **Hot-reload config** — Admin panel changes take effect immediately, no restart needed
