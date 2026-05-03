@@ -49,99 +49,7 @@ heavy = 150
 
 # ── Quota-Tracked Models ─────────────────────────────────────
 
-# === 0309 series (per-pool variants) ===
-
-[[model]]
-id = "grok-4.20-0309-non-reasoning"
-display_name = "Grok 4.20 0309 Non-Reasoning"
-type = "chat"
-enabled = true
-pool_floor = "basic"
-mode = "fast"
-upstream_mode = "fast"
-
-[[model]]
-id = "grok-4.20-0309"
-display_name = "Grok 4.20 0309"
-type = "chat"
-enabled = true
-pool_floor = "super"
-mode = "auto"
-upstream_mode = "auto"
-
-[[model]]
-id = "grok-4.20-0309-reasoning"
-display_name = "Grok 4.20 0309 Reasoning"
-type = "chat"
-enabled = true
-pool_floor = "super"
-mode = "expert"
-upstream_mode = "expert"
-
-[[model]]
-id = "grok-4.20-0309-non-reasoning-super"
-display_name = "Grok 4.20 0309 Non-Reasoning Super"
-type = "chat"
-enabled = true
-pool_floor = "super"
-mode = "fast"
-upstream_mode = "fast"
-
-[[model]]
-id = "grok-4.20-0309-super"
-display_name = "Grok 4.20 0309 Super"
-type = "chat"
-enabled = true
-pool_floor = "super"
-mode = "auto"
-upstream_mode = "auto"
-
-[[model]]
-id = "grok-4.20-0309-reasoning-super"
-display_name = "Grok 4.20 0309 Reasoning Super"
-type = "chat"
-enabled = true
-pool_floor = "super"
-mode = "expert"
-upstream_mode = "expert"
-
-[[model]]
-id = "grok-4.20-0309-non-reasoning-heavy"
-display_name = "Grok 4.20 0309 Non-Reasoning Heavy"
-type = "chat"
-enabled = true
-pool_floor = "heavy"
-mode = "fast"
-upstream_mode = "fast"
-
-[[model]]
-id = "grok-4.20-0309-heavy"
-display_name = "Grok 4.20 0309 Heavy"
-type = "chat"
-enabled = true
-pool_floor = "heavy"
-mode = "auto"
-upstream_mode = "auto"
-
-[[model]]
-id = "grok-4.20-0309-reasoning-heavy"
-display_name = "Grok 4.20 0309 Reasoning Heavy"
-type = "chat"
-enabled = true
-pool_floor = "heavy"
-mode = "expert"
-upstream_mode = "expert"
-
-[[model]]
-id = "grok-4.20-multi-agent-0309"
-display_name = "Grok 4.20 Multi-Agent 0309"
-type = "chat"
-enabled = true
-pool_floor = "heavy"
-mode = "heavy"
-upstream_mode = "heavy"
-
-# === Hard-priority reverse-pool selection ===
+# === Chat Models ===
 
 [[model]]
 id = "grok-4.20-fast"
@@ -153,8 +61,8 @@ mode = "fast"
 upstream_mode = "fast"
 
 [[model]]
-id = "grok-4.20-auto"
-display_name = "Grok 4.20 Auto"
+id = "grok-4.20"
+display_name = "Grok 4.20"
 type = "chat"
 enabled = true
 pool_floor = "super"
@@ -162,8 +70,8 @@ mode = "auto"
 upstream_mode = "auto"
 
 [[model]]
-id = "grok-4.20-expert"
-display_name = "Grok 4.20 Expert"
+id = "grok-4.20-think"
+display_name = "Grok 4.20 Think"
 type = "chat"
 enabled = true
 pool_floor = "super"
@@ -171,8 +79,44 @@ mode = "expert"
 upstream_mode = "expert"
 
 [[model]]
+id = "grok-4.20-fast-super"
+display_name = "Grok 4.20 Fast Super"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
+id = "grok-4.20-fast-heavy"
+display_name = "Grok 4.20 Fast Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "fast"
+upstream_mode = "fast"
+
+[[model]]
 id = "grok-4.20-heavy"
 display_name = "Grok 4.20 Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "auto"
+upstream_mode = "auto"
+
+[[model]]
+id = "grok-4.20-think-heavy"
+display_name = "Grok 4.20 Think Heavy"
+type = "chat"
+enabled = true
+pool_floor = "heavy"
+mode = "expert"
+upstream_mode = "expert"
+
+[[model]]
+id = "grok-4.20-multi-agent"
+display_name = "Grok 4.20 Multi-Agent"
 type = "chat"
 enabled = true
 pool_floor = "heavy"

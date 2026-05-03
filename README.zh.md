@@ -110,34 +110,40 @@ GrokForge 将 Grok 网页端的全部能力（对话、推理、图片生成/编
 ## 支持的模型
 
 <details>
-<summary><b>Chat 模型</b></summary>
+<summary><b>Chat 模型 (8)</b></summary>
 
 | 模型 | Mode | 池门槛 | 描述 |
 |------|------|--------|------|
-| `grok-4.20-0309-non-reasoning` | fast | basic | 0309 非推理，Basic 池 |
-| `grok-4.20-0309` | auto | super | 0309 默认 |
-| `grok-4.20-0309-reasoning` | expert | super | 0309 推理 |
-| `grok-4.20-0309-*-super` | fast/auto/expert | super | 0309 Super 变体 |
-| `grok-4.20-0309-*-heavy` | fast/auto/expert | heavy | 0309 Heavy 变体 |
-| `grok-4.20-multi-agent-0309` | heavy | heavy | 0309 多智能体 |
-| `grok-4.20-fast` | fast | basic | 快速模式，反向选池 |
-| `grok-4.20-auto` | auto | super | 自动模式，反向选池 |
-| `grok-4.20-expert` | expert | super | 专家模式，反向选池 |
-| `grok-4.20-heavy` | heavy | heavy | 重度模式，反向选池 |
+| `grok-4.20-fast` | fast | basic | 快速，Basic 池 |
+| `grok-4.20` | auto | super | 默认（auto） |
+| `grok-4.20-think` | expert | super | 思维链推理 |
+| `grok-4.20-fast-super` | fast | super | 快速，Super 池 |
+| `grok-4.20-fast-heavy` | fast | heavy | 快速，Heavy 池 |
+| `grok-4.20-heavy` | auto | heavy | 默认（auto），Heavy 池 |
+| `grok-4.20-think-heavy` | expert | heavy | 思维链，Heavy 池 |
+| `grok-4.20-multi-agent` | heavy | heavy | 多智能体 |
+
+</details>
+
+<details>
+<summary><b>特殊 Chat (1)</b></summary>
+
+| 模型 | Mode | 池门槛 | 描述 |
+|------|------|--------|------|
 | `grok-4.3-beta` | grok43 | super | Grok 4.3 测试版 |
 
 </details>
 
 <details>
-<summary><b>Media 模型</b></summary>
+<summary><b>Media 模型 (5)</b></summary>
 
 | 模型 | 类型 | 池门槛 | 描述 |
 |------|------|--------|------|
-| `grok-imagine-image` | image_ws (WebSocket) | super | 完整图片生成（无配额同步） |
-| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro 图片生成（无配额同步） |
-| `grok-imagine-image-lite` | image_lite (HTTP) | basic | 轻量图片生成，Basic 池可用 |
+| `grok-imagine-image-lite` | image_lite (HTTP) | basic | 轻量图片生成，Basic 池 |
 | `grok-imagine-image-edit` | image_edit | super | 图片编辑（支持参考图） |
 | `grok-imagine-video` | video | super | 视频生成 |
+| `grok-imagine-image` | image_ws (WebSocket) | super | 完整图片生成（无配额同步） |
+| `grok-imagine-image-pro` | image_ws + enable_pro | super | Pro 图片生成（无配额同步） |
 
 </details>
 
@@ -348,7 +354,7 @@ curl http://localhost:8080/v1/chat/completions \
   -H "Authorization: Bearer your-api-key" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "grok-4.20-expert",
+    "model": "grok-4.20-think",
     "messages": [{"role": "user", "content": "证明 √2 是无理数"}],
     "reasoning_effort": "high"
   }'
