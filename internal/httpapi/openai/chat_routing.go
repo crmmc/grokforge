@@ -109,7 +109,7 @@ func (h *Handler) handleChatImage(w http.ResponseWriter, r *http.Request, req *C
 		return
 	}
 
-	content, err := h.renderImagesForChat(result)
+	content, err := h.renderImagesForChat(r, result)
 	if err != nil {
 		writeMediaProxyError(w, req.Stream, err)
 		return
@@ -158,7 +158,7 @@ func (h *Handler) handleChatImageWSGeneration(w http.ResponseWriter, r *http.Req
 		return
 	}
 
-	content, err := h.renderImagesForChat(result)
+	content, err := h.renderImagesForChat(r, result)
 	if err != nil {
 		writeMediaProxyError(w, req.Stream, err)
 		return
@@ -207,7 +207,7 @@ func (h *Handler) handleChatImageEdit(w http.ResponseWriter, r *http.Request, re
 		return
 	}
 
-	content, err := h.renderImagesForChat(result)
+	content, err := h.renderImagesForChat(r, result)
 	if err != nil {
 		writeMediaProxyError(w, req.Stream, err)
 		return

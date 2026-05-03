@@ -9,16 +9,22 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/crmmc/grokforge/internal/cache"
 	"github.com/crmmc/grokforge/internal/flow"
 )
 
 const assetsGrokBaseURL = "https://assets.grok.com/"
+const grokImagePathPrefix = "img/"
 
-var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)\s]+)([^)]*)\)`)
+var markdownImageRe = regexp.MustCompile(`!\[([^\]]*)\]\(([^)]+)\)`)
+var absoluteURLRe = regexp.MustCompile(`https?://[^'"\s)<>]+`)
 
-// mediaRewriter rewrites downloadable Grok media targets in markdown images.
+// mediaRewriter rewrites Grok image URLs in chat content.
 type mediaRewriter struct {
-	download flow.DownloadFunc
+	download     flow.DownloadFunc
+	cacheSvc     *cache.Service
+	format       string
+	localURLFunc func(filename string) string
 }
 
 // newMediaRewriter creates a rewriter. Returns nil if dl is nil.
@@ -26,7 +32,9 @@ func newMediaRewriter(dl flow.DownloadFunc) *mediaRewriter {
 	if dl == nil {
 		return nil
 	}
-	return &mediaRewriter{download: dl}
+	return &mediaRewriter{
+		download: dl,
+	}
 }
 
 // rewriteContent is a nil-safe helper that passes content through when rewriter is nil.
@@ -34,12 +42,20 @@ func rewriteContent(m *mediaRewriter, ctx context.Context, content string) (stri
 	if m == nil {
 		return content, nil
 	}
-	return m.Rewrite(ctx, content)
+	rewritten, err := m.Rewrite(ctx, content)
+	if err != nil {
+		return "", err
+	}
+	// Leak detection: ensure no Grok image references remain
+	if containsGrokImageReference(rewritten) {
+		return "", fmt.Errorf("media rewrite: grok image reference remains")
+	}
+	return rewritten, nil
 }
 
-// Rewrite processes content, downloading and rewriting eligible markdown images.
+// Rewrite processes content, downloading and rewriting any Grok image URLs.
 func (m *mediaRewriter) Rewrite(ctx context.Context, content string) (string, error) {
-	if m == nil || content == "" {
+	if content == "" {
 		return content, nil
 	}
 	matches := markdownImageRe.FindAllStringSubmatchIndex(content, -1)
@@ -49,32 +65,38 @@ func (m *mediaRewriter) Rewrite(ctx context.Context, content string) (string, er
 
 	var b strings.Builder
 	last := 0
-	for _, match := range matches {
-		b.WriteString(content[last:match[0]])
-		full := content[match[0]:match[1]]
-		alt := content[match[2]:match[3]]
-		target := content[match[4]:match[5]]
-		downloadURL, ok := mediaDownloadURL(target)
-		if !ok {
-			b.WriteString(full)
-			last = match[1]
+	for _, loc := range matches {
+		b.WriteString(content[last:loc[0]])
+		alt := content[loc[2]:loc[3]]
+		target := content[loc[4]:loc[5]]
+
+		if !isGrokImageTarget(target) {
+			b.WriteString(content[loc[0]:loc[1]])
+			last = loc[1]
 			continue
 		}
-		rendered, err := m.renderImage(ctx, downloadURL, alt)
-		if err != nil {
-			return "", fmt.Errorf("rewrite markdown image %q: %w", target, err)
+
+		downloadURL := target
+		if isRelativeImageTarget(target) {
+			rel := strings.TrimPrefix(strings.TrimSpace(target), "/")
+			downloadURL = assetsGrokBaseURL + rel
 		}
-		b.WriteString(rendered)
-		last = match[1]
+
+		rewritten, err := m.renderImage(ctx, alt, downloadURL)
+		if err != nil {
+			return "", fmt.Errorf("rewrite image %q: %w", target, err)
+		}
+		b.WriteString(rewritten)
+		last = loc[1]
 	}
 	b.WriteString(content[last:])
 	return b.String(), nil
 }
 
-func (m *mediaRewriter) renderImage(ctx context.Context, rawURL, alt string) (string, error) {
-	data, err := m.download(ctx, rawURL)
+func (m *mediaRewriter) renderImage(ctx context.Context, alt, assetURL string) (string, error) {
+	data, err := m.download(ctx, assetURL)
 	if err != nil {
-		return "", fmt.Errorf("download for base64: %w", err)
+		return "", fmt.Errorf("download: %w", err)
 	}
 	mime := http.DetectContentType(data)
 	if !strings.HasPrefix(mime, "image/") {
@@ -84,62 +106,137 @@ func (m *mediaRewriter) renderImage(ctx context.Context, rawURL, alt string) (st
 	return fmt.Sprintf("![%s](%s)", alt, dataURI), nil
 }
 
-func mediaDownloadURL(target string) (string, bool) {
-	trimmed := strings.TrimSpace(target)
-	if isRelativeGeneratedAsset(trimmed) {
-		return assetsGrokBaseURL + strings.TrimLeft(trimmed, "/"), true
+// isGrokImageTarget checks if a markdown image target should be rewritten.
+func isGrokImageTarget(target string) bool {
+	target = strings.TrimSpace(target)
+	if strings.HasPrefix(target, "data:") || strings.HasPrefix(target, "/api/files/") {
+		return false
 	}
+	return isRelativeImageTarget(target) || isGrokImageHostByTarget(target)
+}
 
-	parsed, err := parseMediaTargetURL(trimmed)
-	if err != nil || !isHTTPURL(parsed) {
-		return "", false
+// isAllowedGrokImageHost checks host against strict Grok domain whitelist.
+func isAllowedGrokImageHost(host string) bool {
+	host = strings.ToLower(strings.TrimSpace(host))
+	return host == "assets.grok.com" ||
+		host == "grok.com" ||
+		strings.HasSuffix(host, ".grok.com")
+}
+
+func isGrokImageHostByTarget(target string) bool {
+	u, err := url.Parse(strings.TrimSpace(target))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
 	}
-	host := strings.ToLower(parsed.Hostname())
-	path := strings.ToLower(parsed.EscapedPath())
-	if host == "assets.grok.com" && isAssetsMediaPath(path) {
-		return canonicalMediaURL(parsed), true
+	return isAllowedGrokImageHost(u.Hostname())
+}
+
+func isRelativeImageTarget(target string) bool {
+	t := strings.TrimPrefix(strings.TrimSpace(target), "/")
+	if !strings.HasPrefix(t, "users/") {
+		return false
 	}
-	if host == "grok.com" && isGrokImagePath(path) {
-		return canonicalMediaURL(parsed), true
+	return strings.Contains(t, "/generated/") ||
+		strings.HasSuffix(t, "/content") ||
+		strings.Contains(t, "/content?")
+}
+
+// containsGrokImageReference checks if content still contains Grok image references.
+func containsGrokImageReference(content string) bool {
+	// 1. markdown image target host
+	for _, loc := range markdownImageRe.FindAllStringSubmatchIndex(content, -1) {
+		target := content[loc[4]:loc[5]]
+		if isRelativeImageTarget(target) || isGrokImageHostByTarget(target) {
+			return true
+		}
 	}
-	return "", false
-}
-
-func parseMediaTargetURL(target string) (*url.URL, error) {
-	if strings.HasPrefix(target, "//") {
-		return url.Parse("https:" + target)
+	// 2. plain-text absolute URL with media resource path
+	urlSpans := absoluteURLRe.FindAllStringIndex(content, -1)
+	for _, span := range urlSpans {
+		raw := content[span[0]:span[1]]
+		if isGrokMediaURLTarget(raw) {
+			return true
+		}
 	}
-	return url.Parse(target)
+	// 3. plain-text relative asset paths
+	if containsRelativeGrokImagePath(content, urlSpans) {
+		return true
+	}
+	return false
 }
 
-func isRelativeGeneratedAsset(target string) bool {
-	path := strings.ToLower(strings.TrimLeft(target, "/"))
-	return strings.HasPrefix(path, "users/") && isGeneratedMediaPath(path)
+func containsRelativeGrokImagePath(content string, absoluteURLSpans [][]int) bool {
+	lower := strings.ToLower(content)
+	for _, marker := range []string{"users/", "/users/"} {
+		for offset := 0; offset < len(lower); {
+			found := strings.Index(lower[offset:], marker)
+			if found < 0 {
+				break
+			}
+			start := offset + found
+			offset = start + 1
+			if indexInSpans(start, absoluteURLSpans) {
+				continue
+			}
+			if !hasRelativeImagePathBoundary(content, start, marker) {
+				continue
+			}
+			candidate := readRelativePathCandidate(content, start)
+			if isRelativeImageTarget(strings.ToLower(candidate)) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
-func isHTTPURL(parsed *url.URL) bool {
-	scheme := strings.ToLower(parsed.Scheme)
-	return scheme == "http" || scheme == "https"
+func indexInSpans(index int, spans [][]int) bool {
+	for _, span := range spans {
+		if index >= span[0] && index < span[1] {
+			return true
+		}
+	}
+	return false
 }
 
-func canonicalMediaURL(parsed *url.URL) string {
-	copied := *parsed
-	copied.Scheme = "https"
-	return copied.String()
+func hasRelativeImagePathBoundary(content string, start int, marker string) bool {
+	if start == 0 {
+		return true
+	}
+	prev := content[start-1]
+	if marker == "users/" && prev == ':' {
+		return true
+	}
+	return strings.ContainsRune(" \n\r\t([{\"'<", rune(prev))
 }
 
-func isGeneratedMediaPath(path string) bool {
-	return strings.Contains(path, "/generated/")
+func readRelativePathCandidate(content string, start int) string {
+	end := start
+	for end < len(content) && !strings.ContainsRune("'\" )<>\n\r\t", rune(content[end])) {
+		end++
+	}
+	return content[start:end]
 }
 
-func isAssetsMediaPath(path string) bool {
-	return strings.HasPrefix(path, "/users/") ||
-		strings.HasPrefix(path, "/cards/") ||
-		isGeneratedMediaPath(path)
+// isGrokMediaURLTarget checks if a plain-text URL points to a Grok media resource.
+func isGrokMediaURLTarget(rawURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	if !isAllowedGrokImageHost(host) {
+		return false
+	}
+	// imagine-public.grok.com is a media-only subdomain
+	if host == "imagine-public.grok.com" {
+		return true
+	}
+	// Remaining Grok hosts require a media resource path pattern.
+	path := strings.TrimPrefix(u.Path, "/")
+	return isRelativeImageTarget(path) || isGrokImagePath(host, path)
 }
 
-func isGrokImagePath(path string) bool {
-	return isGeneratedMediaPath(path) ||
-		strings.HasPrefix(path, "/img/") ||
-		strings.HasPrefix(path, "/images/")
+func isGrokImagePath(host, path string) bool {
+	return host == "grok.com" && strings.HasPrefix(path, grokImagePathPrefix)
 }

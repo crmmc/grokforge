@@ -62,6 +62,7 @@ type AppConfig struct {
 // ImageConfig contains image-generation behavior flags.
 type ImageConfig struct {
 	NSFW                    bool  `toml:"nsfw"`
+	Format                  string `toml:"format"`
 	BlockedParallelAttempts int   `toml:"blocked_parallel_attempts"`
 	BlockedParallelEnabled  *bool `toml:"blocked_parallel_enabled"`
 }
