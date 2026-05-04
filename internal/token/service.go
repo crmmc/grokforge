@@ -68,7 +68,7 @@ func (s *TokenService) LoadTokens(ctx context.Context) error {
 			return err
 		}
 		normalized := normalizeTokenQuotas(t, s.modes)
-		primeChanged := s.primeZeroModeResumeAts(t, normalized.zeroModes, time.Now())
+		primeChanged := s.primeZeroModeResumeAts(t, normalized.zeroModes, s.modes, time.Now())
 		s.manager.AddToken(t)
 		if normalized.changed || primeChanged {
 			s.manager.MarkDirty(t.ID)
@@ -260,6 +260,7 @@ func (s *TokenService) RefreshToken(ctx context.Context, id uint) (*store.Token,
 func (s *TokenService) primeZeroModeResumeAts(
 	token *store.Token,
 	zeroModes []string,
+	modes []modelconfig.ModeSpec,
 	now time.Time,
 ) bool {
 	if len(zeroModes) == 0 {
@@ -268,12 +269,25 @@ func (s *TokenService) primeZeroModeResumeAts(
 	if token.ResumeAts == nil {
 		token.ResumeAts = make(store.IntMap)
 	}
+
+	modeByID := make(map[string]modelconfig.ModeSpec, len(modes))
+	for _, m := range modes {
+		modeByID[m.ID] = m
+	}
+
 	changed := false
-	for _, mode := range zeroModes {
-		if _, exists := token.ResumeAts[mode]; exists {
+	for _, modeID := range zeroModes {
+		if _, exists := token.ResumeAts[modeID]; exists {
 			continue
 		}
-		token.ResumeAts[mode] = int(now.Unix())
+		mode, ok := modeByID[modeID]
+		if ok && mode.LocalQuota {
+			// Local quota: preserve the full cooldown window on restart.
+			token.ResumeAts[modeID] = int(now.Unix()) + mode.WindowSeconds
+		} else {
+			// Upstream-synced quota: retry immediately (will fetch upstream on next scan).
+			token.ResumeAts[modeID] = int(now.Unix())
+		}
 		changed = true
 	}
 	return changed

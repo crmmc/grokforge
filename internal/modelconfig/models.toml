@@ -47,6 +47,16 @@ basic = 0
 super = 50
 heavy = 150
 
+[[mode]]
+id = "image_lite"
+upstream_name = "fast"
+window_seconds = 86400
+local_quota = true
+[mode.default_quota]
+basic = 5
+super = 20
+heavy = 50
+
 # ── Quota-Tracked Models ─────────────────────────────────────
 
 # === Chat Models ===
@@ -142,7 +152,7 @@ display_name = "Grok Imagine Image Lite"
 type = "image_lite"
 enabled = true
 pool_floor = "basic"
-mode = "fast"
+mode = "image_lite"
 upstream_mode = "fast"
 
 # === Image Edit ===
