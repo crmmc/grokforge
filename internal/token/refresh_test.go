@@ -144,7 +144,7 @@ func TestScheduler_RefreshModeQuotaSetsResumeAt(t *testing.T) {
 			scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
 
 			now := time.Now()
-			err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+			err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
 			require.NoError(t, err)
 
 			token := manager.GetToken(1)
@@ -167,7 +167,7 @@ func TestScheduler_RefreshModeQuotaClearsResumeAtWhenRemaining(t *testing.T) {
 
 	mode := testRefreshMode(7200)
 	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
-	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
 	require.NoError(t, err)
 
 	token := manager.GetToken(1)
@@ -187,7 +187,7 @@ func TestScheduler_RefreshModeQuotaFailureKeepsResumeAt(t *testing.T) {
 
 	mode := testRefreshMode(7200)
 	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
-	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
 	require.Error(t, err)
 
 	token := manager.GetToken(1)
@@ -205,7 +205,7 @@ func TestScheduler_RefreshModeQuotaFailureSetsBackoffWhenDue(t *testing.T) {
 	mode := testRefreshMode(7200)
 	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
 	now := time.Now()
-	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
 	require.Error(t, err)
 
 	token := manager.GetToken(1)
@@ -224,7 +224,7 @@ func TestScheduler_RefreshModeQuotaProtocolErrorKeepsState(t *testing.T) {
 
 	mode := testRefreshMode(7200)
 	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, server.URL)
-	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode)
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
 	require.Error(t, err)
 
 	token := manager.GetToken(1)
@@ -332,4 +332,137 @@ func TestScheduler_ForgetTokenClearsLastRefresh(t *testing.T) {
 
 	// Should allow refresh again (debounce cleared)
 	require.True(t, scheduler.checkAndMarkLastRefresh(1, "auto", time.Now()))
+}
+
+// --- Local Quota refresh paths ---
+
+func TestScheduler_RefreshLocalQuota_FirstExhaustionStartsWindow(t *testing.T) {
+	manager := newRefreshTestManager()
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["image_lite"]) // quota NOT reset
+	assert.Greater(t, token.ResumeAts["image_lite"], int(time.Now().Unix()))
+}
+
+func TestScheduler_RefreshLocalQuota_WindowNotExpiredSkips(t *testing.T) {
+	manager := newRefreshTestManager()
+	future := int(time.Now().Add(time.Hour).Unix())
+	manager.SetResumeAt(1, "image_lite", future)
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 0, token.Quotas["image_lite"])
+	assert.Equal(t, future, token.ResumeAts["image_lite"])
+}
+
+func TestScheduler_RefreshLocalQuota_WindowExpiredResets(t *testing.T) {
+	manager := newRefreshTestManager()
+	past := int(time.Now().Add(-time.Hour).Unix())
+	manager.SetResumeAt(1, "image_lite", past)
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 20, token.Quotas["image_lite"])
+	assert.Equal(t, 20, token.LimitQuotas["image_lite"])
+	assert.Empty(t, token.ResumeAts["image_lite"])
+}
+
+func TestScheduler_RefreshLocalQuota_NonExhaustedDoesNothing(t *testing.T) {
+	manager := newRefreshTestManager()
+	manager.UpdateModeQuota(1, "image_lite", 3, 20)
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	err := scheduler.refreshModeQuota(context.Background(), refreshTarget(), mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 3, token.Quotas["image_lite"])
+	assert.Empty(t, token.ResumeAts["image_lite"])
+}
+
+func TestScheduler_RefreshLocalQuota_ForceResetWithWindow(t *testing.T) {
+	manager := newRefreshTestManager()
+	future := int(time.Now().Add(time.Hour).Unix())
+	manager.SetResumeAt(1, "image_lite", future)
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	target := ExhaustedModeTarget{TokenID: 1, AuthToken: "test-token", Pool: PoolSuper, Mode: "image_lite", Force: true}
+	err := scheduler.refreshModeQuota(context.Background(), target, mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 20, token.Quotas["image_lite"])
+	assert.Equal(t, 20, token.LimitQuotas["image_lite"])
+	assert.Empty(t, token.ResumeAts["image_lite"])
+}
+
+func TestScheduler_RefreshLocalQuota_ForceResetWithoutWindow(t *testing.T) {
+	manager := newRefreshTestManager()
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	target := ExhaustedModeTarget{TokenID: 1, AuthToken: "test-token", Pool: PoolSuper, Mode: "image_lite", Force: true}
+	err := scheduler.refreshModeQuota(context.Background(), target, mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 20, token.Quotas["image_lite"])
+	assert.Equal(t, 20, token.LimitQuotas["image_lite"])
+	assert.Empty(t, token.ResumeAts["image_lite"])
+}
+
+func TestScheduler_RefreshLocalQuota_ForceSkipWhenNotExhausted(t *testing.T) {
+	manager := newRefreshTestManager()
+	manager.UpdateModeQuota(1, "image_lite", 5, 20)
+
+	mode := modelconfig.ModeSpec{
+		ID: "image_lite", UpstreamName: "fast", WindowSeconds: 86400,
+		DefaultQuota: map[string]int{"super": 20}, LocalQuota: true,
+	}
+	scheduler := NewScheduler(manager, []modelconfig.ModeSpec{mode}, "")
+
+	target := ExhaustedModeTarget{TokenID: 1, AuthToken: "test-token", Pool: PoolSuper, Mode: "image_lite", Force: true}
+	err := scheduler.refreshModeQuota(context.Background(), target, mode, time.Now())
+	require.NoError(t, err)
+
+	token := manager.GetToken(1)
+	assert.Equal(t, 5, token.Quotas["image_lite"])
 }
