@@ -81,8 +81,11 @@ export function CachePreviewDialog({ open, onClose, file, type }: CachePreviewDi
               {t.cache.previewFailed}
             </div>
           )}
-          {!loading && blobUrl && (
+          {!loading && blobUrl && type === 'video' && (
             <video src={blobUrl} controls className="max-w-full max-h-[70vh] rounded-lg" />
+          )}
+          {!loading && blobUrl && type === 'image' && (
+            <img src={blobUrl} alt={file?.name ?? 'Preview'} className="max-w-full max-h-[70vh] rounded-lg" />
           )}
           {file && (
             <div className="text-sm text-muted text-center">

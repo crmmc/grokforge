@@ -32,4 +32,4 @@ export interface CacheClearResult {
   freed_mb: number
 }
 
-export type CacheMediaType = 'video'
+export type CacheMediaType = 'video' | 'image'

@@ -464,6 +464,8 @@ export const en = {
     deleteFailed: "Delete failed",
     clearFailed: "Clear failed",
     videoType: "video",
+    imageCache: "Image Cache",
+    imageType: "image",
   },
   // Config
   config: {
