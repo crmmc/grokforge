@@ -13,6 +13,7 @@ type ExhaustedModeTarget struct {
 	AuthToken string
 	Pool      string
 	Mode      string
+	Force     bool // true for admin manual refresh: force reset local_quota
 }
 
 // ScanExhaustedModes returns active token modes whose quota is due for refresh.
