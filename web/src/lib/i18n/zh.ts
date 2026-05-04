@@ -463,6 +463,8 @@ export const zh = {
     deleteFailed: "删除失败",
     clearFailed: "清除失败",
     videoType: "视频",
+    imageCache: "图片缓存",
+    imageType: "图片",
   },
   // Config
   config: {

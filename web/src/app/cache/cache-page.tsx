@@ -1,7 +1,7 @@
 'use client'
 
 import { HardDrive, Loader2, AlertCircle } from 'lucide-react'
-import { Alert, AlertDescription } from '@/components/ui'
+import { Alert, AlertDescription, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui'
 import { useTranslation } from '@/lib/i18n/context'
 import { useCacheStats } from '@/lib/hooks'
 import { CacheStatsCards } from '@/components/features/cache-stats-cards'
@@ -45,10 +45,18 @@ export default function CachePage() {
 
       <CacheStatsCards stats={stats} />
 
-      <CacheFileTable
-        type="video"
-        stats={stats}
-      />
+      <Tabs defaultValue="video" className="w-full">
+        <TabsList className="mb-6">
+          <TabsTrigger value="video">{t.cache.videoCache}</TabsTrigger>
+          <TabsTrigger value="image">{t.cache.imageCache}</TabsTrigger>
+        </TabsList>
+        <TabsContent value="video">
+          <CacheFileTable type="video" stats={stats} />
+        </TabsContent>
+        <TabsContent value="image">
+          <CacheFileTable type="image" stats={stats} />
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

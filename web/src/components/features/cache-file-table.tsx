@@ -33,7 +33,7 @@ export function CacheFileTable({ type, stats }: CacheFileTableProps) {
   const items = useMemo(() => data?.items ?? [], [data?.items])
   const total = data?.total ?? 0
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  const typeLabel = t.cache.videoType
+  const typeLabel = type === 'video' ? t.cache.videoType : t.cache.imageType
 
   const { confirmAction, setConfirmAction, confirmDelete, confirmClear, executeConfirm, confirmDialogInfo } =
     useCacheConfirm(type, stats, typeLabel, setSelected, setPage)
