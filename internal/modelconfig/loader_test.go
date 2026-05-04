@@ -66,8 +66,8 @@ func TestLoad_EmbeddedCatalog(t *testing.T) {
 	if got := len(models); got != 14 {
 		t.Fatalf("expected 14 models, got %d", got)
 	}
-	if got := len(modes); got != 5 {
-		t.Fatalf("expected 5 modes, got %d", got)
+	if got := len(modes); got != 6 {
+		t.Fatalf("expected 6 modes, got %d", got)
 	}
 
 	first := models[0]
@@ -391,4 +391,83 @@ upstream_mode = "auto"
 func TestLoad_ExternalFileNotFound(t *testing.T) {
 	_, _, err := Load(EmbeddedFS, "/nonexistent/path/models.toml")
 	mustContain(t, err, "read external file")
+}
+
+func TestValidate_LocalQuotaAllowsDuplicateUpstreamName(t *testing.T) {
+	content := `version = 1
+
+[[mode]]
+id = "fast"
+upstream_name = "fast"
+window_seconds = 86400
+[mode.default_quota]
+basic = 30
+super = 140
+heavy = 400
+
+[[mode]]
+id = "image_lite"
+upstream_name = "fast"
+window_seconds = 86400
+local_quota = true
+[mode.default_quota]
+basic = 5
+super = 20
+heavy = 50
+
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "fast"
+upstream_mode = "fast"
+`
+	fs := makeFS(content)
+	models, modes, err := Load(fs, "")
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(models))
+	}
+	if len(modes) != 2 {
+		t.Fatalf("expected 2 modes, got %d", len(modes))
+	}
+}
+
+func TestValidate_NonLocalQuotaDuplicateUpstreamNameRejected(t *testing.T) {
+	content := `version = 1
+
+[[mode]]
+id = "fast"
+upstream_name = "fast"
+window_seconds = 86400
+[mode.default_quota]
+basic = 30
+super = 140
+heavy = 400
+
+[[mode]]
+id = "other"
+upstream_name = "fast"
+window_seconds = 7200
+[mode.default_quota]
+basic = 0
+super = 50
+heavy = 150
+
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "fast"
+upstream_mode = "fast"
+`
+	fs := makeFS(content)
+	_, _, err := Load(fs, "")
+	mustContain(t, err, "duplicate upstream_name")
 }

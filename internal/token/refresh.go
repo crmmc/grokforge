@@ -97,7 +97,7 @@ func (s *Scheduler) scan(ctx context.Context) {
 		if !ok || !s.checkAndMarkLastRefresh(target.TokenID, target.Mode, now) {
 			continue
 		}
-		s.runRefreshAsync(ctx, target, mode)
+		s.runRefreshAsync(ctx, target, mode, now)
 		started++
 	}
 	if started > 0 {
@@ -129,7 +129,7 @@ func (s *Scheduler) RequestRefresh(tokenID uint, mode string) {
 		return
 	}
 	target := ExhaustedModeTarget{TokenID: tokenID, AuthToken: authToken, Pool: pool, Mode: mode}
-	s.runRefreshAsync(s.refreshContext(), target, modeSpec)
+	s.runRefreshAsync(s.refreshContext(), target, modeSpec, now)
 }
 
 // RefreshToken forces an immediate refresh for all supported modes of a token.
@@ -147,8 +147,8 @@ func (s *Scheduler) RefreshToken(ctx context.Context, tokenID uint) error {
 		}
 		func() {
 			defer func() { <-s.globalSem }()
-			target := ExhaustedModeTarget{TokenID: tokenID, AuthToken: token.Token, Pool: token.Pool, Mode: mode.ID}
-			if err := s.refreshModeQuota(ctx, target, mode); err != nil {
+			target := ExhaustedModeTarget{TokenID: tokenID, AuthToken: token.Token, Pool: token.Pool, Mode: mode.ID, Force: true}
+			if err := s.refreshModeQuota(ctx, target, mode, time.Now()); err != nil {
 				refreshErrs = append(refreshErrs, err)
 			}
 		}()
@@ -163,6 +163,7 @@ func (s *Scheduler) runRefreshAsync(
 	ctx context.Context,
 	target ExhaustedModeTarget,
 	mode modelconfig.ModeSpec,
+	now time.Time,
 ) {
 	s.wg.Add(1)
 	safeGo("refresh_mode", func() {
@@ -171,7 +172,7 @@ func (s *Scheduler) runRefreshAsync(
 			return
 		}
 		defer func() { <-s.globalSem }()
-		_ = s.refreshModeQuota(ctx, target, mode)
+		_ = s.refreshModeQuota(ctx, target, mode, now)
 	})
 }
 
@@ -179,7 +180,11 @@ func (s *Scheduler) refreshModeQuota(
 	ctx context.Context,
 	target ExhaustedModeTarget,
 	mode modelconfig.ModeSpec,
+	now time.Time,
 ) error {
+	if mode.LocalQuota {
+		return s.refreshLocalQuota(target, mode, now)
+	}
 	resp, err := s.manager.SyncModeQuota(ctx, target.TokenID, target.AuthToken, s.baseURL, mode.UpstreamName)
 	if err != nil {
 		s.logRefreshFailure(target, mode, err)
@@ -203,6 +208,70 @@ func (s *Scheduler) refreshModeQuota(
 		"remaining", remaining,
 		"limit", limit,
 		"resume_at", resumeAt)
+	return nil
+}
+
+func (s *Scheduler) refreshLocalQuota(
+	target ExhaustedModeTarget,
+	mode modelconfig.ModeSpec,
+	now time.Time,
+) error {
+	poolKey := PoolToShort(target.Pool)
+	limit := mode.DefaultQuota[poolKey]
+
+	// Admin force refresh: bypass window, reset directly.
+	if target.Force {
+		quota := s.manager.GetModeQuota(target.TokenID, mode.ID)
+		if quota > 0 {
+			slog.Debug("refresh: local quota force skip (not exhausted)",
+				"token_id", target.TokenID, "mode", mode.ID,
+				"remaining", quota)
+			return nil
+		}
+		s.manager.UpdateModeQuota(target.TokenID, mode.ID, limit, limit)
+		s.manager.ClearResumeAt(target.TokenID, mode.ID)
+		slog.Debug("refresh: local quota force reset",
+			"token_id", target.TokenID, "mode", mode.ID,
+			"action", "force_reset", "remaining", limit, "limit", limit)
+		return nil
+	}
+
+	// Auto refresh (scan / RequestRefresh).
+	resumeAt := s.manager.GetResumeAt(target.TokenID, mode.ID)
+	nowUnix := now.Unix()
+
+	if resumeAt == 0 {
+		if s.manager.GetModeQuota(target.TokenID, mode.ID) > 0 {
+			return nil // not exhausted
+		}
+		// First exhaustion: start window, do NOT reset quota.
+		windowEnd := int(nowUnix) + mode.WindowSeconds
+		s.manager.SetResumeAt(target.TokenID, mode.ID, windowEnd)
+		slog.Debug("refresh: local quota window started",
+			"token_id", target.TokenID,
+			"mode", mode.ID,
+			"resume_at", windowEnd)
+		return nil
+	}
+
+	if nowUnix < int64(resumeAt) {
+		// Window not expired: skip.
+		slog.Debug("refresh: local quota window not expired",
+			"token_id", target.TokenID,
+			"mode", mode.ID,
+			"resume_at", resumeAt)
+		return nil
+	}
+
+	// Window expired: reset quota to full.
+	s.manager.UpdateModeQuota(target.TokenID, mode.ID, limit, limit)
+	s.manager.ClearResumeAt(target.TokenID, mode.ID)
+	slog.Debug("refresh: local quota reset",
+		"token_id", target.TokenID,
+		"mode", mode.ID,
+		"action", "local_quota_reset",
+		"remaining", limit,
+		"limit", limit)
 	return nil
 }
 

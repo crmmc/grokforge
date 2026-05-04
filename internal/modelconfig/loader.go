@@ -105,10 +105,12 @@ func validate(version int, modes []ModeSpec, models []ModelSpec) error {
 		if mode.UpstreamName == "" {
 			return fmt.Errorf("mode %q: upstream_name is required", mode.ID)
 		}
-		if upstreamNames[mode.UpstreamName] {
-			return fmt.Errorf("mode %q: duplicate upstream_name %q", mode.ID, mode.UpstreamName)
+		if !mode.LocalQuota {
+			if upstreamNames[mode.UpstreamName] {
+				return fmt.Errorf("mode %q: duplicate upstream_name %q", mode.ID, mode.UpstreamName)
+			}
+			upstreamNames[mode.UpstreamName] = true
 		}
-		upstreamNames[mode.UpstreamName] = true
 
 		if mode.WindowSeconds <= 0 {
 			return fmt.Errorf("mode %q: window_seconds must be > 0", mode.ID)

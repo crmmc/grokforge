@@ -122,6 +122,26 @@ func (m *TokenManager) UpdateModeQuota(id uint, mode string, remaining int, limi
 		"action", "update_mode_quota", "remaining", remaining, "limit", limit)
 }
 
+// GetResumeAt returns the resume timestamp for a token mode.
+func (m *TokenManager) GetResumeAt(tokenID uint, mode string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if token, ok := m.tokens[tokenID]; ok && token.ResumeAts != nil {
+		return token.ResumeAts[mode]
+	}
+	return 0
+}
+
+// GetModeQuota returns current remaining quota for (tokenID, mode).
+func (m *TokenManager) GetModeQuota(tokenID uint, mode string) int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if token, ok := m.tokens[tokenID]; ok && token.Quotas != nil {
+		return token.Quotas[mode]
+	}
+	return 0
+}
+
 func tokenModeLimit(token *store.Token, mode string) int {
 	if token.LimitQuotas == nil {
 		return 0

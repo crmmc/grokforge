@@ -22,6 +22,7 @@ type ModeSpec struct {
 	UpstreamName  string         `toml:"upstream_name"`
 	WindowSeconds int            `toml:"window_seconds"`
 	DefaultQuota  map[string]int `toml:"default_quota"` // pool -> default quota
+	LocalQuota    bool           `toml:"local_quota,omitempty"` // skip upstream rate-limits sync
 }
 
 // ModelSpec represents a single model entry in the static catalog.
