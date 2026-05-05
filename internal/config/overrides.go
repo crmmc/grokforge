@@ -112,6 +112,24 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return err
 			}
 			c.App.AdminWindowSec = parsed
+		case "app.global_rate_limit_rpm":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			if parsed < 0 {
+				return fmt.Errorf("config: %s must be >= 0, got %d", k, parsed)
+			}
+			c.App.GlobalRateLimitRPM = parsed
+		case "app.global_rate_limit_window":
+			parsed, err := parseIntOverride(k, v)
+			if err != nil {
+				return err
+			}
+			if parsed <= 0 {
+				return fmt.Errorf("config: %s must be > 0, got %d", k, parsed)
+			}
+			c.App.GlobalRateLimitWindow = parsed
 		case "proxy.base_proxy_url":
 			c.Proxy.BaseProxyURL = v
 		case "proxy.asset_proxy_url":

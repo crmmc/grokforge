@@ -13,7 +13,7 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
             staleTime: 60 * 1000, // 1 minute
             gcTime: 5 * 60 * 1000, // 5 minutes
             retry: (failureCount, error) => {
-              if (error instanceof APIError && error.status === 401) {
+              if (error instanceof APIError && (error.status === 401 || error.status === 429)) {
                 return false
               }
               return failureCount < 1
