@@ -56,6 +56,22 @@ export function SecurityLimitsSection({ t, register, errors }: SecurityLimitsSec
           {appErrors?.admin_window_sec && <p className="text-sm text-destructive">{appErrors.admin_window_sec.message}</p>}
         </div>
       </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="app.global_rate_limit_rpm">{t.config.globalRateLimitRpm}</Label>
+          <Input id="app.global_rate_limit_rpm" type="number" className="max-w-[200px]" min="0"
+            {...register('app.global_rate_limit_rpm', { valueAsNumber: true })} />
+          <p className="text-xs text-muted">{t.config.globalRateLimitRpmDesc}</p>
+          {appErrors?.global_rate_limit_rpm && <p className="text-sm text-destructive">{appErrors.global_rate_limit_rpm.message}</p>}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="app.global_rate_limit_window">{t.config.globalRateLimitWindow}</Label>
+          <Input id="app.global_rate_limit_window" type="number" className="max-w-[200px]" min="1"
+            {...register('app.global_rate_limit_window', { valueAsNumber: true })} />
+          <p className="text-xs text-muted">{t.config.globalRateLimitWindowDesc}</p>
+          {appErrors?.global_rate_limit_window && <p className="text-sm text-destructive">{appErrors.global_rate_limit_window.message}</p>}
+        </div>
+      </div>
     </ConfigSection>
   )
 }

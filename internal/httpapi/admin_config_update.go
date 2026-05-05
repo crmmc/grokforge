@@ -85,6 +85,12 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			if req.App.AdminWindowSec != nil {
 				cfg.App.AdminWindowSec = *req.App.AdminWindowSec
 			}
+			if req.App.GlobalRateLimitRPM != nil {
+				cfg.App.GlobalRateLimitRPM = *req.App.GlobalRateLimitRPM
+			}
+			if req.App.GlobalRateLimitWindow != nil {
+				cfg.App.GlobalRateLimitWindow = *req.App.GlobalRateLimitWindow
+			}
 		}
 
 		if req.Image != nil {
@@ -261,6 +267,12 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.App.AdminWindowSec != nil {
 				dbUpdates["app.admin_window_sec"] = fmt.Sprintf("%d", *req.App.AdminWindowSec)
+			}
+			if req.App.GlobalRateLimitRPM != nil {
+				dbUpdates["app.global_rate_limit_rpm"] = fmt.Sprintf("%d", *req.App.GlobalRateLimitRPM)
+			}
+			if req.App.GlobalRateLimitWindow != nil {
+				dbUpdates["app.global_rate_limit_window"] = fmt.Sprintf("%d", *req.App.GlobalRateLimitWindow)
 			}
 		}
 		if req.Image != nil {

@@ -153,6 +153,8 @@ func AppKeyAuth(appKey string) func(http.Handler) http.Handler {
 					next.ServeHTTP(w, r)
 					return
 				}
+				// Cookie 无效/过期 — 清除以防止持续 401
+				setAdminCookie(w, r, "", -1)
 			}
 
 			// 2. Fallback to Bearer header (script/API compatibility)

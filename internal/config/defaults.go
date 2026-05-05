@@ -44,6 +44,8 @@ func DefaultConfig() *Config {
 			ChatBodyLimit:          10 << 20, // 10MB
 			AdminMaxFails:          10,
 			AdminWindowSec:         300, // 5 minutes
+			GlobalRateLimitRPM:     0,   // disabled by default
+			GlobalRateLimitWindow:  60,
 		},
 		Image: ImageConfig{
 			Format:                  ImageFormatBase64,
