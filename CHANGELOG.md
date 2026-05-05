@@ -4,6 +4,33 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## v0.5.0-beta
+
+更新内容:
+
+5fa35ab: Merge branch 'worktree-fix_login_loop'
+
+cfdfabb: feat: 全局 IP 限流（热更新 + UI 可配），修复 verify 端点限流边界
+- 新增全局 IP 级请求速率限制（global_rate_limit_rpm / global_rate_limit_window）
+- 支持热更新，管理面板 Security 设置页实时配置
+- /health /healthz /_next/static/* 路径排除限流
+- 修复 /admin/verify 端点 401 被计入 admin 失败锁定的问题
+- 无效 gf_session Cookie 自动清除，防止 401 循环
+
+64c03af: Merge branch 'worktree-image_lite_quote_fix' into main
+
+b3cba9d: feat: 为 image_lite 模型引入本地独立配额管理
+
+49daf01: feat: 缓存管理页添加图片缓存 Tab
+
+c9c426e: refactor: 统一模型命名规范，精简至 14 个模型
+
+9e689d8: feat: sync model catalog with grok2api — add 0309 series and auto/expert/heavy aliases
+
+76bb89a: docs: sync model table with models.toml — fix pool_floor, add grok-4.3-beta
+
+---
+
 ## v0.1.0-beta
 
 更新内容:
