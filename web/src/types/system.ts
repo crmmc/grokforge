@@ -39,6 +39,8 @@ export interface AppConfigResponse {
   chat_body_limit: number;
   admin_max_fails: number;
   admin_window_sec: number;
+  global_rate_limit_rpm: number;
+  global_rate_limit_window: number;
 }
 
 export interface ProxyConfigResponse {

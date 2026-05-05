@@ -360,7 +360,7 @@ func TestAdminRateLimit_BlocksAfterAuthFailures(t *testing.T) {
 
 	// First 3 requests pass through (get 401 from downstream)
 	for i := 0; i < 3; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+		req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
 		req.RemoteAddr = ip
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -370,7 +370,7 @@ func TestAdminRateLimit_BlocksAfterAuthFailures(t *testing.T) {
 	}
 
 	// 4th request blocked with 429
-	req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
 	req.RemoteAddr = ip
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -396,14 +396,14 @@ func TestAdminRateLimit_DifferentIPsIndependent(t *testing.T) {
 
 	// Exhaust IP-A's limit
 	for i := 0; i < 2; i++ {
-		req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+		req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
 		req.RemoteAddr = "10.0.0.1:1111"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
 	}
 
 	// IP-A blocked
-	req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/config", nil)
 	req.RemoteAddr = "10.0.0.1:1111"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -412,7 +412,7 @@ func TestAdminRateLimit_DifferentIPsIndependent(t *testing.T) {
 	}
 
 	// IP-B still allowed
-	req = httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+	req = httptest.NewRequest(http.MethodGet, "/admin/config", nil)
 	req.RemoteAddr = "10.0.0.2:2222"
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -471,5 +471,279 @@ func TestAdminRateLimitRuntime_PersistsFailuresAcrossRequests(t *testing.T) {
 	handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected runtime rate limit to persist, got %d", rec.Code)
+	}
+}
+
+// --- GlobalRateLimit middleware tests ---
+
+func TestGlobalRateLimit_AllowsUnderLimit(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    10,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < 5; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_BlocksOverLimit(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    10,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	ip := "1.2.3.4:12345"
+	// First 10 requests pass
+	for i := 0; i < 10; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = ip
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+	// Next 2 requests blocked
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = ip
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusTooManyRequests {
+			t.Fatalf("request %d: expected 429, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_SkipsHealth(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    10,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/health", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_SkipsNextStatic(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    10,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/_next/static/chunk.js", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_DifferentIPsIndependent(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    2,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Exhaust IP-A
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = "10.0.0.1:1111"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+	}
+
+	// IP-A blocked
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.RemoteAddr = "10.0.0.1:1111"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("IP-A: expected 429, got %d", rec.Code)
+	}
+
+	// IP-B still allowed
+	req = httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.RemoteAddr = "10.0.0.2:2222"
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("IP-B: expected 200, got %d", rec.Code)
+	}
+}
+
+func TestGlobalRateLimit_DisabledWhenZero(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    0,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	for i := 0; i < 100; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimitRuntime_HotReload(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    2,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	runtime := config.NewRuntime(cfg)
+	handler := GlobalRateLimitRuntime(runtime)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Use up limit with old config
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+
+	// Blocked with old config
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.RemoteAddr = "127.0.0.1:1234"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 before hot reload, got %d", rec.Code)
+	}
+
+	// Hot reload: increase limit
+	cfg.App.GlobalRateLimitRPM = 5
+	runtime.Store(cfg)
+
+	// Should now be allowed again (window reset would also work, but limit increase is what we test)
+	for i := 0; i < 3; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+		req.RemoteAddr = "127.0.0.1:1234"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d after hot reload: expected 200, got %d", i, rec.Code)
+		}
+	}
+}
+
+func TestGlobalRateLimit_AppliesToAdminVerify(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    2,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	// Use up limit
+	for i := 0; i < 2; i++ {
+		req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+		req.RemoteAddr = "1.2.3.4:12345"
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d: expected 200, got %d", i, rec.Code)
+		}
+	}
+
+	// /admin/verify should also be blocked
+	req := httptest.NewRequest(http.MethodGet, "/admin/verify", nil)
+	req.RemoteAddr = "1.2.3.4:12345"
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected 429 for /admin/verify, got %d", rec.Code)
+	}
+}
+
+func TestGlobalRateLimit_ReturnsRetryAfter(t *testing.T) {
+	cfg := &config.Config{
+		App: config.AppConfig{
+			GlobalRateLimitRPM:    1,
+			GlobalRateLimitWindow: 60,
+		},
+	}
+	handler := GlobalRateLimit(cfg)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	ip := "1.2.3.4:12345"
+	req := httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.RemoteAddr = ip
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("first request: expected 200, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/test", nil)
+	req.RemoteAddr = ip
+	rec = httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request: expected 429, got %d", rec.Code)
+	}
+	if rec.Header().Get("Retry-After") == "" {
+		t.Error("expected Retry-After header on 429 response")
 	}
 }
