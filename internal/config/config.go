@@ -61,8 +61,10 @@ type AppConfig struct {
 	MaxHeaderBytes    int   `toml:"max_header_bytes"`    // max size of request headers in bytes
 	BodyLimit         int64 `toml:"body_limit"`          // default max request body size in bytes
 	ChatBodyLimit     int64 `toml:"chat_body_limit"`     // max body size for chat completions in bytes
-	AdminMaxFails     int   `toml:"admin_max_fails"`     // max auth failures before temporary IP lockout
-	AdminWindowSec    int   `toml:"admin_window_sec"`    // time window in seconds for counting admin auth failures
+	AdminMaxFails         int   `toml:"admin_max_fails"`          // max auth failures before temporary IP lockout
+	AdminWindowSec        int   `toml:"admin_window_sec"`         // time window in seconds for counting admin auth failures
+	GlobalRateLimitRPM    int   `toml:"global_rate_limit_rpm"`    // 0 = disabled
+	GlobalRateLimitWindow int   `toml:"global_rate_limit_window"` // seconds
 }
 
 // ImageConfig contains image-generation behavior flags.
@@ -164,6 +166,12 @@ func validateConfig(cfg *Config) error {
 	}
 	if cfg.Cache.VideoMaxMB < 0 {
 		return fmt.Errorf("cache.video_max_mb must be >= 0, got %d", cfg.Cache.VideoMaxMB)
+	}
+	if cfg.App.GlobalRateLimitRPM < 0 {
+		return fmt.Errorf("app.global_rate_limit_rpm must be >= 0, got %d", cfg.App.GlobalRateLimitRPM)
+	}
+	if cfg.App.GlobalRateLimitRPM > 0 && cfg.App.GlobalRateLimitWindow <= 0 {
+		return fmt.Errorf("app.global_rate_limit_window must be > 0 when global_rate_limit_rpm is enabled")
 	}
 	return nil
 }

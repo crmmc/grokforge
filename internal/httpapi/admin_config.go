@@ -55,6 +55,8 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			ChatBodyLimit:          cfg.App.ChatBodyLimit,
 			AdminMaxFails:          cfg.App.AdminMaxFails,
 			AdminWindowSec:         cfg.App.AdminWindowSec,
+			GlobalRateLimitRPM:     cfg.App.GlobalRateLimitRPM,
+			GlobalRateLimitWindow:  cfg.App.GlobalRateLimitWindow,
 		},
 		Image: ImageConfigResponse{
 			NSFW:                    cfg.Image.NSFW,

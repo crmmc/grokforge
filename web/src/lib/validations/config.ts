@@ -24,6 +24,8 @@ export const appConfigSchema = z.object({
   chat_body_limit: z.number().int().min(4096),
   admin_max_fails: z.number().int().min(1),
   admin_window_sec: z.number().int().min(10),
+  global_rate_limit_rpm: z.number().int().min(0),
+  global_rate_limit_window: z.number().int().min(1),
 });
 
 export const proxyConfigSchema = z.object({

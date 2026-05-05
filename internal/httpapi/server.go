@@ -115,6 +115,12 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(securityHeaders)
 	s.router.Use(middleware.RequestID)
 	s.router.Use(middleware.RealIP)
+	// 全局 IP 限流 — 必须在 RealIP 之后（IP 已解析），在 runtime 分支之前
+	if s.runtime != nil {
+		s.router.Use(GlobalRateLimitRuntime(s.runtime))
+	} else {
+		s.router.Use(GlobalRateLimit(s.cfg))
+	}
 	s.router.Use(middleware.Recoverer)
 	s.router.Use(debugRequestLogger)
 	if s.runtime != nil {

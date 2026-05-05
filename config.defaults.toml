@@ -55,6 +55,9 @@ chat_body_limit = 10485760
 admin_max_fails = 10
 # Time window for counting admin auth failures (seconds)
 admin_window_sec = 300
+# Global IP-based rate limiting (0 = disabled)
+# global_rate_limit_rpm = 0
+# global_rate_limit_window = 60
 # Optional external model catalog file (relative to config.toml directory)
 # When set, replaces the embedded default catalog entirely
 # models_file = "models.toml"

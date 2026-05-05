@@ -35,6 +35,8 @@ type AppConfigResponse struct {
 	ChatBodyLimit          int64    `json:"chat_body_limit"`
 	AdminMaxFails          int      `json:"admin_max_fails"`
 	AdminWindowSec         int      `json:"admin_window_sec"`
+	GlobalRateLimitRPM     int      `json:"global_rate_limit_rpm"`
+	GlobalRateLimitWindow  int      `json:"global_rate_limit_window"`
 }
 
 // ProxyConfigResponse is the API response for proxy config.
@@ -136,6 +138,8 @@ type AppConfigUpdate struct {
 	ChatBodyLimit          *int64    `json:"chat_body_limit,omitempty"`
 	AdminMaxFails          *int      `json:"admin_max_fails,omitempty"`
 	AdminWindowSec         *int      `json:"admin_window_sec,omitempty"`
+	GlobalRateLimitRPM     *int      `json:"global_rate_limit_rpm,omitempty"`
+	GlobalRateLimitWindow  *int      `json:"global_rate_limit_window,omitempty"`
 }
 
 // RetryConfigUpdate contains hot-reloadable retry config fields.
