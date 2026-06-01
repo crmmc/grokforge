@@ -217,6 +217,15 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 		}
 
+		if req.Console != nil {
+			if req.Console.Enabled != nil {
+				cfg.Console.Enabled = *req.Console.Enabled
+			}
+			if req.Console.WebSearch != nil {
+				cfg.Console.WebSearch = *req.Console.WebSearch
+			}
+		}
+
 		// Persist hot-reloadable app fields to database
 		dbUpdates := make(map[string]string)
 		if req.App != nil {
@@ -377,6 +386,14 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 			}
 			if req.Cache.VideoMaxMB != nil {
 				dbUpdates["cache.video_max_mb"] = fmt.Sprintf("%d", *req.Cache.VideoMaxMB)
+			}
+		}
+		if req.Console != nil {
+			if req.Console.Enabled != nil {
+				dbUpdates["console.enabled"] = fmt.Sprintf("%t", *req.Console.Enabled)
+			}
+			if req.Console.WebSearch != nil {
+				dbUpdates["console.web_search"] = fmt.Sprintf("%t", *req.Console.WebSearch)
 			}
 		}
 		if configStore != nil && len(dbUpdates) > 0 {

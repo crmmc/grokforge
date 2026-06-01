@@ -57,6 +57,16 @@ basic = 5
 super = 20
 heavy = 50
 
+[[mode]]
+id = "console"
+upstream_name = "console"
+window_seconds = 60
+local_quota = true
+[mode.default_quota]
+basic = 60
+super = 60
+heavy = 60
+
 # ── Quota-Tracked Models ─────────────────────────────────────
 
 # === Chat Models ===
@@ -78,6 +88,10 @@ enabled = true
 pool_floor = "super"
 mode = "auto"
 upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "console"
+console_pool_floor = "basic"
+console_supports_reasoning_effort = true
 
 [[model]]
 id = "grok-4.20-think"
@@ -143,6 +157,10 @@ enabled = true
 pool_floor = "super"
 mode = "grok43"
 upstream_mode = "grok-420-computer-use-sa"
+console_upstream_model = "grok-4.3"
+console_mode = "console"
+console_pool_floor = "basic"
+console_supports_reasoning_effort = true
 
 # === Image ===
 

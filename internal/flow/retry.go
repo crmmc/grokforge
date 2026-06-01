@@ -151,7 +151,7 @@ func ShouldCoolToken(err error, _ *RetryConfig) bool {
 		return false
 	}
 
-	if errors.Is(err, xai.ErrRateLimited) {
+	if errors.Is(err, xai.ErrRateLimited) || errors.Is(err, xai.ErrConsoleCreditExhausted) {
 		return true
 	}
 

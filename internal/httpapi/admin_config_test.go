@@ -57,6 +57,50 @@ func TestAdminConfig_GetConfig(t *testing.T) {
 	}
 }
 
+func TestConfigToResponse_IncludesConsoleConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	cfg.Console.Enabled = true
+	cfg.Console.WebSearch = true
+
+	resp := configToResponse(cfg)
+	if !resp.Console.Enabled {
+		t.Fatal("console.enabled missing from response")
+	}
+	if !resp.Console.WebSearch {
+		t.Fatal("console.web_search missing from response")
+	}
+}
+
+func TestAdminConfig_PutConfig_ConsoleConfig(t *testing.T) {
+	cfg := config.DefaultConfig()
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"console":{"enabled":true,"web_search":true}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !cfg.Console.Enabled {
+		t.Fatal("console.enabled was not updated")
+	}
+	if !cfg.Console.WebSearch {
+		t.Fatal("console.web_search was not updated")
+	}
+
+	var resp ConfigResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if !resp.Console.Enabled || !resp.Console.WebSearch {
+		t.Fatalf("response console config = %+v, want enabled web_search", resp.Console)
+	}
+}
+
 func TestAdminConfig_PutConfig_HotReloadable(t *testing.T) {
 	cfg := &config.Config{
 		Retry: config.RetryConfig{

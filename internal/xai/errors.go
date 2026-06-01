@@ -7,6 +7,9 @@ var (
 	// ErrRateLimited indicates a 429 Too Many Requests response.
 	ErrRateLimited = errors.New("xai: rate limited (429)")
 
+	// ErrConsoleCreditExhausted indicates a 402 response from Console billing limits.
+	ErrConsoleCreditExhausted = errors.New("xai: console credit exhausted (402)")
+
 	// ErrForbidden indicates a 403 Forbidden response due to token-level rejection
 	// (account banned, permissions revoked). The token itself is bad.
 	ErrForbidden = errors.New("xai: forbidden (403)")

@@ -24,6 +24,11 @@ type ResolvedModel struct {
 	UpstreamMode    string
 	ForceThinking   bool
 	EnablePro       bool
+
+	ConsoleUpstreamModel           string
+	ConsoleMode                    string
+	ConsolePoolFloor               string
+	ConsoleSupportsReasoningEffort bool
 }
 
 // ModelRegistry maintains an in-memory snapshot of enabled models.
@@ -68,6 +73,11 @@ func NewModelRegistry(specs []modelconfig.ModelSpec, modes []modelconfig.ModeSpe
 			UpstreamMode:    s.UpstreamMode,
 			ForceThinking:   s.ForceThinking,
 			EnablePro:       s.EnablePro,
+
+			ConsoleUpstreamModel:           s.ConsoleUpstreamModel,
+			ConsoleMode:                    s.ConsoleMode,
+			ConsolePoolFloor:               s.ConsolePoolFloor,
+			ConsoleSupportsReasoningEffort: s.ConsoleSupportsReasoningEffort,
 		}
 		r.byID[s.ID] = rm
 		r.enabledByType[s.Type] = append(r.enabledByType[s.Type], rm)

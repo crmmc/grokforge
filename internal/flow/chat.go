@@ -68,13 +68,13 @@ func MapReasoningEffort(effort string) (grokThinking string, enabled bool) {
 // Complete executes a chat completion with retry logic.
 // Returns a channel of StreamEvents. The channel is closed when done.
 func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error) {
-	if f.cfg == nil || f.cfg.ModelResolver == nil {
+	if f.cfg == nil {
 		outCh := make(chan StreamEvent, 1)
 		outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
 		close(outCh)
 		return outCh, nil
 	}
-	pools, ok := tkn.GetPoolForModel(req.Model, f.cfg.ModelResolver)
+	pools, ok := f.poolsForRequest(req)
 	if !ok {
 		outCh := make(chan StreamEvent, 1)
 		outCh <- StreamEvent{Error: tkn.ErrModelNotFound}
@@ -84,7 +84,8 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 	slog.Debug("flow: chat complete start",
 		"model", req.Model, "pools", pools,
 		"msg_count", len(req.Messages), "stream", req.Stream,
-		"has_tools", len(req.Tools) > 0)
+		"has_tools", len(req.Tools) > 0,
+		"use_console", req.UseConsole)
 	outCh := make(chan StreamEvent, 64)
 
 	SafeGo("chat_execute_with_retry", func() {
@@ -92,6 +93,16 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 	})
 
 	return outCh, nil
+}
+
+func (f *ChatFlow) poolsForRequest(req *ChatRequest) ([]string, bool) {
+	if req != nil && req.UseConsole && req.PoolFloor != "" {
+		return tkn.GetPoolsForFloor(req.PoolFloor)
+	}
+	if req == nil || f.cfg == nil || f.cfg.ModelResolver == nil {
+		return nil, false
+	}
+	return tkn.GetPoolForModel(req.Model, f.cfg.ModelResolver)
 }
 
 func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools []string, outCh chan<- StreamEvent) {
@@ -171,17 +182,15 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 			}
 		}
 
-		// Build xai request
-		xaiReq, err := f.buildXAIRequest(ctx, req, client)
+		// Build and execute route-specific upstream request.
+		eventCh, err := f.startChatRequest(ctx, req, client)
 		if err != nil {
-			f.tokenSvc.ReleaseToken(currentToken.ID)
-			outCh <- StreamEvent{Error: err}
-			return
-		}
-
-		// Execute chat
-		eventCh, err := client.Chat(ctx, xaiReq)
-		if err != nil {
+			var buildErr chatRequestBuildError
+			if errors.As(err, &buildErr) {
+				f.tokenSvc.ReleaseToken(currentToken.ID)
+				outCh <- StreamEvent{Error: buildErr.err}
+				return
+			}
 			lastErr = err
 			slog.Debug("flow: chat execution error",
 				"attempt", attempt, "token_id", currentToken.ID,
@@ -244,7 +253,16 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 		}
 
 		// Stream events
-		success, usage, estimated, ttft, streamErr := f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
+		var success bool
+		var usage *Usage
+		var estimated bool
+		var ttft time.Duration
+		var streamErr error
+		if req.UseConsole {
+			success, usage, estimated, ttft, streamErr = f.streamConsoleEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
+		} else {
+			success, usage, estimated, ttft, streamErr = f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
+		}
 		if success {
 			// Estimate prompt tokens from request messages if not set by upstream.
 			if usage != nil && usage.PromptTokens == 0 {

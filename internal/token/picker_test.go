@@ -31,6 +31,39 @@ func newMockResolver(entries map[string]string) *mockResolver {
 	return m
 }
 
+func TestGetPoolsForFloor(t *testing.T) {
+	tests := []struct {
+		name      string
+		floor     string
+		wantPools []string
+		wantOK    bool
+	}{
+		{"basic floor", "basic", []string{PoolBasic, PoolSuper, PoolHeavy}, true},
+		{"super floor", "super", []string{PoolSuper, PoolHeavy}, true},
+		{"heavy floor", "heavy", []string{PoolHeavy}, true},
+		{"canonical super pool", PoolSuper, []string{PoolSuper, PoolHeavy}, true},
+		{"unknown floor", "invalid", nil, false},
+		{"empty floor", "", nil, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			pools, ok := GetPoolsForFloor(tt.floor)
+			if ok != tt.wantOK {
+				t.Fatalf("GetPoolsForFloor(%q) ok = %v, want %v", tt.floor, ok, tt.wantOK)
+			}
+			if len(pools) != len(tt.wantPools) {
+				t.Fatalf("GetPoolsForFloor(%q) = %v, want %v", tt.floor, pools, tt.wantPools)
+			}
+			for i := range pools {
+				if pools[i] != tt.wantPools[i] {
+					t.Fatalf("GetPoolsForFloor(%q)[%d] = %q, want %q", tt.floor, i, pools[i], tt.wantPools[i])
+				}
+			}
+		})
+	}
+}
+
 func TestGetPoolForModel(t *testing.T) {
 	resolver := newMockResolver(map[string]string{
 		"grok-3":       "basic",

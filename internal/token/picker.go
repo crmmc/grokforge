@@ -27,7 +27,12 @@ func GetPoolForModel(model string, resolver ModelResolver) ([]string, bool) {
 	if !ok {
 		return nil, false
 	}
+	return GetPoolsForFloor(floor)
+}
 
+// GetPoolsForFloor returns eligible pool names for a pool floor.
+// Pools are returned in ascending level order (basic -> super -> heavy).
+func GetPoolsForFloor(floor string) ([]string, bool) {
 	floorLevel := PoolLevelFor(floor)
 	if floorLevel == 0 {
 		return nil, false

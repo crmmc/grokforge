@@ -73,6 +73,7 @@ type mockTokenService struct {
 	expiredCalls   []uint
 	releaseCalls   []uint
 	pickCalls      []uint
+	pickPools      []string
 	pickModes      []string
 	inflight       map[uint]int
 }
@@ -95,6 +96,7 @@ func (m *mockTokenService) PickExcluding(pool string, mode string, exclude map[u
 		}
 		m.addInflightLocked(t.ID)
 		m.pickCalls = append(m.pickCalls, t.ID)
+		m.pickPools = append(m.pickPools, pool)
 		m.pickModes = append(m.pickModes, mode)
 		return t, nil
 	}
@@ -172,13 +174,18 @@ func (m *mockTokenService) getInflight(id uint) int {
 
 // mockXAIClient implements xai.Client for testing.
 type mockXAIClient struct {
-	mu         sync.Mutex
-	events     []xai.StreamEvent
-	eventDelay time.Duration
-	chatErr    error
-	chatErrs   []error
-	callCount  int
-	lastReq    *xai.ChatRequest
+	mu               sync.Mutex
+	events           []xai.StreamEvent
+	consoleEvents    []xai.StreamEvent
+	eventDelay       time.Duration
+	chatErr          error
+	consoleErr       error
+	chatErrs         []error
+	consoleErrs      []error
+	callCount        int
+	consoleCallCount int
+	lastReq          *xai.ChatRequest
+	lastConsoleReq   *xai.ConsoleRequest
 }
 
 func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan xai.StreamEvent, error) {
@@ -196,6 +203,41 @@ func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan 
 
 	if chatErr != nil {
 		return nil, chatErr
+	}
+
+	ch := make(chan xai.StreamEvent, len(events))
+	if eventDelay > 0 {
+		go func() {
+			time.Sleep(eventDelay)
+			for _, e := range events {
+				ch <- e
+			}
+			close(ch)
+		}()
+		return ch, nil
+	}
+	for _, e := range events {
+		ch <- e
+	}
+	close(ch)
+	return ch, nil
+}
+
+func (m *mockXAIClient) ConsoleResponses(ctx context.Context, req *xai.ConsoleRequest) (<-chan xai.StreamEvent, error) {
+	m.mu.Lock()
+	callIndex := m.consoleCallCount
+	m.consoleCallCount++
+	m.lastConsoleReq = req
+	events := m.consoleEvents
+	consoleErr := m.consoleErr
+	if callIndex < len(m.consoleErrs) {
+		consoleErr = m.consoleErrs[callIndex]
+	}
+	eventDelay := m.eventDelay
+	m.mu.Unlock()
+
+	if consoleErr != nil {
+		return nil, consoleErr
 	}
 
 	ch := make(chan xai.StreamEvent, len(events))
@@ -304,6 +346,72 @@ func TestChatFlow_Success(t *testing.T) {
 	// Check success was reported
 	if len(tokenSvc.successCalls) != 1 || tokenSvc.successCalls[0] != 1 {
 		t.Errorf("expected success reported for token 1, got %v", tokenSvc.successCalls)
+	}
+}
+
+func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
+	tokenSvc := &mockTokenService{
+		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: tkn.PoolBasic}},
+	}
+	client := &mockXAIClient{
+		consoleEvents: []xai.StreamEvent{
+			consoleWrappedTestEvent(t, "response.output_text.delta", map[string]any{"delta": "Console hello"}),
+			consoleWrappedTestEvent(t, "response.completed", map[string]any{"usage": map[string]any{"input_tokens": 3, "output_tokens": 2}}),
+		},
+	}
+	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
+		RetryConfig: DefaultRetryConfig(),
+		// Console routes with an explicit PoolFloor should not need model resolver lookup.
+		ModelResolver: nil,
+	})
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages:                       []Message{{Role: "user", Content: "Hi"}},
+		Model:                          "public-console-model",
+		UpstreamModel:                  "grok-4.20",
+		Mode:                           "console",
+		UseConsole:                     true,
+		PoolFloor:                      "basic",
+		ConsoleSupportsReasoningEffort: true,
+		ConsoleWebSearch:               true,
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	var content strings.Builder
+	var finish *StreamEvent
+	for event := range ch {
+		if event.Error != nil {
+			t.Fatalf("unexpected stream error: %v", event.Error)
+		}
+		content.WriteString(event.Content)
+		if event.FinishReason != nil {
+			e := event
+			finish = &e
+		}
+	}
+
+	if client.callCount != 0 {
+		t.Fatalf("web Chat called %d times, want 0", client.callCount)
+	}
+	if client.consoleCallCount != 1 {
+		t.Fatalf("ConsoleResponses called %d times, want 1", client.consoleCallCount)
+	}
+	if client.lastConsoleReq == nil || client.lastConsoleReq.Model != "grok-4.20" || !client.lastConsoleReq.WebSearch {
+		t.Fatalf("lastConsoleReq = %#v, want grok-4.20 with web search", client.lastConsoleReq)
+	}
+	if len(tokenSvc.pickPools) != 1 || tokenSvc.pickPools[0] != tkn.PoolBasic {
+		t.Fatalf("pick pools = %v, want [%s]", tokenSvc.pickPools, tkn.PoolBasic)
+	}
+	if len(tokenSvc.pickModes) != 1 || tokenSvc.pickModes[0] != "console" {
+		t.Fatalf("pick modes = %v, want [console]", tokenSvc.pickModes)
+	}
+	if content.String() != "Console hello" {
+		t.Fatalf("content = %q, want Console hello", content.String())
+	}
+	if finish == nil || finish.Usage == nil || finish.Usage.PromptTokens != 3 || finish.Usage.CompletionTokens != 2 || finish.Usage.TotalTokens != 5 {
+		t.Fatalf("finish event = %#v, want usage 3/2/5", finish)
 	}
 }
 

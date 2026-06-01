@@ -167,6 +167,22 @@ func (c *client) doAssetRequest(req *http.Request) (*http.Response, error) {
 func (c *client) doRequestWithClient(req *http.Request, httpClient tls_client.HttpClient) (*http.Response, error) {
 	// Set anti-bot headers
 	headers := buildHeaders(c.token, c.opts, c.statsigID)
+	return c.doRequestWithClientAndHeaders(req, httpClient, headers)
+}
+
+func (c *client) doConsoleRequest(req *http.Request) (*http.Response, error) {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil, ErrStreamClosed
+	}
+	httpClient := c.http
+	c.mu.Unlock()
+	headers := buildHeadersWithOrigin(c.token, c.opts, c.statsigID, "https://console.x.ai", "https://console.x.ai/")
+	return c.doRequestWithClientAndHeaders(req, httpClient, headers)
+}
+
+func (c *client) doRequestWithClientAndHeaders(req *http.Request, httpClient tls_client.HttpClient, headers http.Header) (*http.Response, error) {
 	for k, v := range headers {
 		if k == http.HeaderOrderKey {
 			req.Header[http.HeaderOrderKey] = v

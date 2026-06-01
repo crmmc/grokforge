@@ -2,12 +2,13 @@ package httpapi
 
 // ConfigResponse mirrors config.Config but with masked secrets for API responses.
 type ConfigResponse struct {
-	App   AppConfigResponse   `json:"app"`
-	Image ImageConfigResponse `json:"image"`
-	Proxy ProxyConfigResponse `json:"proxy"`
-	Retry RetryConfigResponse `json:"retry"`
-	Token TokenConfigResponse `json:"token"`
-	Cache CacheConfigResponse `json:"cache"`
+	App     AppConfigResponse     `json:"app"`
+	Image   ImageConfigResponse   `json:"image"`
+	Proxy   ProxyConfigResponse   `json:"proxy"`
+	Retry   RetryConfigResponse   `json:"retry"`
+	Token   TokenConfigResponse   `json:"token"`
+	Cache   CacheConfigResponse   `json:"cache"`
+	Console ConsoleConfigResponse `json:"console"`
 }
 
 // AppConfigResponse is the API response for app config (secrets masked).
@@ -87,14 +88,21 @@ type CacheConfigResponse struct {
 	VideoMaxMB int `json:"video_max_mb"`
 }
 
+// ConsoleConfigResponse is the API response for Console beta config.
+type ConsoleConfigResponse struct {
+	Enabled   bool `json:"enabled"`
+	WebSearch bool `json:"web_search"`
+}
+
 // ConfigUpdateRequest represents the fields that can be hot-reloaded.
 type ConfigUpdateRequest struct {
-	App   *AppConfigUpdate   `json:"app,omitempty"`
-	Image *ImageConfigUpdate `json:"image,omitempty"`
-	Proxy *ProxyConfigUpdate `json:"proxy,omitempty"`
-	Retry *RetryConfigUpdate `json:"retry,omitempty"`
-	Token *TokenConfigUpdate `json:"token,omitempty"`
-	Cache *CacheConfigUpdate `json:"cache,omitempty"`
+	App     *AppConfigUpdate     `json:"app,omitempty"`
+	Image   *ImageConfigUpdate   `json:"image,omitempty"`
+	Proxy   *ProxyConfigUpdate   `json:"proxy,omitempty"`
+	Retry   *RetryConfigUpdate   `json:"retry,omitempty"`
+	Token   *TokenConfigUpdate   `json:"token,omitempty"`
+	Cache   *CacheConfigUpdate   `json:"cache,omitempty"`
+	Console *ConsoleConfigUpdate `json:"console,omitempty"`
 }
 
 // ImageConfigUpdate contains hot-reloadable image config fields.
@@ -165,4 +173,10 @@ type TokenConfigUpdate struct {
 type CacheConfigUpdate struct {
 	ImageMaxMB *int `json:"image_max_mb,omitempty"`
 	VideoMaxMB *int `json:"video_max_mb,omitempty"`
+}
+
+// ConsoleConfigUpdate contains hot-reloadable Console beta config fields.
+type ConsoleConfigUpdate struct {
+	Enabled   *bool `json:"enabled,omitempty"`
+	WebSearch *bool `json:"web_search,omitempty"`
 }

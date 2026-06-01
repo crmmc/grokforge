@@ -86,5 +86,9 @@ func DefaultConfig() *Config {
 			ImageMaxMB: 0,
 			VideoMaxMB: 0,
 		},
+		Console: ConsoleConfig{
+			Enabled:   false,
+			WebSearch: false,
+		},
 	}
 }

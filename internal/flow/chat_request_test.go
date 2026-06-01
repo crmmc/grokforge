@@ -54,6 +54,10 @@ func (s *stubChatRequestClient) Chat(context.Context, *xai.ChatRequest) (<-chan 
 	return nil, nil
 }
 
+func (s *stubChatRequestClient) ConsoleResponses(context.Context, *xai.ConsoleRequest) (<-chan xai.StreamEvent, error) {
+	return nil, nil
+}
+
 func (s *stubChatRequestClient) CreateImagePost(context.Context, string) (string, error) {
 	return "", nil
 }

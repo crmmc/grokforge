@@ -147,13 +147,18 @@ func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 		flowReq.MaxTokens = req.MaxTokens
 	}
 
-	// Resolve upstream model/mode from registry
+	// Resolve route from registry and runtime config.
 	if h.ModelRegistry != nil {
 		if rm, ok := h.ModelRegistry.Resolve(req.Model); ok {
-			flowReq.UpstreamModel = rm.UpstreamModel
-			flowReq.UpstreamMode = rm.UpstreamMode
+			plan := planChatRoute(rm, h.currentConfig())
+			flowReq.UpstreamModel = plan.UpstreamModel
+			flowReq.UpstreamMode = plan.UpstreamMode
+			flowReq.Mode = plan.Mode
+			flowReq.PoolFloor = plan.PoolFloor
+			flowReq.UseConsole = plan.UseConsole
+			flowReq.ConsoleSupportsReasoningEffort = plan.ConsoleSupportsReasoningEffort
+			flowReq.ConsoleWebSearch = plan.ConsoleWebSearch
 			flowReq.ForceThinking = rm.ForceThinking
-			flowReq.Mode = rm.Mode
 		}
 	}
 

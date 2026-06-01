@@ -66,8 +66,8 @@ func TestLoad_EmbeddedCatalog(t *testing.T) {
 	if got := len(models); got != 14 {
 		t.Fatalf("expected 14 models, got %d", got)
 	}
-	if got := len(modes); got != 6 {
-		t.Fatalf("expected 6 modes, got %d", got)
+	if got := len(modes); got != 7 {
+		t.Fatalf("expected 7 modes, got %d", got)
 	}
 
 	first := models[0]
@@ -84,6 +84,63 @@ func TestLoad_EmbeddedCatalog(t *testing.T) {
 	}
 	if m0.UpstreamName != "auto" {
 		t.Errorf("first mode upstream_name = %q, want %q", m0.UpstreamName, "auto")
+	}
+}
+
+func TestLoad_ModelConsoleMapping(t *testing.T) {
+	content := `version = 1
+
+[[mode]]
+id = "auto"
+upstream_name = "auto"
+window_seconds = 7200
+[mode.default_quota]
+basic = 0
+super = 50
+heavy = 150
+
+[[mode]]
+id = "console"
+upstream_name = "console"
+window_seconds = 60
+local_quota = true
+[mode.default_quota]
+basic = 60
+super = 60
+heavy = 60
+
+[[model]]
+id = "grok-4.20"
+display_name = "Grok 4.20"
+type = "chat"
+enabled = true
+pool_floor = "super"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "console"
+console_pool_floor = "basic"
+console_supports_reasoning_effort = true
+`
+	models, modes, err := Load(makeFS(content), "")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(modes) != 2 {
+		t.Fatalf("modes = %d, want 2", len(modes))
+	}
+	m := models[0]
+	if m.ConsoleUpstreamModel != "grok-4.20" {
+		t.Fatalf("ConsoleUpstreamModel = %q", m.ConsoleUpstreamModel)
+	}
+	if m.ConsoleMode != "console" {
+		t.Fatalf("ConsoleMode = %q", m.ConsoleMode)
+	}
+	if m.ConsolePoolFloor != "basic" {
+		t.Fatalf("ConsolePoolFloor = %q", m.ConsolePoolFloor)
+	}
+	if !m.ConsoleSupportsReasoningEffort {
+		t.Fatal("ConsoleSupportsReasoningEffort should be true")
 	}
 }
 
@@ -323,6 +380,163 @@ upstream_mode = "auto"
 	fs := makeFS(content)
 	_, _, err := Load(fs, "")
 	mustContain(t, err, `quota_sync = false is only valid for type "image_ws"`)
+}
+
+func TestValidate_ConsoleMappingRules(t *testing.T) {
+	consoleMode := `
+[[mode]]
+id = "console"
+upstream_name = "console"
+window_seconds = 60
+local_quota = true
+[mode.default_quota]
+basic = 60
+super = 60
+heavy = 60
+`
+
+	tests := []struct {
+		name  string
+		model string
+		want  string
+	}{
+		{
+			name: "console mode without upstream",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_mode = "console"
+`,
+			want: "console_mode is forbidden without console_upstream_model",
+		},
+		{
+			name: "console pool floor without upstream",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_pool_floor = "basic"
+`,
+			want: "console_pool_floor is forbidden without console_upstream_model",
+		},
+		{
+			name: "console reasoning flag without upstream",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_supports_reasoning_effort = true
+`,
+			want: "console_supports_reasoning_effort is forbidden without console_upstream_model",
+		},
+		{
+			name: "console mapping only for chat",
+			model: `
+[[model]]
+id = "test-image"
+display_name = "Test Image"
+type = "image_lite"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "console"
+console_pool_floor = "basic"
+`,
+			want: `console_upstream_model is only valid for type "chat"`,
+		},
+		{
+			name: "console mode required",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_pool_floor = "basic"
+`,
+			want: "console_mode is required when console_upstream_model is set",
+		},
+		{
+			name: "console mode must exist",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "missing"
+console_pool_floor = "basic"
+`,
+			want: `console_mode "missing" does not match any defined mode`,
+		},
+		{
+			name: "console pool floor required",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "console"
+`,
+			want: "console_pool_floor is required when console_upstream_model is set",
+		},
+		{
+			name: "console pool floor valid",
+			model: `
+[[model]]
+id = "test-chat"
+display_name = "Test Chat"
+type = "chat"
+enabled = true
+pool_floor = "basic"
+mode = "auto"
+upstream_mode = "auto"
+console_upstream_model = "grok-4.20"
+console_mode = "console"
+console_pool_floor = "invalid"
+`,
+			want: `invalid console_pool_floor "invalid"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			content := "version = 1\n" + validModeTOML + consoleMode + tt.model
+			_, _, err := Load(makeFS(content), "")
+			mustContain(t, err, tt.want)
+		})
+	}
 }
 
 // --- Model validation failures (general) ---

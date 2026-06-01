@@ -284,6 +284,18 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 				return fmt.Errorf("config: %s must be >= 0, got %d", k, parsed)
 			}
 			c.Cache.VideoMaxMB = parsed
+		case "console.enabled":
+			parsed, err := parseBoolOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Console.Enabled = parsed
+		case "console.web_search":
+			parsed, err := parseBoolOverride(k, v)
+			if err != nil {
+				return err
+			}
+			c.Console.WebSearch = parsed
 		default:
 			return fmt.Errorf("config: unknown db override key %q", k)
 		}

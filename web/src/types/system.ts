@@ -86,6 +86,11 @@ export interface CacheConfigResponse {
   video_max_mb: number;
 }
 
+export interface ConsoleConfigResponse {
+  enabled: boolean;
+  web_search: boolean;
+}
+
 export interface ConfigResponse {
   app: AppConfigResponse;
   image: ImageConfigResponse;
@@ -93,6 +98,7 @@ export interface ConfigResponse {
   retry: RetryConfigResponse;
   token: TokenConfigResponse;
   cache: CacheConfigResponse;
+  console: ConsoleConfigResponse;
 }
 
 export interface UsageStats {

@@ -64,7 +64,7 @@ func MapXAIError(err error) (int, *APIError) {
 		return 502, NewAPIError(502, "server_error", "upstream_error",
 			"Upstream service temporarily blocked")
 
-	case errors.Is(err, xai.ErrRateLimited):
+	case errors.Is(err, xai.ErrRateLimited), errors.Is(err, xai.ErrConsoleCreditExhausted):
 		return 429, NewAPIError(429, "rate_limit_error", "rate_limit_exceeded",
 			"Rate limit exceeded, please retry later")
 

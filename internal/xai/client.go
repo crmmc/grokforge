@@ -14,6 +14,10 @@ type Client interface {
 	// The channel is closed when the stream ends or an error occurs.
 	Chat(ctx context.Context, req *ChatRequest) (<-chan StreamEvent, error)
 
+	// ConsoleResponses sends a request to the xAI Console Responses API.
+	// The channel is closed when the stream ends or an error occurs.
+	ConsoleResponses(ctx context.Context, req *ConsoleRequest) (<-chan StreamEvent, error)
+
 	// CreateImagePost creates an image media post and returns the upstream post ID.
 	CreateImagePost(ctx context.Context, imageURL string) (string, error)
 
@@ -90,6 +94,33 @@ type ChatRequest struct {
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+// ConsoleRequest represents a request to the xAI Console Responses API.
+type ConsoleRequest struct {
+	Model                   string             `json:"model"`
+	Input                   []ConsoleInputItem `json:"input"`
+	Instructions            string             `json:"instructions,omitempty"`
+	Stream                  bool               `json:"stream"`
+	Temperature             *float64           `json:"temperature,omitempty"`
+	TopP                    *float64           `json:"top_p,omitempty"`
+	MaxTokens               *int               `json:"max_output_tokens,omitempty"`
+	ReasoningEffort         string             `json:"-"`
+	SupportsReasoningEffort bool               `json:"-"`
+	WebSearch               bool               `json:"-"`
+}
+
+// ConsoleInputItem is a Responses API input message.
+type ConsoleInputItem struct {
+	Role    string           `json:"role"`
+	Content []ConsoleContent `json:"content"`
+}
+
+// ConsoleContent is a typed Responses API content block.
+type ConsoleContent struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
 }
 
 // StreamEvent represents a single event from the streaming response.

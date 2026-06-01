@@ -73,6 +73,13 @@ blocked_parallel_attempts = 5
 # Enable blocked parallel retry
 blocked_parallel_enabled = true
 
+# ==================== Console Beta Upstream ====================
+[console]
+# Enable beta Console upstream routing for mapped chat models
+enabled = false
+# Enable server-side Console Web Search injection
+web_search = false
+
 # ==================== Proxy Configuration ====================
 [proxy]
 # Base proxy URL (proxy to Grok)

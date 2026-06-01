@@ -58,6 +58,61 @@ func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEv
 	}
 }
 
+func (f *ChatFlow) streamConsoleEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
+	var outputChars int
+	var usage *Usage
+	var ttft time.Duration
+	streamStart := time.Now()
+	gotFirstToken := false
+	filterTags := f.filterTags()
+	tokenFilter := newStreamTokenFilter(filterTags)
+	toolParser := newStreamToolCallParser(tools)
+	var searchSources []SearchSource
+	seenURLs := make(map[string]struct{})
+	for {
+		select {
+		case <-ctx.Done():
+			return false, nil, false, 0, ctx.Err()
+		case event, ok := <-eventCh:
+			if !ok {
+				outputChars += flushStreamParsers(outCh, dl, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
+				estimated := false
+				if usage == nil {
+					usage = &Usage{CompletionTokens: estimateTokens(outputChars)}
+					usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+					estimated = true
+				}
+				stop := "stop"
+				outCh <- StreamEvent{FinishReason: &stop, Usage: usage, SearchSources: searchSources}
+				return true, usage, estimated, ttft, nil
+			}
+			if event.Error != nil {
+				return false, nil, false, 0, event.Error
+			}
+
+			flowEvent := f.parseConsoleEvent(event)
+			if flowEvent.Error != nil {
+				return false, nil, false, 0, flowEvent.Error
+			}
+			if flowEvent.Usage != nil {
+				usage = flowEvent.Usage
+				flowEvent.Usage = nil
+			}
+			for _, src := range flowEvent.SearchSources {
+				if _, seen := seenURLs[src.URL]; !seen {
+					seenURLs[src.URL] = struct{}{}
+					searchSources = append(searchSources, src)
+				}
+			}
+			flowEvent.SearchSources = nil
+			flowEvent = tokenFilter.Apply(flowEvent)
+			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
+			flowEvent.Downloader = dl
+			outputChars += emitStreamEvent(outCh, dl, streamStart, &ttft, &gotFirstToken, flowEvent)
+		}
+	}
+}
+
 func flushStreamParsers(outCh chan<- StreamEvent, dl DownloadFunc, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, tokenFilter *streamTokenFilter, toolParser *streamToolCallParser) int {
 	var outputChars int
 	pending := tokenFilter.Flush("")

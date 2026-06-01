@@ -173,6 +173,9 @@ func validate(version int, modes []ModeSpec, models []ModelSpec) error {
 		if err := validateUpstream(m); err != nil {
 			return err
 		}
+		if err := validateConsoleMapping(m, modeIDs); err != nil {
+			return err
+		}
 
 		// Flag restrictions.
 		if m.ForceThinking && m.Type != TypeChat {
@@ -189,6 +192,38 @@ func validate(version int, modes []ModeSpec, models []ModelSpec) error {
 
 	if !hasEnabled {
 		return fmt.Errorf("modelconfig: at least one model must be enabled")
+	}
+	return nil
+}
+
+func validateConsoleMapping(m ModelSpec, modeIDs map[string]bool) error {
+	if m.ConsoleUpstreamModel == "" {
+		if m.ConsoleMode != "" {
+			return fmt.Errorf("model %q: console_mode is forbidden without console_upstream_model", m.ID)
+		}
+		if m.ConsolePoolFloor != "" {
+			return fmt.Errorf("model %q: console_pool_floor is forbidden without console_upstream_model", m.ID)
+		}
+		if m.ConsoleSupportsReasoningEffort {
+			return fmt.Errorf("model %q: console_supports_reasoning_effort is forbidden without console_upstream_model", m.ID)
+		}
+		return nil
+	}
+
+	if m.Type != TypeChat {
+		return fmt.Errorf("model %q: console_upstream_model is only valid for type %q", m.ID, TypeChat)
+	}
+	if m.ConsoleMode == "" {
+		return fmt.Errorf("model %q: console_mode is required when console_upstream_model is set", m.ID)
+	}
+	if !modeIDs[m.ConsoleMode] {
+		return fmt.Errorf("model %q: console_mode %q does not match any defined mode", m.ID, m.ConsoleMode)
+	}
+	if m.ConsolePoolFloor == "" {
+		return fmt.Errorf("model %q: console_pool_floor is required when console_upstream_model is set", m.ID)
+	}
+	if !validPoolFloors[m.ConsolePoolFloor] {
+		return fmt.Errorf("model %q: invalid console_pool_floor %q", m.ID, m.ConsolePoolFloor)
 	}
 	return nil
 }

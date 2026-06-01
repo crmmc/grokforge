@@ -60,6 +60,43 @@ func TestRegistry_Resolve(t *testing.T) {
 	}
 }
 
+func TestRegistry_ConsoleFields(t *testing.T) {
+	specs := []modelconfig.ModelSpec{
+		{
+			ID:                             "grok-4.20",
+			DisplayName:                    "Grok 4.20",
+			Type:                           modelconfig.TypeChat,
+			Enabled:                        true,
+			PoolFloor:                      modelconfig.PoolSuper,
+			Mode:                           "auto",
+			UpstreamMode:                   "auto",
+			PublicType:                     "chat",
+			ConsoleUpstreamModel:           "grok-4.20",
+			ConsoleMode:                    "console",
+			ConsolePoolFloor:               modelconfig.PoolBasic,
+			ConsoleSupportsReasoningEffort: true,
+		},
+	}
+	reg := NewModelRegistry(specs, testModes())
+
+	rm, ok := reg.Resolve("grok-4.20")
+	if !ok {
+		t.Fatal("Resolve('grok-4.20') returned false")
+	}
+	if rm.ConsoleUpstreamModel != "grok-4.20" {
+		t.Errorf("ConsoleUpstreamModel = %q, want grok-4.20", rm.ConsoleUpstreamModel)
+	}
+	if rm.ConsoleMode != "console" {
+		t.Errorf("ConsoleMode = %q, want console", rm.ConsoleMode)
+	}
+	if rm.ConsolePoolFloor != modelconfig.PoolBasic {
+		t.Errorf("ConsolePoolFloor = %q, want %q", rm.ConsolePoolFloor, modelconfig.PoolBasic)
+	}
+	if !rm.ConsoleSupportsReasoningEffort {
+		t.Error("ConsoleSupportsReasoningEffort should be true")
+	}
+}
+
 func TestRegistry_ResolveNotFound(t *testing.T) {
 	reg := NewModelRegistry(nil, nil)
 	_, ok := reg.Resolve("nonexistent")

@@ -21,7 +21,13 @@ type modelCatalogEntry struct {
 	UpstreamMode    string `json:"upstream_mode,omitempty"`
 	ForceThinking   bool   `json:"force_thinking,omitempty"`
 	EnablePro       bool   `json:"enable_pro,omitempty"`
-	Enabled         bool   `json:"enabled"`
+
+	ConsoleUpstreamModel           string `json:"console_upstream_model,omitempty"`
+	ConsoleMode                    string `json:"console_mode,omitempty"`
+	ConsolePoolFloor               string `json:"console_pool_floor,omitempty"`
+	ConsoleSupportsReasoningEffort bool   `json:"console_supports_reasoning_effort,omitempty"`
+
+	Enabled bool `json:"enabled"`
 }
 
 type modeGroupEntry struct {
@@ -57,7 +63,13 @@ func handleListModels(reg *registry.ModelRegistry) http.HandlerFunc {
 				UpstreamMode:    rm.UpstreamMode,
 				ForceThinking:   rm.ForceThinking,
 				EnablePro:       rm.EnablePro,
-				Enabled:         rm.Enabled,
+
+				ConsoleUpstreamModel:           rm.ConsoleUpstreamModel,
+				ConsoleMode:                    rm.ConsoleMode,
+				ConsolePoolFloor:               rm.ConsolePoolFloor,
+				ConsoleSupportsReasoningEffort: rm.ConsoleSupportsReasoningEffort,
+
+				Enabled: rm.Enabled,
 			})
 		}
 		sort.Slice(models, func(i, j int) bool {

@@ -17,13 +17,17 @@ func TestHandleListModels_IncludesModeGroupsAndQuotaSync(t *testing.T) {
 	reg := registry.NewTestRegistry(
 		[]modelconfig.ModelSpec{
 			{
-				ID:          "grok-4.20",
-				DisplayName: "Grok 4.20",
-				Type:        modelconfig.TypeChat,
-				Enabled:     true,
-				PoolFloor:   modelconfig.PoolBasic,
-				Mode:        "auto",
-				PublicType:  "chat",
+				ID:                              "grok-4.20",
+				DisplayName:                     "Grok 4.20",
+				Type:                            modelconfig.TypeChat,
+				Enabled:                         true,
+				PoolFloor:                       modelconfig.PoolBasic,
+				Mode:                            "auto",
+				PublicType:                      "chat",
+				ConsoleUpstreamModel:            "grok-4.20",
+				ConsoleMode:                     "console",
+				ConsolePoolFloor:                modelconfig.PoolBasic,
+				ConsoleSupportsReasoningEffort: true,
 			},
 			{
 				ID:              "grok-imagine-image",
@@ -76,4 +80,17 @@ func TestHandleListModels_IncludesModeGroupsAndQuotaSync(t *testing.T) {
 	require.NotNil(t, imageWS)
 	assert.False(t, imageWS.QuotaSync)
 	assert.Equal(t, 300, imageWS.CooldownSeconds)
+
+	var chat *modelCatalogEntry
+	for i := range resp.Models {
+		if resp.Models[i].ID == "grok-4.20" {
+			chat = &resp.Models[i]
+			break
+		}
+	}
+	require.NotNil(t, chat)
+	assert.Equal(t, "grok-4.20", chat.ConsoleUpstreamModel)
+	assert.Equal(t, "console", chat.ConsoleMode)
+	assert.Equal(t, modelconfig.PoolBasic, chat.ConsolePoolFloor)
+	assert.True(t, chat.ConsoleSupportsReasoningEffort)
 }

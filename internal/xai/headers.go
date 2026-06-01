@@ -187,9 +187,20 @@ func genStatsigID() string {
 // It includes 17 headers with proper ordering via HeaderOrderKey.
 // Uses dynamic Sec-Ch-Ua based on browser profile and cf_clearance from options.
 func buildHeaders(token string, opts *Options, statsigID string) http.Header {
+	return buildHeadersWithOrigin(token, opts, statsigID, "https://grok.com", "https://grok.com/")
+}
+
+// buildHeadersWithOrigin constructs anti-bot headers with caller-provided origin/referer.
+func buildHeadersWithOrigin(token string, opts *Options, statsigID, origin, referer string) http.Header {
 	dynamic := statsigID == ""
 	if statsigID == "" {
 		statsigID = genStatsigID()
+	}
+	if origin == "" {
+		origin = "https://grok.com"
+	}
+	if referer == "" {
+		referer = origin + "/"
 	}
 
 	hints := buildClientHints(opts.Browser, opts.UserAgent)
@@ -219,9 +230,9 @@ func buildHeaders(token string, opts *Options, statsigID string) http.Header {
 		"Baggage":          {"sentry-environment=production,sentry-release=d6add6fb0460641fd482d767a335ef72b9b6abb8,sentry-public_key=b311e0f2690c81f25e2c4cf6d4f7ce1c"},
 		"Content-Type":     {"application/json"},
 		"Cookie":           {ssoCookie(token, opts.CFCookies, opts.CFClearance)},
-		"Origin":           {"https://grok.com"},
+		"Origin":           {origin},
 		"Priority":         {"u=1, i"},
-		"Referer":          {"https://grok.com/"},
+		"Referer":          {referer},
 		"Sec-Fetch-Dest":   {"empty"},
 		"Sec-Fetch-Mode":   {"cors"},
 		"Sec-Fetch-Site":   {"same-origin"},

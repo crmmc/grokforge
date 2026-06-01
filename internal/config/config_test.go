@@ -125,6 +125,30 @@ func TestApplyDBOverrides_ImageFormat(t *testing.T) {
 	}
 }
 
+func TestApplyDBOverrides_ConsoleConfig(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.Console.Enabled {
+		t.Fatal("console.enabled default should be false")
+	}
+	if cfg.Console.WebSearch {
+		t.Fatal("console.web_search default should be false")
+	}
+
+	err := cfg.ApplyDBOverrides(map[string]string{
+		"console.enabled":    "true",
+		"console.web_search": "true",
+	})
+	if err != nil {
+		t.Fatalf("ApplyDBOverrides: %v", err)
+	}
+	if !cfg.Console.Enabled {
+		t.Fatal("console.enabled override was not applied")
+	}
+	if !cfg.Console.WebSearch {
+		t.Fatal("console.web_search override was not applied")
+	}
+}
+
 func TestApplyDBOverrides_RejectsInvalidImageFormat(t *testing.T) {
 	cfg := DefaultConfig()
 

@@ -619,6 +619,14 @@ export const en = {
     filterTags: "Filter Tags",
     filterTagsDesc:
       "HTML-like tags to strip from streamed responses (one per line)",
+    betaFeatures: "Beta Features",
+    betaFeaturesDesc: "Experimental model routing features for early testing",
+    consoleUpstream: "Use Console Upstream",
+    consoleUpstreamDesc:
+      "Route supported chat models through the xAI Console responses endpoint",
+    consoleWebSearch: "Enable Console Web Search",
+    consoleWebSearchDesc:
+      "Allow Console-routed chat requests to use web search when Console upstream is enabled",
     disableMemory: "Disable Grok Memory",
     disableMemoryDesc: "Prevent Grok from using its memory feature",
   },

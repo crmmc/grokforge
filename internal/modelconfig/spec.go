@@ -21,7 +21,7 @@ type ModeSpec struct {
 	ID            string         `toml:"id"`
 	UpstreamName  string         `toml:"upstream_name"`
 	WindowSeconds int            `toml:"window_seconds"`
-	DefaultQuota  map[string]int `toml:"default_quota"` // pool -> default quota
+	DefaultQuota  map[string]int `toml:"default_quota"`         // pool -> default quota
 	LocalQuota    bool           `toml:"local_quota,omitempty"` // skip upstream rate-limits sync
 }
 
@@ -39,6 +39,11 @@ type ModelSpec struct {
 	UpstreamMode    string `toml:"upstream_mode,omitempty"`
 	ForceThinking   bool   `toml:"force_thinking,omitempty"`
 	EnablePro       bool   `toml:"enable_pro,omitempty"`
+
+	ConsoleUpstreamModel           string `toml:"console_upstream_model,omitempty"`
+	ConsoleMode                    string `toml:"console_mode,omitempty"`
+	ConsolePoolFloor               string `toml:"console_pool_floor,omitempty"`
+	ConsoleSupportsReasoningEffort bool   `toml:"console_supports_reasoning_effort,omitempty"`
 
 	PublicType string `toml:"-"` // derived at load time, not serialized
 }

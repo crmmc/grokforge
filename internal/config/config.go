@@ -22,12 +22,13 @@ const (
 
 // Config is the root configuration structure.
 type Config struct {
-	App   AppConfig   `toml:"app"`
-	Image ImageConfig `toml:"image"`
-	Proxy ProxyConfig `toml:"proxy"`
-	Retry RetryConfig `toml:"retry"`
-	Token TokenConfig `toml:"token"`
-	Cache CacheConfig `toml:"cache"`
+	App     AppConfig     `toml:"app"`
+	Image   ImageConfig   `toml:"image"`
+	Proxy   ProxyConfig   `toml:"proxy"`
+	Retry   RetryConfig   `toml:"retry"`
+	Token   TokenConfig   `toml:"token"`
+	Cache   CacheConfig   `toml:"cache"`
+	Console ConsoleConfig `toml:"console"`
 }
 
 // AppConfig contains application settings.
@@ -114,6 +115,12 @@ type TokenConfig struct {
 type CacheConfig struct {
 	ImageMaxMB int `toml:"image_max_mb" json:"image_max_mb"`
 	VideoMaxMB int `toml:"video_max_mb" json:"video_max_mb"`
+}
+
+// ConsoleConfig contains beta Console upstream settings.
+type ConsoleConfig struct {
+	Enabled   bool `toml:"enabled" json:"enabled"`
+	WebSearch bool `toml:"web_search" json:"web_search"`
 }
 
 // Load loads configuration from the given path.

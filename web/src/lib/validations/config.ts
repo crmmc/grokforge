@@ -71,6 +71,11 @@ export const cacheConfigSchema = z.object({
   video_max_mb: z.number().int().min(0),
 });
 
+export const consoleConfigSchema = z.object({
+  enabled: z.boolean(),
+  web_search: z.boolean(),
+});
+
 export const configSchema = z.object({
   app: appConfigSchema,
   image: imageConfigSchema,
@@ -78,4 +83,5 @@ export const configSchema = z.object({
   retry: retryConfigSchema,
   token: tokenConfigSchema,
   cache: cacheConfigSchema,
+  console: consoleConfigSchema,
 });

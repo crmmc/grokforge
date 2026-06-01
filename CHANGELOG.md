@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+更新内容:
+
+- feat: add beta console upstream routing
+  - 新增 Console beta 配置、Admin API 热更新和前端 Beta Features 开关
+  - 为模型目录加入 Console 映射字段，并新增独立的 console 本地额度模式
+  - 添加 Console Responses API client、SSE 解析、route-aware ChatFlow 分发和 402 credit/rate-limit 处理
+  - 默认保持 Grok Web 路由不变，仅在启用 Console upstream 且模型有映射时切换
+
+---
+
 ## v0.5.0-beta
 
 更新内容:

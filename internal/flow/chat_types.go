@@ -86,21 +86,25 @@ type Message struct {
 
 // ChatRequest represents a chat completion request.
 type ChatRequest struct {
-	Messages          []Message `json:"messages"`
-	Model             string    `json:"model"`
-	Stream            bool      `json:"stream"`
-	Temperature       *float64  `json:"temperature,omitempty"`
-	TopP              *float64  `json:"top_p,omitempty"`
-	MaxTokens         *int      `json:"max_tokens,omitempty"`
-	ReasoningEffort   string    `json:"reasoning_effort,omitempty"`
-	Tools             []Tool    `json:"tools,omitempty"`
-	ToolChoice        any       `json:"tool_choice,omitempty"`
-	ParallelToolCalls bool      `json:"parallel_tool_calls,omitempty"`
-	UpstreamModel     string    `json:"-"` // Grok API model name from registry
-	UpstreamMode      string    `json:"-"` // Grok API model mode from registry
-	ForceThinking     bool      `json:"-"` // Force reasoning_effort=high from registry
-	DeepSearch        string    `json:"-"` // "default" | "deeper"
-	Mode              string    `json:"-"` // mode from registry for quota tracking
+	Messages                       []Message `json:"messages"`
+	Model                          string    `json:"model"`
+	Stream                         bool      `json:"stream"`
+	Temperature                    *float64  `json:"temperature,omitempty"`
+	TopP                           *float64  `json:"top_p,omitempty"`
+	MaxTokens                      *int      `json:"max_tokens,omitempty"`
+	ReasoningEffort                string    `json:"reasoning_effort,omitempty"`
+	Tools                          []Tool    `json:"tools,omitempty"`
+	ToolChoice                     any       `json:"tool_choice,omitempty"`
+	ParallelToolCalls              bool      `json:"parallel_tool_calls,omitempty"`
+	UpstreamModel                  string    `json:"-"` // Grok API model name from registry
+	UpstreamMode                   string    `json:"-"` // Grok API model mode from registry
+	UseConsole                     bool      `json:"-"` // route through xAI Console Responses API
+	PoolFloor                      string    `json:"-"` // effective pool floor for route-aware token picking
+	ForceThinking                  bool      `json:"-"` // Force reasoning_effort=high from registry
+	DeepSearch                     string    `json:"-"` // "default" | "deeper"
+	Mode                           string    `json:"-"` // mode from registry for quota tracking
+	ConsoleSupportsReasoningEffort bool      `json:"-"`
+	ConsoleWebSearch               bool      `json:"-"`
 }
 
 // Usage represents token usage statistics.

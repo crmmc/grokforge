@@ -96,6 +96,10 @@ func configToResponse(cfg *config.Config) ConfigResponse {
 			ImageMaxMB: cfg.Cache.ImageMaxMB,
 			VideoMaxMB: cfg.Cache.VideoMaxMB,
 		},
+		Console: ConsoleConfigResponse{
+			Enabled:   cfg.Console.Enabled,
+			WebSearch: cfg.Console.WebSearch,
+		},
 	}
 }
 

@@ -31,6 +31,9 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
   const [grokCustomInstruction, setGrokCustomInstruction] = useState(config.app?.custom_instruction ?? '')
   const [grokFilterTags, setGrokFilterTags] = useState<string[]>(config.app?.filter_tags ?? [])
   const [grokDirty, setGrokDirty] = useState(false)
+  const [consoleEnabled, setConsoleEnabled] = useState(config.console?.enabled ?? false)
+  const [consoleWebSearch, setConsoleWebSearch] = useState(config.console?.web_search ?? false)
+  const [consoleDirty, setConsoleDirty] = useState(false)
   const {
     register,
     handleSubmit,
@@ -54,6 +57,10 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
         dynamic_statsig: grokDynamicStatsig,
         custom_instruction: grokCustomInstruction,
         filter_tags: grokFilterTags,
+      },
+      console: {
+        enabled: consoleEnabled,
+        web_search: consoleEnabled ? consoleWebSearch : false,
       },
     } as Partial<ConfigResponse>)
   }
@@ -113,9 +120,47 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
         setGrokDirty={setGrokDirty}
       />
 
+      {/* Beta Features */}
+      <ConfigSection title={t.config.betaFeatures} description={t.config.betaFeaturesDesc}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="console_upstream"
+              checked={consoleEnabled}
+              onCheckedChange={(v: boolean) => {
+                setConsoleEnabled(v)
+                if (!v) {
+                  setConsoleWebSearch(false)
+                }
+                setConsoleDirty(true)
+              }}
+            />
+            <div>
+              <Label htmlFor="console_upstream">{t.config.consoleUpstream}</Label>
+              <p className="text-xs text-muted">{t.config.consoleUpstreamDesc}</p>
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="console_web_search"
+              checked={consoleEnabled && consoleWebSearch}
+              disabled={!consoleEnabled}
+              onCheckedChange={(v: boolean) => {
+                setConsoleWebSearch(v)
+                setConsoleDirty(true)
+              }}
+            />
+            <div>
+              <Label htmlFor="console_web_search">{t.config.consoleWebSearch}</Label>
+              <p className="text-xs text-muted">{t.config.consoleWebSearchDesc}</p>
+            </div>
+          </div>
+        </div>
+      </ConfigSection>
+
       {/* Submit Button */}
       <div className="sticky bottom-0 z-10 flex justify-end bg-background/95 backdrop-blur-sm py-4 border-t mt-6 -mx-1 px-1">
-        <Button type="submit" disabled={(!isDirty && !imageDirty && !grokDirty) || isPending} className="shadow-sm">
+        <Button type="submit" disabled={(!isDirty && !imageDirty && !grokDirty && !consoleDirty) || isPending} className="shadow-sm">
           {isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
           {t.config.saveChanges}
         </Button>
