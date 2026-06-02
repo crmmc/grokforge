@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { Upload, X } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n/context'
-import { useToast } from '@/components/ui'
+import { Button, useToast } from '@/components/ui'
 
 interface RefImageUploadProps {
   image: string | null
@@ -55,7 +55,7 @@ export function RefImageUpload({ image, onImageChange, label, maxHeight = 'max-h
         role="button"
         tabIndex={0}
         aria-label={label || t.function.referenceImage}
-        className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:border-primary transition-colors"
+        className="rounded-[4px] border-2 border-dashed border-[rgba(0,0,0,0.12)] bg-[rgba(255,255,255,0.45)] p-4 text-center cursor-pointer transition-all hover:border-primary hover:bg-[rgba(255,255,255,0.7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         onDragOver={(e) => e.preventDefault()}
         onDrop={handleDrop}
         onClick={() => fileInputRef.current?.click()}
@@ -73,14 +73,16 @@ export function RefImageUpload({ image, onImageChange, label, maxHeight = 'max-h
               alt={label || t.function.referenceImage}
               className={`${maxHeight} rounded`}
             />
-            <button
+            <Button
               type="button"
-              className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1"
+              variant="destructive"
+              size="icon"
+              className="absolute -top-2 -right-2 h-6 w-6 rounded-full p-0 [&_svg]:size-3"
               onClick={(e) => { e.stopPropagation(); clear() }}
               aria-label={t.common.delete}
             >
               <X className="h-3 w-3" />
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="text-muted">

@@ -1,4 +1,4 @@
-import { Input, Label, Switch } from '@/components/ui'
+import { Input, Label, Select, SelectOption, Switch } from '@/components/ui'
 import { ConfigSection } from './config-section'
 import type { Dictionary } from '@/lib/i18n/dictionaries'
 import type { UseFormRegister, UseFormWatch, UseFormSetValue } from 'react-hook-form'
@@ -110,9 +110,8 @@ export function ProxyConfigSection({
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="proxy.browser">{t.config.browser}</Label>
-              <select
+              <Select
                 id="proxy.browser"
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={cfAutoRefresh}
                 {...register('proxy.browser', {
                   onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -123,12 +122,12 @@ export function ProxyConfigSection({
                   },
                 })}
               >
-                <option value="chrome_133">Chrome 133</option>
-                <option value="chrome_144">Chrome 144</option>
-                <option value="chrome_146">Chrome 146</option>
-                <option value="firefox_135">Firefox 135</option>
-                <option value="firefox_147">Firefox 147</option>
-              </select>
+                <SelectOption value="chrome_133">Chrome 133</SelectOption>
+                <SelectOption value="chrome_144">Chrome 144</SelectOption>
+                <SelectOption value="chrome_146">Chrome 146</SelectOption>
+                <SelectOption value="firefox_135">Firefox 135</SelectOption>
+                <SelectOption value="firefox_147">Firefox 147</SelectOption>
+              </Select>
               {cfAutoRefresh && <p className="text-xs text-muted">{t.config.managedByFlaresolverr}</p>}
             </div>
             <div className="space-y-2">

@@ -1,7 +1,7 @@
 'use client'
 
 import * as React from 'react'
-import { Button, Card, CardContent, Dialog, DialogContent, DialogHeader, DialogTitle, Select, SelectOption } from '@/components/ui'
+import { Button, Card, CardContent, Dialog, DialogContent, DialogHeader, DialogTitle, Select, SelectOption, Textarea } from '@/components/ui'
 import { getApiKey, type ChatMessage } from '@/lib/function-api'
 import { useChatModels } from '@/lib/hooks'
 import { RotateCcw, Send, Square, PanelLeftClose, PanelLeft, Plus, Sparkles } from 'lucide-react'
@@ -145,24 +145,28 @@ export function ChatPanel() {
         <div className="flex-1 flex flex-col min-w-0 min-h-0">
           {/* Toolbar */}
           <div className="flex items-center gap-3 p-4 border-b">
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => setSidebarOpen(!sidebarOpen)}
-              className="hidden md:inline-flex p-1 rounded hover:bg-[rgba(0,0,0,0.04)] text-muted hover:text-foreground transition-colors"
+              className="hidden md:inline-flex h-8 w-8 text-muted hover:text-foreground"
               aria-label={t.function.conversations}
             >
               {sidebarOpen ? <PanelLeftClose className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="ghost"
+              size="icon"
               onClick={() => setMobileSidebarOpen(true)}
-              className="inline-flex md:hidden p-1 rounded hover:bg-[rgba(0,0,0,0.04)] text-muted hover:text-foreground transition-colors"
+              className="inline-flex md:hidden h-8 w-8 text-muted hover:text-foreground"
               aria-label={t.function.conversations}
             >
               <PanelLeft className="h-4 w-4" />
-            </button>
+            </Button>
             <div className="flex-1">
-              <Select value={selectedModel} onChange={(e) => handleModelChange(e.target.value)} disabled={modelsLoading || chatModels.length === 0}>
+              <Select id="chat-model" value={selectedModel} onChange={(e) => handleModelChange(e.target.value)} disabled={modelsLoading || chatModels.length === 0} aria-label={t.function.model}>
                 {modelsLoading ? (
                   <SelectOption value="">{t.function.loadingModels}</SelectOption>
                 ) : chatModels.length === 0 ? (
@@ -207,15 +211,17 @@ export function ChatPanel() {
             {messages.map((msg, i) => (
               <div key={msg.id || i} className={`flex items-start gap-1 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 {msg.role === 'user' && !isStreaming && (
-                  <button
+                  <Button
                     type="button"
+                    variant="ghost"
+                    size="icon"
                     onClick={() => handleRetry(i)}
-                    className="mt-1.5 p-1 rounded hover:bg-[rgba(0,0,0,0.04)] text-muted hover:text-foreground transition-colors shrink-0"
+                    className="mt-1.5 h-7 w-7 shrink-0 text-muted hover:text-foreground [&_svg]:size-3.5"
                     title={t.function.retry}
                     aria-label={t.function.retry}
                   >
                     <RotateCcw className="h-3.5 w-3.5" />
-                  </button>
+                  </Button>
                 )}
                 {msg.role === 'user'
                   ? <div className={bubbleCls(true)}>{msg.content}</div>
@@ -240,10 +246,10 @@ export function ChatPanel() {
           </div>
           {/* Input */}
           <div className="flex items-end gap-2 p-4 border-t">
-            <textarea ref={textareaRef} value={input}
+            <Textarea ref={textareaRef} value={input}
               onChange={(e) => { setInput(e.target.value); resizeTextarea() }}
               onKeyDown={handleKeyDown} placeholder={t.function.typeMessage} rows={1}
-              className="flex-1 min-w-0 resize-none rounded-md border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              className="flex-1 min-w-0 resize-none"
               style={{ maxHeight: 144 }} />
             {isStreaming ? (
               <Button size="icon" variant="destructive" onClick={() => abort()} aria-label={t.function.stop}>

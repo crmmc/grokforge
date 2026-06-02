@@ -78,6 +78,7 @@ export function RequestLog() {
             value={model}
             onChange={(e) => { setModel(e.target.value); setPage(1) }}
             placeholder={t.usage.filterModel}
+            aria-label={t.usage.filterModel}
             className="w-40"
           />
           <Input
@@ -87,6 +88,7 @@ export function RequestLog() {
               setPage(1)
             }}
             placeholder={t.usage.filterStatus}
+            aria-label={t.usage.filterStatus}
             className="w-28"
             inputMode="numeric"
             maxLength={3}
@@ -95,11 +97,13 @@ export function RequestLog() {
             value={apiKey}
             onChange={(e) => { setApiKey(e.target.value); setPage(1) }}
             placeholder={t.usage.filterApiKey}
+            aria-label={t.usage.filterApiKey}
             className="w-40"
           />
           <Select
             value={period}
             onChange={(e) => { setPeriod(e.target.value); setPage(1) }}
+            aria-label="Period"
             className="w-32"
           >
             <SelectOption value="hour">{t.usage.periods.hour}</SelectOption>
@@ -174,6 +178,7 @@ export function RequestLog() {
                 <Select
                   value={String(pageSize)}
                   onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1) }}
+                  aria-label={t.usage.pageSize}
                   className="w-20"
                 >
                   {PAGE_SIZES.map((s) => (

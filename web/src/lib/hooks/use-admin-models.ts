@@ -14,6 +14,10 @@ export interface AdminModelEntry {
   upstream_mode?: string
   force_thinking?: boolean
   enable_pro?: boolean
+  console_upstream_model?: string
+  console_mode?: string
+  console_pool_floor?: string
+  console_supports_reasoning_effort?: boolean
   enabled: boolean
 }
 

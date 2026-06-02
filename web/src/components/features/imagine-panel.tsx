@@ -68,8 +68,8 @@ export function ImaginePanel() {
         <CardContent className="p-6 space-y-4">
           {/* Model */}
           <div className="space-y-2">
-            <Label>{t.function.model}</Label>
-            <Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoadingState || activeModels.length === 0}>
+            <Label htmlFor="imagine-model">{t.function.model}</Label>
+            <Select id="imagine-model" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoadingState || activeModels.length === 0}>
               {modelsLoadingState ? (
                 <SelectOption value="">{t.function.loadingModels}</SelectOption>
               ) : activeModels.length === 0 ? (
@@ -79,27 +79,27 @@ export function ImaginePanel() {
           </div>
           {/* Prompt */}
           <div className="space-y-2">
-            <Label htmlFor="prompt">{t.function.prompt}</Label>
-            <Textarea id="prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t.function.describeImage} className="min-h-[120px]" />
+            <Label htmlFor="imagine-prompt">{t.function.prompt}</Label>
+            <Textarea id="imagine-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t.function.describeImage} className="min-h-[120px]" />
           </div>
           {/* Size */}
           <div className="space-y-2">
-            <Label htmlFor="size">{t.function.size}</Label>
-            <Select value={size} onChange={(e) => setSize(e.target.value)}>
+            <Label htmlFor="imagine-size">{t.function.size}</Label>
+            <Select id="imagine-size" value={size} onChange={(e) => setSize(e.target.value)}>
               {SIZE_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label} ({t.function[opt.descKey]})</SelectOption>)}
             </Select>
           </div>
           {/* Count */}
           <div className="space-y-2">
-            <Label htmlFor="count">{t.function.count}</Label>
-            <Select value={count} onChange={(e) => setCount(e.target.value)}>
+            <Label htmlFor="imagine-count">{t.function.count}</Label>
+            <Select id="imagine-count" value={count} onChange={(e) => setCount(e.target.value)}>
               {COUNT_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>
           {/* Format */}
           <div className="space-y-2">
-            <Label htmlFor="format">{t.function.format}</Label>
-            <Select value={format} onChange={(e) => setFormat(e.target.value)}>
+            <Label htmlFor="imagine-format">{t.function.format}</Label>
+            <Select id="imagine-format" value={format} onChange={(e) => setFormat(e.target.value)}>
               {FORMAT_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>

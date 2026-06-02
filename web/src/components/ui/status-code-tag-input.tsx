@@ -79,7 +79,7 @@ export function StatusCodeTagInput({ id, codes, onChange, placeholder, errorMsg 
   return (
     <div>
       <div
-        className="min-h-[42px] rounded-md border border-input bg-background px-2 py-1.5 cursor-text flex flex-wrap items-center gap-1.5"
+        className="min-h-[42px] rounded-[4px] bg-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.9)] border border-[rgba(0,0,0,0.06)] border-b-[rgba(0,0,0,0.15)] px-2 py-1.5 shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 cursor-text flex flex-wrap items-center gap-1.5 focus-within:bg-white focus-within:border-b-primary"
         onClick={() => inputRef.current?.focus()}
       >
         {codes.map((code, i) => (

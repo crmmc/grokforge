@@ -96,12 +96,12 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="app.log_level">{t.config.logLevel}</Label>
-            <select id="app.log_level" className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed" disabled {...register('app.log_level')}>
-              <option value="debug">Debug</option>
-              <option value="info">Info</option>
-              <option value="warn">Warn</option>
-              <option value="error">Error</option>
-            </select>
+            <Select id="app.log_level" disabled {...register('app.log_level')}>
+              <SelectOption value="debug">Debug</SelectOption>
+              <SelectOption value="info">Info</SelectOption>
+              <SelectOption value="warn">Warn</SelectOption>
+              <SelectOption value="error">Error</SelectOption>
+            </Select>
           </div>
           <div className="flex items-center space-x-2 pt-8">
             <Switch id="app.log_json" disabled checked={watch('app.log_json')} onCheckedChange={(v: boolean) => setValue('app.log_json', v, { shouldDirty: true })} />

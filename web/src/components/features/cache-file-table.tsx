@@ -106,7 +106,7 @@ export function CacheFileTable({ type, stats }: CacheFileTableProps) {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">
-                    <Checkbox checked={selected.size === items.length && items.length > 0} onCheckedChange={toggleAll} />
+                    <Checkbox checked={selected.size === items.length && items.length > 0} onCheckedChange={toggleAll} aria-label={`${t.common.all} ${typeLabel}`} />
                   </TableHead>
                   <TableHead>{t.cache.fileName}</TableHead>
                   <TableHead className="w-28">{t.cache.size}</TableHead>
@@ -117,15 +117,15 @@ export function CacheFileTable({ type, stats }: CacheFileTableProps) {
               <TableBody>
                 {items.map((file) => (
                   <TableRow key={file.name}>
-                    <TableCell><Checkbox checked={selected.has(file.name)} onCheckedChange={() => toggleSelect(file.name)} /></TableCell>
+                    <TableCell><Checkbox checked={selected.has(file.name)} onCheckedChange={() => toggleSelect(file.name)} aria-label={`${typeLabel} ${file.name}`} /></TableCell>
                     <TableCell className="font-mono text-sm truncate max-w-xs">{file.name}</TableCell>
                     <TableCell className="text-sm">{formatBytes(file.size_bytes)}</TableCell>
                     <TableCell className="text-sm">{formatDate(file.mod_time_ms)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setPreviewFile(file)} title={t.cache.view} aria-label={t.cache.view}><Eye className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleDownload(file)} title={t.cache.download} aria-label={t.cache.download}><Download className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="sm" onClick={() => confirmDelete([file.name])} title={t.cache.delete} aria-label={t.cache.delete} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => setPreviewFile(file)} title={t.cache.view} aria-label={t.cache.view}><Eye className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDownload(file)} title={t.cache.download} aria-label={t.cache.download}><Download className="h-4 w-4" /></Button>
+                        <Button variant="ghost" size="icon" onClick={() => confirmDelete([file.name])} title={t.cache.delete} aria-label={t.cache.delete} className="text-destructive hover:text-destructive"><Trash2 className="h-4 w-4" /></Button>
                       </div>
                     </TableCell>
                   </TableRow>

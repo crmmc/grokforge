@@ -84,6 +84,7 @@ func handleListModels(reg *registry.ModelRegistry) http.HandlerFunc {
 				UpstreamName:  mode.UpstreamName,
 				WindowSeconds: mode.WindowSeconds,
 				DefaultQuotas: copyDefaultQuotas(mode.DefaultQuota),
+				Models:        []string{},
 			}
 			for _, rm := range all {
 				if !rm.QuotaSync || rm.Mode != mode.ID {

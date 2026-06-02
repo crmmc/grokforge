@@ -4,7 +4,7 @@ import { useState, Fragment, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
-  Badge, Checkbox, Progress, Skeleton, StatusBadge,
+  Badge, Button, Checkbox, Progress, Skeleton, StatusBadge,
 } from '@/components/ui'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import type { AdminModelsResponse } from '@/lib/hooks/use-admin-models'
@@ -154,21 +154,23 @@ function TokenTableInner({
                         <Checkbox checked={isSelected} onCheckedChange={() => toggleSelect(token.id)} aria-label={`Select token ${token.id}`} />
                       </TableCell>
                       <TableCell>
-                        <button
+                        <Button
                           type="button"
+                          variant="ghost"
+                          size="icon"
                           onClick={() => toggleExpand(token.id)}
-                          className="p-1 hover:bg-[rgba(0,0,0,0.04)] rounded"
+                          className="h-7 w-7"
                           aria-label={isExpanded ? t.common.collapse : t.common.expand}
                         >
                           {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                        </button>
+                        </Button>
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           <div className={`w-2 h-2 rounded-full ${statusColors[(token.display_status || token.status) as TokenStatus]}`} title={token.display_status || token.status} />
-                          <button type="button" onClick={() => onEdit(token)} className="rounded bg-[rgba(0,0,0,0.04)] px-2 py-0.5 text-left text-sm font-mono hover:bg-[rgba(0,0,0,0.04)]/80 min-w-[180px]" title={t.common.edit}>
+                          <Button type="button" variant="ghost" size="sm" onClick={() => onEdit(token)} className="h-auto min-w-[180px] justify-start bg-[rgba(0,0,0,0.04)] px-2 py-0.5 text-left text-sm font-mono hover:bg-[rgba(0,0,0,0.04)]/80" title={t.common.edit} aria-label={`${t.common.edit} ${t.tokens.tokenHeader} ${token.id}`}>
                             {maskToken(token.token)}
-                          </button>
+                          </Button>
                         </div>
                       </TableCell>
                       <TableCell className="text-sm text-muted" title={token.remark || ''}>

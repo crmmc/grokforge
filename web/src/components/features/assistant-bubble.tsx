@@ -117,7 +117,7 @@ export function AssistantBubble({
           <button
             type="button"
             onClick={() => setOpen(!open)}
-            className="w-full flex items-center gap-1.5 px-4 py-1.5 text-muted text-xs hover:text-foreground/70 transition-colors"
+            className="flex w-full items-center gap-1.5 px-4 py-1.5 text-xs text-muted transition-colors hover:text-foreground/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
             aria-expanded={open}
             aria-label={open ? t.common.collapse : t.common.expand}
           >

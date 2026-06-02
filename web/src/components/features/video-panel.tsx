@@ -75,8 +75,8 @@ export function VideoPanel() {
         <CardContent className="p-6 space-y-4">
           {/* Model */}
           <div className="space-y-2">
-            <Label>{t.function.model}</Label>
-            <Select value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoading || videoModels.length === 0}>
+            <Label htmlFor="video-model">{t.function.model}</Label>
+            <Select id="video-model" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)} disabled={modelsLoading || videoModels.length === 0}>
               {modelsLoading ? (
                 <SelectOption value="">{t.function.loadingModels}</SelectOption>
               ) : videoModels.length === 0 ? (
@@ -91,29 +91,29 @@ export function VideoPanel() {
           </div>
           {/* Aspect Ratio */}
           <div className="space-y-2">
-            <Label htmlFor="ratio">{t.function.aspectRatio}</Label>
-            <Select value={ratio} onChange={(e) => setRatio(e.target.value)}>
+            <Label htmlFor="video-ratio">{t.function.aspectRatio}</Label>
+            <Select id="video-ratio" value={ratio} onChange={(e) => setRatio(e.target.value)}>
               {RATIO_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>
           {/* Duration */}
           <div className="space-y-2">
-            <Label htmlFor="duration">{t.function.duration}</Label>
-            <Select value={duration} onChange={(e) => setDuration(e.target.value)}>
+            <Label htmlFor="video-duration">{t.function.duration}</Label>
+            <Select id="video-duration" value={duration} onChange={(e) => setDuration(e.target.value)}>
               {DURATION_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>
           {/* Resolution */}
           <div className="space-y-2">
-            <Label htmlFor="resolution">{t.function.resolution}</Label>
-            <Select value={resolution} onChange={(e) => setResolution(e.target.value)}>
+            <Label htmlFor="video-resolution">{t.function.resolution}</Label>
+            <Select id="video-resolution" value={resolution} onChange={(e) => setResolution(e.target.value)}>
               {RESOLUTION_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>
           {/* Style */}
           <div className="space-y-2">
-            <Label htmlFor="style">{t.function.style}</Label>
-            <Select value={style} onChange={(e) => setStyle(e.target.value)}>
+            <Label htmlFor="video-style">{t.function.style}</Label>
+            <Select id="video-style" value={style} onChange={(e) => setStyle(e.target.value)}>
               {STYLE_OPTIONS.map((opt) => <SelectOption key={opt.value} value={opt.value}>{opt.label}</SelectOption>)}
             </Select>
           </div>

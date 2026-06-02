@@ -70,17 +70,21 @@ export function buildQuotaCatalogPresentation(catalog: AdminModelsResponse): Quo
       return
     }
 
-    const mode = modes.get(model.mode)
-    if (!mode) {
-      return
-    }
-
-    mode.models.push({
+    addModelToMode(modes, model.mode, {
       id: model.id,
       displayName: model.display_name,
       publicType: model.public_type,
       poolFloor: model.pool_floor,
     })
+
+    if (model.console_mode && model.console_upstream_model) {
+      addModelToMode(modes, model.console_mode, {
+        id: model.id,
+        displayName: model.display_name,
+        publicType: model.public_type,
+        poolFloor: model.console_pool_floor || model.pool_floor,
+      })
+    }
   })
 
   modes.forEach((mode) => {
@@ -88,6 +92,18 @@ export function buildQuotaCatalogPresentation(catalog: AdminModelsResponse): Quo
   })
 
   return { modes }
+}
+
+function addModelToMode(
+  modes: Map<string, CatalogModePresentation>,
+  modeID: string,
+  model: QuotaPresentationModel,
+) {
+  const mode = modes.get(modeID)
+  if (!mode) {
+    return
+  }
+  mode.models.push(model)
 }
 
 export function buildPoolQuotaGroups(

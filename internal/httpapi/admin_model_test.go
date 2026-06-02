@@ -17,16 +17,16 @@ func TestHandleListModels_IncludesModeGroupsAndQuotaSync(t *testing.T) {
 	reg := registry.NewTestRegistry(
 		[]modelconfig.ModelSpec{
 			{
-				ID:                              "grok-4.20",
-				DisplayName:                     "Grok 4.20",
-				Type:                            modelconfig.TypeChat,
-				Enabled:                         true,
-				PoolFloor:                       modelconfig.PoolBasic,
-				Mode:                            "auto",
-				PublicType:                      "chat",
-				ConsoleUpstreamModel:            "grok-4.20",
-				ConsoleMode:                     "console",
-				ConsolePoolFloor:                modelconfig.PoolBasic,
+				ID:                             "grok-4.20",
+				DisplayName:                    "Grok 4.20",
+				Type:                           modelconfig.TypeChat,
+				Enabled:                        true,
+				PoolFloor:                      modelconfig.PoolBasic,
+				Mode:                           "auto",
+				PublicType:                     "chat",
+				ConsoleUpstreamModel:           "grok-4.20",
+				ConsoleMode:                    "console",
+				ConsolePoolFloor:               modelconfig.PoolBasic,
 				ConsoleSupportsReasoningEffort: true,
 			},
 			{
@@ -93,4 +93,40 @@ func TestHandleListModels_IncludesModeGroupsAndQuotaSync(t *testing.T) {
 	assert.Equal(t, "console", chat.ConsoleMode)
 	assert.Equal(t, modelconfig.PoolBasic, chat.ConsolePoolFloor)
 	assert.True(t, chat.ConsoleSupportsReasoningEffort)
+}
+
+func TestHandleListModels_EmptyModeGroupModelsEncodeAsArray(t *testing.T) {
+	reg := registry.NewTestRegistry(
+		[]modelconfig.ModelSpec{
+			{
+				ID:         "grok-4.20",
+				Type:       modelconfig.TypeChat,
+				Enabled:    true,
+				PoolFloor:  modelconfig.PoolBasic,
+				Mode:       "auto",
+				PublicType: "chat",
+			},
+		},
+		[]modelconfig.ModeSpec{
+			{
+				ID:            "auto",
+				UpstreamName:  "auto",
+				WindowSeconds: 7200,
+			},
+			{
+				ID:            "console",
+				UpstreamName:  "console",
+				WindowSeconds: 60,
+			},
+		},
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/models", nil)
+	rec := httptest.NewRecorder()
+	handleListModels(reg).ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Contains(t, rec.Body.String(), `"mode":"console"`)
+	assert.NotContains(t, rec.Body.String(), `"models":null`)
+	assert.Contains(t, rec.Body.String(), `"models":[]`)
 }

@@ -67,7 +67,7 @@ export function ModelTagInput({ id, models, onChange, placeholder }: ModelTagInp
   return (
     <div>
       <div
-        className="min-h-[120px] max-h-[240px] overflow-y-auto rounded-md border border-input bg-background p-2 cursor-text"
+        className="min-h-[120px] max-h-[240px] overflow-y-auto rounded-[4px] bg-[rgba(255,255,255,0.7)] hover:bg-[rgba(255,255,255,0.9)] border border-[rgba(0,0,0,0.06)] border-b-[rgba(0,0,0,0.15)] p-2 shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] transition-all duration-150 cursor-text focus-within:bg-white focus-within:border-b-primary"
         onClick={() => inputRef.current?.focus()}
       >
         <div className="flex flex-wrap gap-1.5 mb-1.5">

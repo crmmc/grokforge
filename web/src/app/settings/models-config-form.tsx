@@ -3,7 +3,7 @@
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Save, Loader2 } from 'lucide-react'
-import { Button, Input, Label, Switch } from '@/components/ui'
+import { Button, Input, Label, Select, SelectOption, Switch } from '@/components/ui'
 import { ConfigSection } from './config-section'
 import { GrokDefaultsSection } from './grok-defaults-section'
 import { tokenConfigSchema } from '@/lib/validations/config'
@@ -81,15 +81,15 @@ export function ModelsConfigForm({ config, onSubmit, isPending }: ModelsConfigFo
           </div>
           <div className="space-y-2">
             <Label htmlFor="selection_algorithm">{t.config.selectionAlgorithm}</Label>
-            <select
+            <Select
               id="selection_algorithm"
-              className="flex h-10 w-full max-w-[200px] rounded-md border border-input bg-background px-3 py-2 text-sm"
+              className="max-w-[200px]"
               {...register('selection_algorithm')}
             >
-              <option value="high_quota_first">{t.config.algorithmHighQuota}</option>
-              <option value="random">{t.config.algorithmRandom}</option>
-              <option value="round_robin">{t.config.algorithmRoundRobin}</option>
-            </select>
+              <SelectOption value="high_quota_first">{t.config.algorithmHighQuota}</SelectOption>
+              <SelectOption value="random">{t.config.algorithmRandom}</SelectOption>
+              <SelectOption value="round_robin">{t.config.algorithmRoundRobin}</SelectOption>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="recent_use_penalty_sec">{t.config.recentUsePenalty}</Label>

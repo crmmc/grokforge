@@ -46,6 +46,8 @@ export function Header({ onMenuClick }: HeaderProps) {
           <Link
             href="/"
             className="w-8 h-8 rounded-full hover:bg-[rgba(0,0,0,0.05)] active:scale-95 flex items-center justify-center transition-all text-foreground hidden md:flex"
+            aria-label={t.nav.dashboard}
+            title={t.nav.dashboard}
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
@@ -77,6 +79,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           type="button"
           onClick={() => setLanguage(language === 'zh' ? 'en' : 'zh')}
           className="btn-fluent px-2 py-1 text-[12px] font-medium text-muted"
+          aria-label={language === 'zh' ? 'Switch to English' : '切换到中文'}
         >
           {language === 'zh' ? 'EN' : '中'}
         </button>

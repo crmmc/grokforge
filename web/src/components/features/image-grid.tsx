@@ -138,7 +138,7 @@ export function ImageGrid({ images, className }: ImageGridProps) {
       <div className={cn('grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4', className)}>
         {images.map((image, index) => (
           <div key={getImageKey(image, index)} className="group relative aspect-square rounded-lg overflow-hidden bg-[rgba(0,0,0,0.04)]">
-            <button type="button" className="h-full w-full" onClick={() => openLightbox(index)} aria-label={`${t.common.expand} ${t.function.generatedImages} ${index + 1}`}>
+            <button type="button" className="h-full w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset" onClick={() => openLightbox(index)} aria-label={`${t.common.expand} ${t.function.generatedImages} ${index + 1}`}>
               <img
                 src={getImageSrc(image)}
                 alt={`Generated image ${index + 1}`}
@@ -177,7 +177,7 @@ export function ImageGrid({ images, className }: ImageGridProps) {
           <button
             ref={closeButtonRef}
             type="button"
-            className="absolute top-4 right-4 text-white hover:text-gray-300 transition-colors"
+            className="absolute top-4 right-4 rounded-full text-white transition-colors hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             onClick={closeLightbox}
             aria-label={t.common.close}
           >
@@ -188,7 +188,7 @@ export function ImageGrid({ images, className }: ImageGridProps) {
             <>
               <button
                 type="button"
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 transition-colors"
+                className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full text-white transition-colors hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 onClick={(e) => { e.stopPropagation(); goToPrev() }}
                 aria-label={t.common.previous}
               >
@@ -196,7 +196,7 @@ export function ImageGrid({ images, className }: ImageGridProps) {
               </button>
               <button
                 type="button"
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-white hover:text-gray-300 transition-colors"
+                className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full text-white transition-colors hover:text-gray-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
                 onClick={(e) => { e.stopPropagation(); goToNext() }}
                 aria-label={t.common.next}
               >

@@ -7,12 +7,14 @@ import {
   Table, TableHeader, TableBody, TableHead, TableRow, TableCell,
   Button, Skeleton, Alert, AlertDescription, StatusBadge, ConfirmProvider, useConfirm,
   Tooltip, TooltipTrigger, TooltipContent,
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator,
+  buttonVariants,
 } from '@/components/ui'
 import { useToast } from '@/components/ui/toaster'
 import { Pencil, Trash2, Plus, Copy, RefreshCw, MoreHorizontal, AlertCircle } from 'lucide-react'
 import type { APIKey } from '@/types'
 import { useTranslation } from '@/lib/i18n/context'
+import { cn } from '@/lib/utils'
 
 const APIKeyDialog = dynamic(
   () => import('./apikey-dialog').then((mod) => mod.APIKeyDialog),
@@ -147,7 +149,7 @@ function APIKeysPageInner() {
                         <TooltipContent>{t.common.edit}</TooltipContent>
                       </Tooltip>
                       <DropdownMenu>
-                        <DropdownMenuTrigger className="inline-flex items-center justify-center h-8 w-8 rounded-md text-muted hover:text-foreground hover:bg-[rgba(0,0,0,0.03)] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" aria-label={t.apiKeys.actions}>
+                        <DropdownMenuTrigger className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'h-8 w-8 text-muted hover:text-foreground')} aria-label={t.apiKeys.actions}>
                           <MoreHorizontal className="h-4 w-4" />
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-40">

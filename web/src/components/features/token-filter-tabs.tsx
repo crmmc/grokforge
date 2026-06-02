@@ -26,19 +26,18 @@ export function TokenFilterTabs({ activeTab, onTabChange }: TokenFilterTabsProps
   return (
     <div
       className="flex items-center gap-1.5 bg-[rgba(0,0,0,0.04)] p-1.5 rounded-full overflow-x-auto"
-      role="tablist"
-      aria-label="Token status filter"
+      role="group"
+      aria-label={`${t.tokens.title} ${t.tokens.status}`}
       style={{ scrollbarWidth: 'none' }}
     >
       {statusTabs.map((tab) => (
         <button
           type="button"
           key={tab.key}
-          role="tab"
-          aria-selected={activeTab === tab.key}
+          aria-pressed={activeTab === tab.key}
           onClick={() => onTabChange(tab.key)}
           className={cn(
-            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors',
+            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
             activeTab === tab.key
               ? ('color' in tab ? tab.color : 'border-transparent bg-background text-foreground shadow-sm')
               : 'border-transparent text-muted hover:text-foreground hover:bg-[rgba(0,0,0,0.03)]'
@@ -52,11 +51,10 @@ export function TokenFilterTabs({ activeTab, onTabChange }: TokenFilterTabsProps
         <button
           type="button"
           key={tab.key}
-          role="tab"
-          aria-selected={activeTab === tab.key}
+          aria-pressed={activeTab === tab.key}
           onClick={() => onTabChange(tab.key)}
           className={cn(
-            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors',
+            'inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
             activeTab === tab.key
               ? tab.color
               : 'border-transparent text-muted hover:text-foreground hover:bg-[rgba(0,0,0,0.03)]'

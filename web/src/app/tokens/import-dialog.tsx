@@ -99,7 +99,7 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="pool">{t.tokens.pool}</Label>
-              <Select value={pool} onChange={(e) => setPool(e.target.value)}>
+              <Select id="pool" value={pool} onChange={(e) => setPool(e.target.value)}>
                 <SelectOption value="ssoBasic">{t.dashboard.basicPool}</SelectOption>
                 <SelectOption value="ssoSuper">{t.dashboard.superPool}</SelectOption>
                 <SelectOption value="ssoHeavy">{t.dashboard.heavyPool}</SelectOption>
@@ -117,9 +117,9 @@ export function ImportDialog({ open, onOpenChange }: ImportDialogProps) {
               />
             </div>
             <div className="space-y-2">
-                <Label htmlFor="importStatus">{t.tokens.importStatus}</Label>
-                <Select value={importStatus} onChange={(e) => setImportStatus(e.target.value)}>
-                  <SelectOption value="active">{t.tokens.importStatusActive}</SelectOption>
+              <Label htmlFor="importStatus">{t.tokens.importStatus}</Label>
+              <Select id="importStatus" value={importStatus} onChange={(e) => setImportStatus(e.target.value)}>
+                <SelectOption value="active">{t.tokens.importStatusActive}</SelectOption>
                 <SelectOption value="disabled">{t.tokens.importStatusDisabled}</SelectOption>
               </Select>
             </div>
