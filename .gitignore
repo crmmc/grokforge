@@ -13,9 +13,11 @@ PRD_Tracking/
 CLAUDE.md
 .planning/
 bugs.md
-docs/design/
-docs/grok2api-callchain-diff.md
-docs/origin_error_handle.md
+docs/archive/
+docs/designs/
+docs/reference/
+docs/README.md
+docs/superpowers/
 poc/
 scripts/
 
@@ -48,6 +50,9 @@ Thumbs.db
 # Test
 coverage.out
 *.test
+__pycache__/
+*.py[cod]
+.pytest_cache/
 
 # Stale build artifacts
 internal/httpapi/static/
@@ -61,3 +66,8 @@ logs/
 
 # AI Assistant configs
 .opencode/
+
+# Cleanup-managed local artifacts
+.cache/
+e2e_temp/
+e2e_test_temp/
