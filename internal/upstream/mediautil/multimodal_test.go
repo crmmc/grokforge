@@ -1,12 +1,16 @@
-package flow
+package mediautil
 
 import (
+	"bytes"
 	"context"
 	"image"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 func TestParseMultimodalContent_String(t *testing.T) {
@@ -46,7 +50,6 @@ func TestParseMultimodalContent_Array(t *testing.T) {
 		t.Fatalf("expected 2 blocks, got %d", len(blocks))
 	}
 
-	// First block: text
 	if blocks[0].Type != "text" {
 		t.Errorf("block 0: expected type text, got %s", blocks[0].Type)
 	}
@@ -54,7 +57,6 @@ func TestParseMultimodalContent_Array(t *testing.T) {
 		t.Errorf("block 0: unexpected text %q", blocks[0].Text)
 	}
 
-	// Second block: image_url
 	if blocks[1].Type != "image_url" {
 		t.Errorf("block 1: expected type image_url, got %s", blocks[1].Type)
 	}
@@ -69,6 +71,30 @@ func TestParseMultimodalContent_Array(t *testing.T) {
 	}
 }
 
+func TestParseMultimodalContent_TypedBlocks(t *testing.T) {
+	content := []upstream.ContentBlock{{Type: "text", Text: "typed"}}
+
+	blocks, err := ParseMultimodalContent(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].Text != "typed" {
+		t.Fatalf("unexpected blocks: %#v", blocks)
+	}
+}
+
+func TestParseMultimodalContent_MapSlice(t *testing.T) {
+	content := []map[string]any{{"type": "text", "text": "mapped"}}
+
+	blocks, err := ParseMultimodalContent(content)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].Text != "mapped" {
+		t.Fatalf("unexpected blocks: %#v", blocks)
+	}
+}
+
 func TestParseMultimodalContent_InvalidType(t *testing.T) {
 	_, err := ParseMultimodalContent(12345)
 	if err == nil {
@@ -77,7 +103,6 @@ func TestParseMultimodalContent_InvalidType(t *testing.T) {
 }
 
 func TestProcessImageURL_DataURI(t *testing.T) {
-	// Data URI should pass through
 	dataURI := "data:image/jpeg;base64,/9j/4AAQSkZJRg=="
 	result, err := processImageURL(context.Background(), dataURI)
 	if err != nil {
@@ -89,8 +114,6 @@ func TestProcessImageURL_DataURI(t *testing.T) {
 }
 
 func TestProcessImageURL_HTTPDownload(t *testing.T) {
-	// Create a test server serving a small valid JPEG
-	// Minimal valid JPEG (1x1 red pixel)
 	jpegData := []byte{
 		0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01,
 		0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0xFF, 0xDB, 0x00, 0x43,
@@ -139,10 +162,10 @@ func TestProcessImageURL_HTTPDownload(t *testing.T) {
 }
 
 func TestProcessContent(t *testing.T) {
-	blocks := []ContentBlock{
+	blocks := []upstream.ContentBlock{
 		{Type: "text", Text: "Hello "},
 		{Type: "text", Text: "World"},
-		{Type: "image_url", ImageURL: &ImageURLBlock{
+		{Type: "image_url", ImageURL: &upstream.ImageURLBlock{
 			URL: "data:image/png;base64,abc123",
 		}},
 	}
@@ -174,7 +197,6 @@ func TestProcessImageData_PreservesPNG(t *testing.T) {
 }
 
 func TestResizeImageMaxDim(t *testing.T) {
-	// Create a 5000x3000 image
 	img := image.NewRGBA(image.Rect(0, 0, 5000, 3000))
 
 	resized := resizeImageMaxDim(img, 4096)
@@ -183,7 +205,6 @@ func TestResizeImageMaxDim(t *testing.T) {
 	if bounds.Dx() != 4096 {
 		t.Errorf("expected width 4096, got %d", bounds.Dx())
 	}
-	// Height should maintain aspect ratio: 3000 * 4096 / 5000 = 2457
 	expectedH := 3000 * 4096 / 5000
 	if bounds.Dy() != expectedH {
 		t.Errorf("expected height %d, got %d", expectedH, bounds.Dy())
@@ -191,13 +212,18 @@ func TestResizeImageMaxDim(t *testing.T) {
 }
 
 func TestResizeImageMaxDim_NoResize(t *testing.T) {
-	// Create a 2000x1000 image (under limit)
 	img := image.NewRGBA(image.Rect(0, 0, 2000, 1000))
 
 	resized := resizeImageMaxDim(img, 4096)
 
-	// Should return same image (no resize needed)
 	if resized != img {
 		t.Error("image under limit should not be resized")
 	}
+}
+
+func createTestPNG() []byte {
+	img := image.NewRGBA(image.Rect(0, 0, 100, 100))
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return buf.Bytes()
 }

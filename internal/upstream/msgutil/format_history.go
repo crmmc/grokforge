@@ -1,29 +1,30 @@
-package flow
+package msgutil
 
 import (
 	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 // FormatToolHistory converts assistant messages with tool_calls and tool-role messages
 // into text format suitable for Grok's web API which only accepts a single message string.
 //
-// - assistant + tool_calls → content appended with <tool_call>JSON</tool_call> blocks
-// - tool role → user role, content formatted as "tool (name, call_id): content"
-func FormatToolHistory(messages []Message) []Message {
-	result := make([]Message, 0, len(messages))
+// - assistant + tool_calls -> content appended with <tool_call>JSON</tool_call> blocks
+// - tool role -> user role, content formatted as "tool (name, call_id): content"
+func FormatToolHistory(messages []upstream.Message) []upstream.Message {
+	result := make([]upstream.Message, 0, len(messages))
 	for _, msg := range messages {
 		if msg.Role == "assistant" && len(msg.ToolCalls) > 0 {
-			// Convert assistant tool_calls to text representation
 			var parts []string
-			if text := contentToString(msg.Content); text != "" {
+			if text := ContentToString(msg.Content); text != "" {
 				parts = append(parts, text)
 			}
 			for _, tc := range msg.ToolCalls {
 				parts = append(parts, toolCallBlock(tc))
 			}
-			result = append(result, Message{
+			result = append(result, upstream.Message{
 				Role:    "assistant",
 				Content: strings.Join(parts, "\n"),
 			})
@@ -36,7 +37,7 @@ func FormatToolHistory(messages []Message) []Message {
 	return result
 }
 
-func toolCallBlock(tc ToolCall) string {
+func toolCallBlock(tc upstream.ToolCall) string {
 	toolName := strings.TrimSpace(tc.Function.Name)
 	if toolName == "" {
 		toolName = "unknown_tool"
@@ -61,16 +62,16 @@ func normalizeToolCallArgumentsForPrompt(arguments string) string {
 	return string(escaped)
 }
 
-func formatToolResultMessage(msg Message) Message {
+func formatToolResultMessage(msg upstream.Message) upstream.Message {
 	toolName := strings.TrimSpace(msg.Name)
 	toolCallID := strings.TrimSpace(msg.ToolCallID)
 	content := msg.Content
 	if contentMap, ok := msg.Content.(map[string]any); ok {
 		if toolName == "" {
-			toolName = stringFromAny(contentMap["name"])
+			toolName = StringFromAny(contentMap["name"])
 		}
 		if toolCallID == "" {
-			toolCallID = stringFromAny(contentMap["tool_call_id"])
+			toolCallID = StringFromAny(contentMap["tool_call_id"])
 		}
 		if mappedContent, ok := contentMap["content"]; ok {
 			content = mappedContent
@@ -82,42 +83,10 @@ func formatToolResultMessage(msg Message) Message {
 	if toolCallID == "" {
 		toolCallID = "unknown_call"
 	}
-	return Message{
+	return upstream.Message{
 		Role:    "user",
-		Content: fmt.Sprintf("tool (%s, %s): %s", toolName, toolCallID, contentToString(content)),
+		Content: fmt.Sprintf("tool (%s, %s): %s", toolName, toolCallID, ContentToString(content)),
 	}
-}
-
-// contentToString converts message content to string.
-func contentToString(content any) string {
-	switch c := content.(type) {
-	case string:
-		return c
-	case nil:
-		return ""
-	default:
-		b, err := json.Marshal(c)
-		if err != nil {
-			return fmt.Sprintf("%v", c)
-		}
-		return string(b)
-	}
-}
-
-func formatStructuredMessage(role string, content map[string]any) (string, bool) {
-	rawContent, ok := content["content"]
-	if !ok {
-		return "", false
-	}
-	text := contentToString(rawContent)
-	if role != "tool" {
-		return text, true
-	}
-	return formatToolMessageContent(
-		text,
-		stringFromAny(content["name"]),
-		stringFromAny(content["tool_call_id"]),
-	), true
 }
 
 func formatToolMessageContent(content, name, toolCallID string) string {
@@ -129,9 +98,4 @@ func formatToolMessageContent(content, name, toolCallID string) string {
 		toolCallID = "unknown_call"
 	}
 	return fmt.Sprintf("tool (%s, %s): %s", toolName, toolCallID, content)
-}
-
-func stringFromAny(v any) string {
-	s, _ := v.(string)
-	return strings.TrimSpace(s)
 }

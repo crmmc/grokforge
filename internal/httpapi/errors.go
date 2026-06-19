@@ -7,6 +7,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/token"
+	"github.com/crmmc/grokforge/internal/upstream"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -47,26 +48,33 @@ func WriteError(w http.ResponseWriter, status int, errType, code, message string
 	json.NewEncoder(w).Encode(apiErr)
 }
 
-// MapXAIError maps xai package errors to HTTP status and APIError.
+// MapGatewayError maps upstream gateway errors to HTTP status and APIError.
 // Error mapping:
 //   - ErrForbidden, ErrInvalidToken -> 401 authentication_error
 //   - ErrCFChallenge -> 502 server_error (CF blocking, not auth issue)
 //   - ErrRateLimited -> 429 rate_limit_error
 //   - ErrNetwork, ErrStreamClosed, other -> 502 server_error
 //   - ErrPoolExhausted -> 503 service_unavailable
-func MapXAIError(err error) (int, *APIError) {
+func MapGatewayError(err error) (int, *APIError) {
 	switch {
-	case errors.Is(err, xai.ErrForbidden), errors.Is(err, xai.ErrInvalidToken):
+	case errors.Is(err, xai.ErrForbidden), errors.Is(err, xai.ErrInvalidToken),
+		errors.Is(err, upstream.ErrForbidden), errors.Is(err, upstream.ErrInvalidToken):
 		return 401, NewAPIError(401, "authentication_error", "invalid_api_key",
 			"Invalid authentication credentials")
 
-	case errors.Is(err, xai.ErrCFChallenge):
+	case errors.Is(err, xai.ErrCFChallenge), errors.Is(err, upstream.ErrCFChallenge):
 		return 502, NewAPIError(502, "server_error", "upstream_error",
 			"Upstream service temporarily blocked")
 
-	case errors.Is(err, xai.ErrRateLimited), errors.Is(err, xai.ErrConsoleCreditExhausted):
+	case errors.Is(err, xai.ErrRateLimited), errors.Is(err, xai.ErrConsoleCreditExhausted),
+		errors.Is(err, upstream.ErrRateLimited), errors.Is(err, upstream.ErrCreditExhausted):
 		return 429, NewAPIError(429, "rate_limit_error", "rate_limit_exceeded",
 			"Rate limit exceeded, please retry later")
+
+	case errors.Is(err, upstream.ErrServerError), errors.Is(err, upstream.ErrNetwork),
+		errors.Is(err, upstream.ErrStreamCorrupted):
+		return 502, NewAPIError(502, "server_error", "upstream_error",
+			"Upstream service error")
 
 	case errors.Is(err, ErrPoolExhausted):
 		return 503, NewAPIError(503, "server_error", "service_unavailable",
@@ -94,3 +102,5 @@ func MapXAIError(err error) (int, *APIError) {
 			"Upstream service error")
 	}
 }
+
+func MapXAIError(err error) (int, *APIError) { return MapGatewayError(err) }

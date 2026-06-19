@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 // ErrRetryBudgetExceeded indicates retry time budget has been exhausted.
@@ -36,9 +36,6 @@ type RetryConfig struct {
 	// BackoffFactor controls exponential backoff growth (e.g., 2.0 = doubling).
 	BackoffFactor float64
 
-	// ResetSessionStatusCodes are HTTP status codes that require session reset before retry.
-	ResetSessionStatusCodes []int
-
 	// RetryBudget caps total retry time. Zero means no budget.
 	RetryBudget time.Duration
 }
@@ -46,13 +43,12 @@ type RetryConfig struct {
 // DefaultRetryConfig returns sensible default retry configuration.
 func DefaultRetryConfig() *RetryConfig {
 	return &RetryConfig{
-		MaxTokens:               5,
-		PerTokenRetries:         2,
-		BaseDelay:               time.Second,
-		MaxDelay:                30 * time.Second,
-		JitterFactor:            0.25,
-		BackoffFactor:           2.0,
-		ResetSessionStatusCodes: []int{403},
+		MaxTokens:       5,
+		PerTokenRetries: 2,
+		BaseDelay:       time.Second,
+		MaxDelay:        30 * time.Second,
+		JitterFactor:    0.25,
+		BackoffFactor:   2.0,
 	}
 }
 
@@ -87,7 +83,7 @@ func IsNonRecoverable(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	if errors.Is(err, xai.ErrInvalidToken) {
+	if errors.Is(err, upstream.ErrInvalidToken) {
 		return true
 	}
 	if statusCode, ok := extractStatusCode(err); ok {
@@ -110,39 +106,7 @@ func IsRetryable(err error) bool {
 // CF challenge does NOT swap (same token can retry after session reset).
 // Token-level 403 (ErrForbidden) swaps because the token is bad.
 func ShouldSwapToken(err error, cfg *RetryConfig) bool {
-	if errors.Is(err, xai.ErrForbidden) {
-		return true // token-level 403 → swap immediately
-	}
-	if errors.Is(err, xai.ErrCFChallenge) {
-		return false // CF challenge → same token, just reset session
-	}
-	return ShouldCoolToken(err, cfg)
-}
-
-// ShouldResetSession returns true if a session reset should be attempted.
-// CF challenge always resets session. Token-level 403 does NOT (token is bad, not session).
-func ShouldResetSession(err error, cfg *RetryConfig) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, xai.ErrCFChallenge) {
-		return true // CF challenge always needs session reset
-	}
-	if errors.Is(err, xai.ErrForbidden) {
-		return false // token-level 403 → no session reset needed
-	}
-	resetCodes := defaultResetCodes(cfg)
-	if statusCode, ok := extractStatusCode(err); ok {
-		return containsInt(resetCodes, statusCode)
-	}
-	return false
-}
-
-func defaultResetCodes(cfg *RetryConfig) []int {
-	if cfg == nil || len(cfg.ResetSessionStatusCodes) == 0 {
-		return []int{403}
-	}
-	return cfg.ResetSessionStatusCodes
+	return upstream.IsTokenLevel(err) || ShouldCoolToken(err, cfg)
 }
 
 // ShouldCoolToken returns true only for 429 quota exhaustion semantics.
@@ -151,7 +115,7 @@ func ShouldCoolToken(err error, _ *RetryConfig) bool {
 		return false
 	}
 
-	if errors.Is(err, xai.ErrRateLimited) || errors.Is(err, xai.ErrConsoleCreditExhausted) {
+	if upstream.IsQuotaLevel(err) {
 		return true
 	}
 
@@ -161,19 +125,10 @@ func ShouldCoolToken(err error, _ *RetryConfig) bool {
 
 	// Fallback: check error message for rate limit text
 	msg := err.Error()
-	if strings.Contains(msg, xai.ErrRateLimited.Error()) {
+	if strings.Contains(msg, upstream.ErrRateLimited.Error()) {
 		return true
 	}
 
-	return false
-}
-
-func containsInt(values []int, target int) bool {
-	for _, v := range values {
-		if v == target {
-			return true
-		}
-	}
 	return false
 }
 
@@ -196,5 +151,5 @@ func extractStatusCode(err error) (int, bool) {
 
 // IsCFChallenge returns true if the error is a Cloudflare challenge.
 func IsCFChallenge(err error) bool {
-	return errors.Is(err, xai.ErrCFChallenge)
+	return upstream.NeedsCFRefresh(err)
 }

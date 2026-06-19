@@ -4,68 +4,16 @@ import (
 	"context"
 	"time"
 
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
-func (f *ChatFlow) streamEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
-	var outputChars int
-	var ttft time.Duration
-	streamStart := time.Now()
-	gotFirstToken := false
-	filterTags := f.filterTags()
-	tokenFilter := newStreamTokenFilter(filterTags)
-	toolParser := newStreamToolCallParser(tools)
-	var searchSources []SearchSource
-	seenURLs := make(map[string]struct{})
-	for {
-		select {
-		case <-ctx.Done():
-			return false, nil, false, 0, ctx.Err()
-		case event, ok := <-eventCh:
-			if !ok {
-				// Channel closed normally = success. Send finish event.
-				// Upstream does not provide real token counts — always estimate.
-				outputChars += flushStreamParsers(outCh, dl, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
-				usage := &Usage{
-					CompletionTokens: estimateTokens(outputChars),
-				}
-				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-				stop := "stop"
-				outCh <- StreamEvent{FinishReason: &stop, Usage: usage, SearchSources: searchSources}
-				return true, usage, true, ttft, nil
-			}
-			if event.Error != nil {
-				return false, nil, false, 0, event.Error
-			}
-			// Parse and forward event
-			flowEvent := f.parseEvent(event)
-			if flowEvent.Error != nil {
-				return false, nil, false, 0, flowEvent.Error
-			}
-			// Accumulate search sources across frames, dedup by URL
-			for _, src := range flowEvent.SearchSources {
-				if _, seen := seenURLs[src.URL]; !seen {
-					seenURLs[src.URL] = struct{}{}
-					searchSources = append(searchSources, src)
-				}
-			}
-			flowEvent.SearchSources = nil // only emit on finish
-			flowEvent = tokenFilter.Apply(flowEvent)
-			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
-			flowEvent.Downloader = dl
-			outputChars += emitStreamEvent(outCh, dl, streamStart, &ttft, &gotFirstToken, flowEvent)
-		}
-	}
-}
-
-func (f *ChatFlow) streamConsoleEvents(ctx context.Context, eventCh <-chan xai.StreamEvent, outCh chan<- StreamEvent, dl DownloadFunc, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
+func (f *ChatFlow) consumeUpstreamEvents(ctx context.Context, eventCh <-chan upstream.StreamEvent, outCh chan<- StreamEvent, tools []Tool) (bool, *Usage, bool, time.Duration, error) {
 	var outputChars int
 	var usage *Usage
 	var ttft time.Duration
 	streamStart := time.Now()
 	gotFirstToken := false
-	filterTags := f.filterTags()
-	tokenFilter := newStreamTokenFilter(filterTags)
+	tokenFilter := newStreamTokenFilter(f.filterTags())
 	toolParser := newStreamToolCallParser(tools)
 	var searchSources []SearchSource
 	seenURLs := make(map[string]struct{})
@@ -75,7 +23,7 @@ func (f *ChatFlow) streamConsoleEvents(ctx context.Context, eventCh <-chan xai.S
 			return false, nil, false, 0, ctx.Err()
 		case event, ok := <-eventCh:
 			if !ok {
-				outputChars += flushStreamParsers(outCh, dl, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
+				outputChars += flushStreamParsers(outCh, streamStart, &ttft, &gotFirstToken, tokenFilter, toolParser)
 				estimated := false
 				if usage == nil {
 					usage = &Usage{CompletionTokens: estimateTokens(outputChars)}
@@ -89,51 +37,44 @@ func (f *ChatFlow) streamConsoleEvents(ctx context.Context, eventCh <-chan xai.S
 			if event.Error != nil {
 				return false, nil, false, 0, event.Error
 			}
-
-			flowEvent := f.parseConsoleEvent(event)
-			if flowEvent.Error != nil {
-				return false, nil, false, 0, flowEvent.Error
+			if event.Usage != nil {
+				usage = event.Usage
+				event.Usage = nil
 			}
-			if flowEvent.Usage != nil {
-				usage = flowEvent.Usage
-				flowEvent.Usage = nil
-			}
-			for _, src := range flowEvent.SearchSources {
+			for _, src := range event.SearchSources {
 				if _, seen := seenURLs[src.URL]; !seen {
 					seenURLs[src.URL] = struct{}{}
 					searchSources = append(searchSources, src)
 				}
 			}
-			flowEvent.SearchSources = nil
-			flowEvent = tokenFilter.Apply(flowEvent)
-			flowEvent.Content, flowEvent.ToolCalls = toolParser.Push(flowEvent.Content)
-			flowEvent.Downloader = dl
-			outputChars += emitStreamEvent(outCh, dl, streamStart, &ttft, &gotFirstToken, flowEvent)
+			event.SearchSources = nil
+			event = tokenFilter.Apply(event)
+			event.Content, event.ToolCalls = toolParser.Push(event.Content)
+			outputChars += emitStreamEvent(outCh, streamStart, &ttft, &gotFirstToken, event)
 		}
 	}
 }
 
-func flushStreamParsers(outCh chan<- StreamEvent, dl DownloadFunc, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, tokenFilter *streamTokenFilter, toolParser *streamToolCallParser) int {
+func flushStreamParsers(outCh chan<- StreamEvent, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, tokenFilter *streamTokenFilter, toolParser *streamToolCallParser) int {
 	var outputChars int
 	pending := tokenFilter.Flush("")
 	if pending != "" {
 		text, calls := toolParser.Push(pending)
-		outputChars += emitStreamEvent(outCh, dl, streamStart, ttft, gotFirstToken, StreamEvent{
+		outputChars += emitStreamEvent(outCh, streamStart, ttft, gotFirstToken, StreamEvent{
 			Content:   text,
 			ToolCalls: calls,
 		})
 	}
 
 	text, calls := toolParser.Flush()
-	outputChars += emitStreamEvent(outCh, dl, streamStart, ttft, gotFirstToken, StreamEvent{
+	outputChars += emitStreamEvent(outCh, streamStart, ttft, gotFirstToken, StreamEvent{
 		Content:   text,
 		ToolCalls: calls,
 	})
 	return outputChars
 }
 
-func emitStreamEvent(outCh chan<- StreamEvent, dl DownloadFunc, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, event StreamEvent) int {
-	event.Downloader = dl
+func emitStreamEvent(outCh chan<- StreamEvent, streamStart time.Time, ttft *time.Duration, gotFirstToken *bool, event StreamEvent) int {
 	contentLen := len(event.Content) + len(event.ReasoningContent)
 	if !*gotFirstToken && contentLen > 0 {
 		*ttft = time.Since(streamStart)

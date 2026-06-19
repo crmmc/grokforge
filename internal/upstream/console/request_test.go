@@ -1,24 +1,44 @@
-package flow
+package console
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
-	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
+
+func TestBuildBody_ResponsesAPI(t *testing.T) {
+	c := New("", nil, Options{})
+	body, err := c.buildBody(&upstream.ChatRequest{
+		Model: "grok-3",
+		Messages: []upstream.Message{
+			{Role: "user", Content: "hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("buildBody() error = %v", err)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if _, ok := payload["input"]; !ok {
+		t.Fatal("payload missing input")
+	}
+	if got, ok := payload["stream"].(bool); !ok || !got {
+		t.Fatalf("payload stream = %v, %v; want true", payload["stream"], ok)
+	}
+}
 
 func TestBuildConsoleRequest_MapsInstructionsAndContent(t *testing.T) {
 	temp := 0.2
 	maxTokens := 64
-	flow := NewChatFlow(nil, nil, &ChatFlowConfig{
-		RetryConfig: DefaultRetryConfig(),
-		AppConfig:   &config.AppConfig{CustomInstruction: "app instruction"},
-	})
-
-	built, err := flow.buildConsoleRequest(&ChatRequest{
-		Model:         "public-model",
-		UpstreamModel: "grok-4.20",
-		Messages: []Message{
+	built, err := buildConsoleRequest(&upstream.ChatRequest{
+		Model:             "grok-4.20",
+		CustomInstruction: "app instruction",
+		Messages: []upstream.Message{
 			{Role: "system", Content: "system instruction"},
 			{Role: "developer", Content: []any{map[string]any{"type": "text", "text": "developer instruction"}}},
 			{Role: "user", Content: []any{
@@ -28,11 +48,11 @@ func TestBuildConsoleRequest_MapsInstructionsAndContent(t *testing.T) {
 			}},
 			{Role: "assistant", Content: "previous answer"},
 		},
-		Temperature:                    &temp,
-		MaxTokens:                      &maxTokens,
-		ForceThinking:                  true,
-		ConsoleSupportsReasoningEffort: true,
-		ConsoleWebSearch:               true,
+		Temperature:             &temp,
+		MaxTokens:               &maxTokens,
+		ReasoningEffort:         "high",
+		SupportsReasoningEffort: true,
+		WebSearch:               true,
 	})
 	if err != nil {
 		t.Fatalf("buildConsoleRequest() error = %v", err)
@@ -71,21 +91,5 @@ func TestBuildConsoleRequest_MapsInstructionsAndContent(t *testing.T) {
 	assistant := built.Input[1]
 	if assistant.Role != "assistant" || len(assistant.Content) != 1 || assistant.Content[0].Type != "output_text" || assistant.Content[0].Text != "previous answer" {
 		t.Fatalf("assistant input = %#v, want output_text", assistant)
-	}
-}
-
-func TestBuildConsoleRequest_ExplicitReasoningOverridesForceThinking(t *testing.T) {
-	flow := NewChatFlow(nil, nil, &ChatFlowConfig{RetryConfig: DefaultRetryConfig()})
-	built, err := flow.buildConsoleRequest(&ChatRequest{
-		Model:           "grok-4.20",
-		Messages:        []Message{{Role: "user", Content: "hi"}},
-		ReasoningEffort: "low",
-		ForceThinking:   true,
-	})
-	if err != nil {
-		t.Fatalf("buildConsoleRequest() error = %v", err)
-	}
-	if built.ReasoningEffort != "low" {
-		t.Fatalf("ReasoningEffort = %q, want low", built.ReasoningEffort)
 	}
 }

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/crmmc/grokforge/internal/flow"
+	"github.com/crmmc/grokforge/internal/upstream"
+	"github.com/crmmc/grokforge/internal/upstream/mediautil"
 )
 
 func extractChatPromptAndImages(ctx context.Context, messages []ChatMessage) (string, [][]byte, error) {
@@ -21,7 +22,7 @@ func extractChatPromptAndImages(ctx context.Context, messages []ChatMessage) (st
 				lastText = text
 			}
 		default:
-			blocks, err := flow.ParseMultimodalContent(content)
+			blocks, err := mediautil.ParseMultimodalContent(content)
 			if err != nil {
 				continue
 			}
@@ -44,8 +45,8 @@ func extractChatPromptAndImages(ctx context.Context, messages []ChatMessage) (st
 	return lastText, images, nil
 }
 
-func resolveChatImageBlock(ctx context.Context, block flow.ContentBlock) ([]byte, error) {
-	processed, err := flow.ProcessContent(ctx, []flow.ContentBlock{block})
+func resolveChatImageBlock(ctx context.Context, block upstream.ContentBlock) ([]byte, error) {
+	processed, err := mediautil.ProcessContent(ctx, []upstream.ContentBlock{block})
 	if err != nil {
 		return nil, err
 	}

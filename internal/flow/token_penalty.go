@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/crmmc/grokforge/internal/upstream"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -19,7 +20,8 @@ func isTransportError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return true
 	}
-	if errors.Is(err, xai.ErrNetwork) {
+	if errors.Is(err, xai.ErrNetwork) || errors.Is(err, upstream.ErrNetwork) ||
+		errors.Is(err, upstream.ErrServerError) || errors.Is(err, upstream.ErrStreamCorrupted) {
 		return true
 	}
 	statusCode, ok := extractStatusCode(err)
@@ -42,7 +44,8 @@ func isServerError(err error) bool {
 }
 
 func shouldSkipTokenPenalty(err error) bool {
-	return errors.Is(err, xai.ErrForbidden) || errors.Is(err, xai.ErrCFChallenge)
+	return errors.Is(err, xai.ErrForbidden) || errors.Is(err, xai.ErrCFChallenge) ||
+		errors.Is(err, upstream.ErrForbidden) || errors.Is(err, upstream.ErrCFChallenge)
 }
 
 func reportTrackedTokenError(tokenSvc TokenServicer, tokenID uint, mode string, err error) {
@@ -51,7 +54,7 @@ func reportTrackedTokenError(tokenSvc TokenServicer, tokenID uint, mode string, 
 	}
 	reason := truncateReason(err.Error())
 	switch {
-	case errors.Is(err, xai.ErrInvalidToken):
+	case errors.Is(err, xai.ErrInvalidToken), errors.Is(err, upstream.ErrInvalidToken):
 		tokenSvc.MarkExpired(tokenID, reason)
 	case shouldSkipTokenPenalty(err):
 		tokenSvc.ReleaseToken(tokenID)

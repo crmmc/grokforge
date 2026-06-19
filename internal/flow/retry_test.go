@@ -3,11 +3,10 @@ package flow
 import (
 	"context"
 	"errors"
-	"reflect"
 	"testing"
 	"time"
 
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 func TestDefaultRetryConfig(t *testing.T) {
@@ -30,9 +29,6 @@ func TestDefaultRetryConfig(t *testing.T) {
 	}
 	if cfg.BackoffFactor != 2.0 {
 		t.Errorf("BackoffFactor = %v, want 2.0", cfg.BackoffFactor)
-	}
-	if !reflect.DeepEqual(cfg.ResetSessionStatusCodes, []int{403}) {
-		t.Errorf("ResetSessionStatusCodes = %v, want [403]", cfg.ResetSessionStatusCodes)
 	}
 }
 
@@ -89,16 +85,16 @@ func TestIsRetryable_RetryableErrors(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"rate limited", xai.ErrRateLimited, true},
-		{"network error", xai.ErrNetwork, true},
-		{"forbidden", xai.ErrForbidden, true},
-		{"cf challenge", xai.ErrCFChallenge, true},
+		{"rate limited", upstream.ErrRateLimited, true},
+		{"network error", upstream.ErrNetwork, true},
+		{"forbidden", upstream.ErrForbidden, true},
+		{"cf challenge", upstream.ErrCFChallenge, true},
 		{"502 error", errors.New("server returned 502"), true},
 		{"503 error", errors.New("503 Service Unavailable"), true},
 		{"504 error", errors.New("504 Gateway Timeout"), true},
 		{"403 error", errors.New("403 Forbidden"), true},
 		{"429 error", errors.New("429 Too Many Requests"), true},
-		{"wrapped rate limit", errors.New("request failed: " + xai.ErrRateLimited.Error()), true},
+		{"wrapped rate limit", errors.New("request failed: " + upstream.ErrRateLimited.Error()), true},
 		{"unknown error", errors.New("something went wrong"), true},
 	}
 
@@ -117,7 +113,7 @@ func TestIsRetryable_NonRetryableErrors(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"invalid token", xai.ErrInvalidToken, false},
+		{"invalid token", upstream.ErrInvalidToken, false},
 		{"context canceled", context.Canceled, false},
 		{"deadline exceeded", context.DeadlineExceeded, false},
 		{"nil error", nil, false},
@@ -143,14 +139,14 @@ func TestIsNonRecoverable(t *testing.T) {
 		{"nil", nil, false},
 		{"context canceled", context.Canceled, true},
 		{"deadline exceeded", context.DeadlineExceeded, true},
-		{"invalid token", xai.ErrInvalidToken, true},
+		{"invalid token", upstream.ErrInvalidToken, true},
 		{"400 bad request", errors.New("400 Bad Request"), true},
 		{"401 unauthorized", errors.New("401 Unauthorized"), true},
-		{"rate limited", xai.ErrRateLimited, false},
-		{"forbidden", xai.ErrForbidden, false},
-		{"cf challenge", xai.ErrCFChallenge, false},
+		{"rate limited", upstream.ErrRateLimited, false},
+		{"forbidden", upstream.ErrForbidden, false},
+		{"cf challenge", upstream.ErrCFChallenge, false},
 		{"502 error", errors.New("server returned 502"), false},
-		{"network error", xai.ErrNetwork, false},
+		{"network error", upstream.ErrNetwork, false},
 	}
 
 	for _, tt := range tests {
@@ -169,15 +165,15 @@ func TestShouldCoolToken(t *testing.T) {
 		want bool
 	}{
 		{"nil error", nil, false},
-		{"rate limited with defaults", xai.ErrRateLimited, true},
-		{"forbidden with defaults", xai.ErrForbidden, false},
-		{"cf challenge with defaults", xai.ErrCFChallenge, false},
+		{"rate limited with defaults", upstream.ErrRateLimited, true},
+		{"forbidden with defaults", upstream.ErrForbidden, false},
+		{"cf challenge with defaults", upstream.ErrCFChallenge, false},
 		{"429 status code", errors.New("429 Too Many Requests"), true},
 		{"502 gateway error with defaults", errors.New("server returned 502"), false},
 		{"503 service unavailable with defaults", errors.New("503 Service Unavailable"), false},
 		{"504 gateway timeout with defaults", errors.New("504 Gateway Timeout"), false},
-		{"network error", xai.ErrNetwork, false},
-		{"rate limited message in error", errors.New("request failed: " + xai.ErrRateLimited.Error()), true},
+		{"network error", upstream.ErrNetwork, false},
+		{"rate limited message in error", errors.New("request failed: " + upstream.ErrRateLimited.Error()), true},
 	}
 
 	for _, tt := range tests {
@@ -190,46 +186,25 @@ func TestShouldCoolToken(t *testing.T) {
 }
 
 func TestShouldSwapToken(t *testing.T) {
-	if ShouldSwapToken(xai.ErrRateLimited, nil) != true {
+	if ShouldSwapToken(upstream.ErrRateLimited, nil) != true {
 		t.Error("expected ShouldSwapToken to return true for rate limited")
 	}
-	if ShouldSwapToken(xai.ErrNetwork, nil) != false {
+	if ShouldSwapToken(upstream.ErrNetwork, nil) != false {
 		t.Error("expected ShouldSwapToken to return false for network error")
 	}
-	if ShouldSwapToken(xai.ErrForbidden, nil) != true {
+	if ShouldSwapToken(upstream.ErrForbidden, nil) != true {
 		t.Error("expected ShouldSwapToken to return true for token-level 403")
 	}
-	if ShouldSwapToken(xai.ErrCFChallenge, nil) != false {
+	if ShouldSwapToken(upstream.ErrCFChallenge, nil) != false {
 		t.Error("expected ShouldSwapToken to return false for CF challenge")
 	}
 }
 
-func TestShouldResetSession(t *testing.T) {
-	tests := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"CF challenge", xai.ErrCFChallenge, true},
-		{"token-level 403", xai.ErrForbidden, false},
-		{"rate limited", xai.ErrRateLimited, false},
-		{"network error", xai.ErrNetwork, false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := ShouldResetSession(tt.err, nil); got != tt.want {
-				t.Errorf("ShouldResetSession(%v) = %v, want %v", tt.err, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestIsCFChallenge(t *testing.T) {
-	if !IsCFChallenge(xai.ErrCFChallenge) {
+	if !IsCFChallenge(upstream.ErrCFChallenge) {
 		t.Error("expected IsCFChallenge to return true for ErrCFChallenge")
 	}
-	if IsCFChallenge(xai.ErrForbidden) {
+	if IsCFChallenge(upstream.ErrForbidden) {
 		t.Error("expected IsCFChallenge to return false for ErrForbidden")
 	}
 	if IsCFChallenge(nil) {

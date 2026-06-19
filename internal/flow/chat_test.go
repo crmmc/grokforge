@@ -2,11 +2,7 @@ package flow
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -14,11 +10,11 @@ import (
 
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 // testModelResolver returns a mock ModelResolver for flow tests.
-// Maps models to pool floors: basic models → "basic", super models → "super".
+// Maps models to pool floors: basic models -> "basic", super models -> "super".
 type testResolver struct{}
 
 func (r *testResolver) ResolvePoolFloor(requestName string) (floor string, ok bool) {
@@ -52,13 +48,9 @@ func (r *testResolver) ResolveMode(requestName string) (mode string, ok bool) {
 	}
 }
 
-func testModelResolver() tkn.ModelResolver {
-	return &testResolver{}
-}
+func testModelResolver() tkn.ModelResolver { return &testResolver{} }
 
-func testModeResolver() ModeResolver {
-	return &testResolver{}
-}
+func testModeResolver() ModeResolver { return &testResolver{} }
 
 // mockTokenService implements TokenServicer for testing.
 type mockTokenService struct {
@@ -172,43 +164,47 @@ func (m *mockTokenService) getInflight(id uint) int {
 	return m.inflight[id]
 }
 
-// mockXAIClient implements xai.Client for testing.
-type mockXAIClient struct {
-	mu               sync.Mutex
-	events           []xai.StreamEvent
-	consoleEvents    []xai.StreamEvent
-	eventDelay       time.Duration
-	chatErr          error
-	consoleErr       error
-	chatErrs         []error
-	consoleErrs      []error
-	callCount        int
-	consoleCallCount int
-	lastReq          *xai.ChatRequest
-	lastConsoleReq   *xai.ConsoleRequest
+type mockUpstream struct {
+	mu         sync.Mutex
+	name       string
+	events     []upstream.StreamEvent
+	eventDelay time.Duration
+	chatErr    error
+	chatErrs   []error
+	calls      int
+	tokens     []string
+	requests   []*upstream.ChatRequest
 }
 
-func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan xai.StreamEvent, error) {
+func (m *mockUpstream) Name() string {
+	if m.name == "" {
+		return "grok"
+	}
+	return m.name
+}
+
+func (m *mockUpstream) Chat(ctx context.Context, token string, req *upstream.ChatRequest) (<-chan upstream.StreamEvent, error) {
 	m.mu.Lock()
-	callIndex := m.callCount
-	m.callCount++
-	m.lastReq = req
-	events := m.events
+	callIndex := m.calls
+	m.calls++
+	m.tokens = append(m.tokens, token)
+	m.requests = append(m.requests, req)
+	events := append([]upstream.StreamEvent(nil), m.events...)
 	chatErr := m.chatErr
 	if callIndex < len(m.chatErrs) {
 		chatErr = m.chatErrs[callIndex]
 	}
-	eventDelay := m.eventDelay
+	delay := m.eventDelay
 	m.mu.Unlock()
 
 	if chatErr != nil {
 		return nil, chatErr
 	}
 
-	ch := make(chan xai.StreamEvent, len(events))
-	if eventDelay > 0 {
+	ch := make(chan upstream.StreamEvent, len(events))
+	if delay > 0 {
 		go func() {
-			time.Sleep(eventDelay)
+			time.Sleep(delay)
 			for _, e := range events {
 				ch <- e
 			}
@@ -223,63 +219,45 @@ func (m *mockXAIClient) Chat(ctx context.Context, req *xai.ChatRequest) (<-chan 
 	return ch, nil
 }
 
-func (m *mockXAIClient) ConsoleResponses(ctx context.Context, req *xai.ConsoleRequest) (<-chan xai.StreamEvent, error) {
+func (m *mockUpstream) callCount() int {
 	m.mu.Lock()
-	callIndex := m.consoleCallCount
-	m.consoleCallCount++
-	m.lastConsoleReq = req
-	events := m.consoleEvents
-	consoleErr := m.consoleErr
-	if callIndex < len(m.consoleErrs) {
-		consoleErr = m.consoleErrs[callIndex]
-	}
-	eventDelay := m.eventDelay
-	m.mu.Unlock()
-
-	if consoleErr != nil {
-		return nil, consoleErr
-	}
-
-	ch := make(chan xai.StreamEvent, len(events))
-	if eventDelay > 0 {
-		go func() {
-			time.Sleep(eventDelay)
-			for _, e := range events {
-				ch <- e
-			}
-			close(ch)
-		}()
-		return ch, nil
-	}
-	for _, e := range events {
-		ch <- e
-	}
-	close(ch)
-	return ch, nil
+	defer m.mu.Unlock()
+	return m.calls
 }
 
-func (m *mockXAIClient) ResetSession() error { return nil }
-func (m *mockXAIClient) Close() error        { return nil }
+func (m *mockUpstream) lastRequest() *upstream.ChatRequest {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.requests) == 0 {
+		return nil
+	}
+	return m.requests[len(m.requests)-1]
+}
 
-// Video methods (not used in chat tests, but required by interface)
-func (m *mockXAIClient) CreateImagePost(ctx context.Context, imageURL string) (string, error) {
-	return "", nil
+func newTestChatFlow(tokenSvc TokenServicer, grokUp *mockUpstream, cfg *ChatFlowConfig) *ChatFlow {
+	if grokUp == nil {
+		grokUp = &mockUpstream{name: "grok", events: []upstream.StreamEvent{{Content: "ok"}}}
+	}
+	upstreams := map[string]upstream.Upstream{"grok": grokUp}
+	return NewChatFlow(tokenSvc, upstreams, cfg)
 }
-func (m *mockXAIClient) CreateVideoPost(ctx context.Context, prompt string) (string, error) {
-	return "", nil
+
+func drainChat(t *testing.T, ch <-chan StreamEvent) []StreamEvent {
+	t.Helper()
+	var events []StreamEvent
+	for event := range ch {
+		events = append(events, event)
+	}
+	return events
 }
-func (m *mockXAIClient) PollUpscale(ctx context.Context, videoID string, interval time.Duration) (string, error) {
-	return "", nil
-}
-func (m *mockXAIClient) DownloadURL(ctx context.Context, url string) ([]byte, error) {
-	return nil, nil
-}
-func (m *mockXAIClient) DownloadTo(ctx context.Context, url string, w io.Writer) error {
-	_, err := io.WriteString(w, "mock-download")
-	return err
-}
-func (m *mockXAIClient) UploadFile(ctx context.Context, fileName, fileMimeType, contentBase64 string) (string, string, error) {
-	return "file-1", "https://assets.grok.com/file-1", nil
+
+func lastError(events []StreamEvent) error {
+	for i := len(events) - 1; i >= 0; i-- {
+		if events[i].Error != nil {
+			return events[i].Error
+		}
+	}
+	return nil
 }
 
 func TestMapReasoningEffort(t *testing.T) {
@@ -293,7 +271,7 @@ func TestMapReasoningEffort(t *testing.T) {
 		{"low", "low", true},
 		{"medium", "medium", true},
 		{"high", "high", true},
-		{"unknown", "medium", true}, // default to medium
+		{"unknown", "medium", true},
 	}
 
 	for _, tt := range tests {
@@ -307,59 +285,51 @@ func TestMapReasoningEffort(t *testing.T) {
 	}
 }
 
-func TestChatFlow_Success(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
+func TestChatFlow_SuccessfulStreaming(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}}}
+	grokUp := &mockUpstream{name: "grok", events: []upstream.StreamEvent{{Content: "Hello world"}}}
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()})
 
-	// Simulate successful response with content
-	respData := `{"result":{"response":{"token":"Hello world","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
 		Messages: []Message{{Role: "user", Content: "Hi"}},
 		Model:    "grok-2",
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
+	})
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
+	events := drainChat(t, ch)
 
-	var events []StreamEvent
-	for e := range ch {
-		events = append(events, e)
+	var content strings.Builder
+	var finish *StreamEvent
+	for _, event := range events {
+		if event.Error != nil {
+			t.Fatalf("unexpected stream error: %v", event.Error)
+		}
+		content.WriteString(event.Content)
+		if event.FinishReason != nil {
+			e := event
+			finish = &e
+		}
 	}
-
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
+	if content.String() != "Hello world" {
+		t.Fatalf("content = %q, want Hello world", content.String())
 	}
-
-	// Check success was reported
+	if finish == nil || finish.Usage == nil {
+		t.Fatalf("finish event = %#v, want usage", finish)
+	}
 	if len(tokenSvc.successCalls) != 1 || tokenSvc.successCalls[0] != 1 {
-		t.Errorf("expected success reported for token 1, got %v", tokenSvc.successCalls)
+		t.Fatalf("success calls = %v, want [1]", tokenSvc.successCalls)
 	}
 }
 
 func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: tkn.PoolBasic}},
-	}
-	client := &mockXAIClient{
-		consoleEvents: []xai.StreamEvent{
-			consoleWrappedTestEvent(t, "response.output_text.delta", map[string]any{"delta": "Console hello"}),
-			consoleWrappedTestEvent(t, "response.completed", map[string]any{"usage": map[string]any{"input_tokens": 3, "output_tokens": 2}}),
-		},
-	}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: tkn.PoolBasic}}}
+	grokUp := &mockUpstream{name: "grok"}
+	consoleUp := &mockUpstream{name: "console", events: []upstream.StreamEvent{
+		{Content: "Console hello"},
+		{Usage: &upstream.Usage{PromptTokens: 3, CompletionTokens: 2, TotalTokens: 5}},
+	}}
+	flow := NewChatFlow(tokenSvc, map[string]upstream.Upstream{"grok": grokUp, "console": consoleUp}, &ChatFlowConfig{
 		RetryConfig: DefaultRetryConfig(),
 		// Console routes with an explicit PoolFloor should not need model resolver lookup.
 		ModelResolver: nil,
@@ -368,9 +338,9 @@ func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
 	ch, err := flow.Complete(context.Background(), &ChatRequest{
 		Messages:                       []Message{{Role: "user", Content: "Hi"}},
 		Model:                          "public-console-model",
+		UpstreamName:                   "console",
 		UpstreamModel:                  "grok-4.20",
 		Mode:                           "console",
-		UseConsole:                     true,
 		PoolFloor:                      "basic",
 		ConsoleSupportsReasoningEffort: true,
 		ConsoleWebSearch:               true,
@@ -381,7 +351,7 @@ func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
 
 	var content strings.Builder
 	var finish *StreamEvent
-	for event := range ch {
+	for _, event := range drainChat(t, ch) {
 		if event.Error != nil {
 			t.Fatalf("unexpected stream error: %v", event.Error)
 		}
@@ -392,14 +362,15 @@ func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
 		}
 	}
 
-	if client.callCount != 0 {
-		t.Fatalf("web Chat called %d times, want 0", client.callCount)
+	if grokUp.callCount() != 0 {
+		t.Fatalf("grok upstream called %d times, want 0", grokUp.callCount())
 	}
-	if client.consoleCallCount != 1 {
-		t.Fatalf("ConsoleResponses called %d times, want 1", client.consoleCallCount)
+	if consoleUp.callCount() != 1 {
+		t.Fatalf("console upstream called %d times, want 1", consoleUp.callCount())
 	}
-	if client.lastConsoleReq == nil || client.lastConsoleReq.Model != "grok-4.20" || !client.lastConsoleReq.WebSearch {
-		t.Fatalf("lastConsoleReq = %#v, want grok-4.20 with web search", client.lastConsoleReq)
+	lastReq := consoleUp.lastRequest()
+	if lastReq == nil || lastReq.Model != "grok-4.20" || !lastReq.WebSearch || !lastReq.SupportsReasoningEffort {
+		t.Fatalf("last console request = %#v, want grok-4.20 with console flags", lastReq)
 	}
 	if len(tokenSvc.pickPools) != 1 || tokenSvc.pickPools[0] != tkn.PoolBasic {
 		t.Fatalf("pick pools = %v, want [%s]", tokenSvc.pickPools, tkn.PoolBasic)
@@ -415,77 +386,23 @@ func TestChatFlow_ConsoleRouteDispatch(t *testing.T) {
 	}
 }
 
-func TestChatFlow_RetryOnRateLimit(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{
-			{ID: 1, Token: "tok1", Pool: "basic"},
-			{ID: 2, Token: "tok2", Pool: "basic"},
-		},
+func TestChatFlow_RateLimitedSwapsToken(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{
+		{ID: 1, Token: "tok1", Pool: "basic"},
+		{ID: 2, Token: "tok2", Pool: "basic"},
+	}}
+	grokUp := &mockUpstream{
+		name:     "grok",
+		chatErrs: []error{upstream.ErrRateLimited, nil},
+		events:   []upstream.StreamEvent{{Content: "Success"}},
 	}
-
-	callCount := 0
-	respData := `{"result":{"response":{"token":"Success","isThinking":false}}}`
-
-	clientFactory := func(token string) xai.Client {
-		return &mockXAIClient{
-			events: []xai.StreamEvent{{Data: json.RawMessage(respData)}},
-			chatErr: func() error {
-				callCount++
-				if callCount <= 2 {
-					return xai.ErrRateLimited
-				}
-				return nil
-			}(),
-		}
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:       6,
-		PerTokenRetries: 2,
-		BaseDelay:       time.Millisecond, // fast for tests
-		MaxDelay:        10 * time.Millisecond,
-		JitterFactor:    0,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, clientFactory, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-
-	for range ch {
-		// drain channel
-	}
-
-	// Should have rate limit reports
-	if len(tokenSvc.rateLimitCalls) < 2 {
-		t.Errorf("expected at least 2 rate limit reports, got %v", tokenSvc.rateLimitCalls)
-	}
-}
-
-func TestChatFlow_SameTokenRetryKeepsInflightUntilSuccess(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-	respData := `{"result":{"response":{"token":"Success","isThinking":false}}}`
-	client := &mockXAIClient{
-		chatErrs: []error{xai.ErrNetwork, nil},
-		events:   []xai.StreamEvent{{Data: json.RawMessage(respData)}},
-	}
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:       1,
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       2,
 		PerTokenRetries: 2,
 		BaseDelay:       time.Millisecond,
 		MaxDelay:        time.Millisecond,
 		JitterFactor:    0,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+	}, ModelResolver: testModelResolver()})
 
 	ch, err := flow.Complete(context.Background(), &ChatRequest{
 		Messages: []Message{{Role: "user", Content: "Hi"}},
@@ -494,43 +411,110 @@ func TestChatFlow_SameTokenRetryKeepsInflightUntilSuccess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	for event := range ch {
+	for _, event := range drainChat(t, ch) {
 		if event.Error != nil {
 			t.Fatalf("unexpected stream error: %v", event.Error)
 		}
 	}
 
-	if client.callCount != 2 {
-		t.Fatalf("expected 2 chat attempts, got %d", client.callCount)
+	if got := grokUp.callCount(); got != 2 {
+		t.Fatalf("upstream calls = %d, want 2", got)
 	}
-	if len(tokenSvc.pickCalls) != 1 {
-		t.Fatalf("expected one token pick for same-token retry, got %v", tokenSvc.pickCalls)
+	if len(tokenSvc.rateLimitCalls) != 1 || tokenSvc.rateLimitCalls[0] != 1 {
+		t.Fatalf("rate limit calls = %v, want [1]", tokenSvc.rateLimitCalls)
+	}
+	if len(tokenSvc.pickCalls) != 2 || tokenSvc.pickCalls[0] != 1 || tokenSvc.pickCalls[1] != 2 {
+		t.Fatalf("pick calls = %v, want [1 2]", tokenSvc.pickCalls)
+	}
+}
+
+func TestChatFlow_NetworkErrorRetriesSameToken(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}}}
+	grokUp := &mockUpstream{
+		name:     "grok",
+		chatErrs: []error{upstream.ErrNetwork, nil},
+		events:   []upstream.StreamEvent{{Content: "Success"}},
+	}
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       1,
+		PerTokenRetries: 2,
+		BaseDelay:       time.Millisecond,
+		MaxDelay:        time.Millisecond,
+		JitterFactor:    0,
+	}, ModelResolver: testModelResolver()})
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	for _, event := range drainChat(t, ch) {
+		if event.Error != nil {
+			t.Fatalf("unexpected stream error: %v", event.Error)
+		}
+	}
+
+	if grokUp.callCount() != 2 {
+		t.Fatalf("upstream calls = %d, want 2", grokUp.callCount())
+	}
+	if len(tokenSvc.pickCalls) != 1 || tokenSvc.pickCalls[0] != 1 {
+		t.Fatalf("pick calls = %v, want [1]", tokenSvc.pickCalls)
 	}
 	if len(tokenSvc.keepErrorCalls) != 1 || tokenSvc.keepErrorCalls[0] != 1 {
-		t.Fatalf("expected one keep-inflight error call for token 1, got %v", tokenSvc.keepErrorCalls)
-	}
-	if len(tokenSvc.errorCalls) != 0 {
-		t.Fatalf("same-token retry should not release via ReportError, got %v", tokenSvc.errorCalls)
+		t.Fatalf("keep-inflight calls = %v, want [1]", tokenSvc.keepErrorCalls)
 	}
 	if got := tokenSvc.getInflight(1); got != 0 {
 		t.Fatalf("expected inflight released after success, got %d", got)
 	}
 }
 
-func TestChatFlow_RetryBudgetExceededReleasesSameTokenInflight(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
+func TestChatFlow_InvalidTokenDoesNotRetry(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{
+		{ID: 1, Token: "tok1", Pool: "basic"},
+		{ID: 2, Token: "tok2", Pool: "basic"},
+	}}
+	grokUp := &mockUpstream{name: "grok", chatErrs: []error{upstream.ErrInvalidToken, nil}}
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: &RetryConfig{
+		MaxTokens:       2,
+		PerTokenRetries: 2,
+		BaseDelay:       time.Millisecond,
+		MaxDelay:        time.Millisecond,
+		JitterFactor:    0,
+	}, ModelResolver: testModelResolver()})
+
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Model:    "grok-2",
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
 	}
-	client := &mockXAIClient{chatErrs: []error{xai.ErrNetwork}}
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
+	events := drainChat(t, ch)
+
+	if !errors.Is(lastError(events), upstream.ErrInvalidToken) {
+		t.Fatalf("last error = %v, want ErrInvalidToken", lastError(events))
+	}
+	if grokUp.callCount() != 1 {
+		t.Fatalf("upstream calls = %d, want 1", grokUp.callCount())
+	}
+	if len(tokenSvc.expiredCalls) != 1 || tokenSvc.expiredCalls[0] != 1 {
+		t.Fatalf("expired calls = %v, want [1]", tokenSvc.expiredCalls)
+	}
+}
+
+func TestChatFlow_RetryBudgetExceededReleasesSameTokenInflight(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}}}
+	grokUp := &mockUpstream{name: "grok", chatErrs: []error{upstream.ErrNetwork}}
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: &RetryConfig{
 		MaxTokens:       1,
 		PerTokenRetries: 2,
 		BaseDelay:       50 * time.Millisecond,
 		MaxDelay:        50 * time.Millisecond,
 		JitterFactor:    0,
 		RetryBudget:     time.Millisecond,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+	}, ModelResolver: testModelResolver()})
 
 	ch, err := flow.Complete(context.Background(), &ChatRequest{
 		Messages: []Message{{Role: "user", Content: "Hi"}},
@@ -539,490 +523,44 @@ func TestChatFlow_RetryBudgetExceededReleasesSameTokenInflight(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	var lastEvent StreamEvent
-	for event := range ch {
-		lastEvent = event
-	}
+	events := drainChat(t, ch)
 
-	if !errors.Is(lastEvent.Error, ErrRetryBudgetExceeded) {
-		t.Fatalf("expected retry budget error, got %v", lastEvent.Error)
+	if !errors.Is(lastError(events), ErrRetryBudgetExceeded) {
+		t.Fatalf("last error = %v, want retry budget exceeded", lastError(events))
 	}
 	if got := tokenSvc.getInflight(1); got != 0 {
 		t.Fatalf("expected inflight released after retry budget exit, got %d", got)
 	}
 	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
-		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+		t.Fatalf("release calls = %v, want [1]", tokenSvc.releaseCalls)
 	}
 }
 
-func TestChatFlow_RetryBudgetExceededAfterStreamErrorReleasesSameTokenInflight(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-	client := &mockXAIClient{
-		events:     []xai.StreamEvent{{Error: xai.ErrNetwork}},
-		eventDelay: 20 * time.Millisecond,
-	}
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:       1,
-		PerTokenRetries: 2,
-		BaseDelay:       0,
-		MaxDelay:        0,
-		JitterFactor:    0,
-		RetryBudget:     5 * time.Millisecond,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
+func TestChatFlow_UnknownUpstreamDoesNotPickToken(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}}}
+	flow := NewChatFlow(tokenSvc, map[string]upstream.Upstream{"grok": &mockUpstream{name: "grok"}}, &ChatFlowConfig{
+		RetryConfig:   DefaultRetryConfig(),
+		ModelResolver: testModelResolver(),
+	})
 
 	ch, err := flow.Complete(context.Background(), &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
+		Messages:     []Message{{Role: "user", Content: "Hi"}},
+		Model:        "grok-2",
+		UpstreamName: "missing",
 	})
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-	var lastEvent StreamEvent
-	for event := range ch {
-		lastEvent = event
-	}
+	events := drainChat(t, ch)
 
-	if !errors.Is(lastEvent.Error, ErrRetryBudgetExceeded) {
-		t.Fatalf("expected retry budget error, got %v", lastEvent.Error)
+	if lastError(events) == nil || !strings.Contains(lastError(events).Error(), "missing") {
+		t.Fatalf("last error = %v, want unknown upstream", lastError(events))
 	}
-	if got := tokenSvc.getInflight(1); got != 0 {
-		t.Fatalf("expected inflight released after stream retry budget exit, got %d", got)
-	}
-	if len(tokenSvc.keepErrorCalls) != 1 || tokenSvc.keepErrorCalls[0] != 1 {
-		t.Fatalf("expected one keep-inflight error call for token 1, got %v", tokenSvc.keepErrorCalls)
-	}
-	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
-		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
+	if len(tokenSvc.pickCalls) != 0 {
+		t.Fatalf("token picks = %v, want none", tokenSvc.pickCalls)
 	}
 }
 
-func TestChatFlow_ContextCancelDuringBackoffReleasesSameTokenInflight(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-	client := &mockXAIClient{chatErrs: []error{xai.ErrNetwork}}
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:       1,
-		PerTokenRetries: 2,
-		BaseDelay:       100 * time.Millisecond,
-		MaxDelay:        100 * time.Millisecond,
-		JitterFactor:    0,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	ch, err := flow.Complete(ctx, &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	})
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	time.AfterFunc(10*time.Millisecond, cancel)
-	var lastEvent StreamEvent
-	for event := range ch {
-		lastEvent = event
-	}
-
-	if !errors.Is(lastEvent.Error, context.Canceled) {
-		t.Fatalf("expected context canceled, got %v", lastEvent.Error)
-	}
-	if got := tokenSvc.getInflight(1); got != 0 {
-		t.Fatalf("expected inflight released after context cancel, got %d", got)
-	}
-	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
-		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
-	}
-}
-
-func TestChatFlow_ClientFactoryNilReleasesToken(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return nil }, cfg)
-
-	ch, err := flow.Complete(context.Background(), &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	})
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	var lastEvent StreamEvent
-	for event := range ch {
-		lastEvent = event
-	}
-
-	if lastEvent.Error == nil || lastEvent.Error.Error() != "chat client is nil" {
-		t.Fatalf("expected chat client nil error, got %v", lastEvent.Error)
-	}
-	if got := tokenSvc.getInflight(1); got != 0 {
-		t.Fatalf("expected inflight released after nil client, got %d", got)
-	}
-	if len(tokenSvc.releaseCalls) != 1 || tokenSvc.releaseCalls[0] != 1 {
-		t.Fatalf("expected direct release for token 1, got %v", tokenSvc.releaseCalls)
-	}
-}
-
-func TestChatFlow_TokenRotation(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{
-			{ID: 1, Token: "tok1", Pool: "basic"},
-			{ID: 2, Token: "tok2", Pool: "basic"},
-			{ID: 3, Token: "tok3", Pool: "basic"},
-		},
-	}
-
-	// Track which tokens were used
-	var usedTokens []string
-	var mu sync.Mutex
-
-	clientFactory := func(token string) xai.Client {
-		mu.Lock()
-		usedTokens = append(usedTokens, token)
-		mu.Unlock()
-
-		// First two tokens fail, third succeeds
-		if token == "tok1" || token == "tok2" {
-			return &mockXAIClient{chatErr: xai.ErrRateLimited}
-		}
-		respData := `{"result":{"response":{"token":"Success","isThinking":false}}}`
-		return &mockXAIClient{
-			events: []xai.StreamEvent{{Data: json.RawMessage(respData)}},
-		}
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: &RetryConfig{
-		MaxTokens:       6,
-		PerTokenRetries: 2,
-		BaseDelay:       time.Millisecond,
-		MaxDelay:        10 * time.Millisecond,
-		JitterFactor:    0,
-	}, ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, clientFactory, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ctx := context.Background()
-	ch, _ := flow.Complete(ctx, req)
-	for range ch {
-	}
-
-	// Should have rotated through tokens
-	if len(usedTokens) < 3 {
-		t.Errorf("expected at least 3 token uses, got %v", usedTokens)
-	}
-}
-
-func TestChatFlow_NonRetryableError(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	badReqErr := errors.New("400 Bad Request: invalid model")
-	client := &mockXAIClient{chatErr: badReqErr}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ctx := context.Background()
-	ch, _ := flow.Complete(ctx, req)
-
-	var lastEvent StreamEvent
-	for e := range ch {
-		lastEvent = e
-	}
-
-	// Should get error without retrying (400 is non-recoverable)
-	if lastEvent.Error == nil || !strings.Contains(lastEvent.Error.Error(), "400") {
-		t.Errorf("expected 400 error, got %v", lastEvent.Error)
-	}
-}
-
-func TestChatFlow_HandleError_CFChallenge_NoTokenPenalty(t *testing.T) {
-	tokenSvc := &mockTokenService{}
-	flow := &ChatFlow{tokenSvc: tokenSvc}
-	cfg := DefaultRetryConfig()
-
-	flow.handleErrorAndRelease(1, "auto", xai.ErrCFChallenge, cfg)
-
-	if len(tokenSvc.rateLimitCalls) != 0 {
-		t.Errorf("CF challenge should not rate limit, got %v", tokenSvc.rateLimitCalls)
-	}
-	if len(tokenSvc.expiredCalls) != 0 {
-		t.Errorf("CF challenge should not expire token, got %v", tokenSvc.expiredCalls)
-	}
-	if len(tokenSvc.errorCalls) != 0 {
-		t.Errorf("CF challenge should not report error, got %v", tokenSvc.errorCalls)
-	}
-}
-
-func TestChatFlow_HandleError_Forbidden_NoTokenPenalty(t *testing.T) {
-	tokenSvc := &mockTokenService{}
-	flow := &ChatFlow{tokenSvc: tokenSvc}
-	cfg := DefaultRetryConfig()
-
-	flow.handleErrorAndRelease(1, "auto", xai.ErrForbidden, cfg)
-
-	if len(tokenSvc.expiredCalls) != 0 {
-		t.Errorf("403 should not expire token, got %v", tokenSvc.expiredCalls)
-	}
-	if len(tokenSvc.rateLimitCalls) != 0 {
-		t.Errorf("403 should not rate limit, got %v", tokenSvc.rateLimitCalls)
-	}
-	if len(tokenSvc.errorCalls) != 0 {
-		t.Errorf("403 should not report error, got %v", tokenSvc.errorCalls)
-	}
-}
-
-func TestChatFlow_HandleError_TransportSkipsPenalty(t *testing.T) {
-	tokenSvc := &mockTokenService{}
-	flow := &ChatFlow{tokenSvc: tokenSvc}
-	cfg := DefaultRetryConfig()
-
-	flow.handleErrorAndRelease(1, "auto", xai.ErrNetwork, cfg)
-	flow.handleErrorAndRelease(1, "auto", errors.New("503 Service Unavailable"), cfg)
-
-	if len(tokenSvc.rateLimitCalls) != 0 {
-		t.Errorf("expected no rate limit calls, got %v", tokenSvc.rateLimitCalls)
-	}
-	// Transport errors now report as recoverable errors (quota refunded)
-	if len(tokenSvc.errorCalls) != 2 {
-		t.Errorf("expected 2 error calls (transport), got %v", tokenSvc.errorCalls)
-	}
-}
-
-// TestGetPoolForModel is tested in token/picker_test.go.
-// Removed duplicate test after consolidating GetPoolForModel to token package.
-
-// Integration tests for combined tool calling + multimodal scenarios
-
-func TestChatFlow_WithTools(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	// Response with tool call in XML format
-	respData := `{"result":{"response":{"token":"I'll check the weather.\n<tool_call>\n{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Tokyo\\\"}\"}\n</tool_call>","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "What's the weather in Tokyo?"}},
-		Model:    "grok-2",
-		Tools: []Tool{
-			{
-				Type: "function",
-				Function: Function{
-					Name:        "get_weather",
-					Description: "Get weather for a location",
-					Parameters: map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"location": map[string]any{"type": "string"},
-						},
-						"required": []string{"location"},
-					},
-				},
-			},
-		},
-		ToolChoice: "auto",
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-
-	var events []StreamEvent
-	for e := range ch {
-		events = append(events, e)
-	}
-
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
-
-	// Check tool calls were parsed (may be on any event, not necessarily the last)
-	var foundToolCalls []ToolCall
-	for _, e := range events {
-		if len(e.ToolCalls) > 0 {
-			foundToolCalls = e.ToolCalls
-		}
-	}
-	if len(foundToolCalls) != 1 {
-		t.Errorf("expected 1 tool call across events, got %d", len(foundToolCalls))
-	}
-	if len(foundToolCalls) > 0 && foundToolCalls[0].Function.Name != "get_weather" {
-		t.Errorf("expected tool name 'get_weather', got %q", foundToolCalls[0].Function.Name)
-	}
-}
-
-func TestChatFlow_WithMultimodalContent(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	respData := `{"result":{"response":{"token":"I see a cat in the image.","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	// Multimodal content with text and image
-	req := &ChatRequest{
-		Messages: []Message{
-			{
-				Role: "user",
-				Content: []any{
-					map[string]any{"type": "text", "text": "What's in this image?"},
-					map[string]any{
-						"type": "image_url",
-						"image_url": map[string]any{
-							"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-						},
-					},
-				},
-			},
-		},
-		Model: "grok-2-vision",
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-
-	var events []StreamEvent
-	for e := range ch {
-		if e.Error != nil {
-			t.Fatalf("unexpected error: %v", e.Error)
-		}
-		events = append(events, e)
-	}
-
-	if len(events) == 0 {
-		t.Fatal("expected at least one event")
-	}
-
-	// Check content was processed
-	found := false
-	for _, e := range events {
-		if e.Content != "" {
-			found = true
-			break
-		}
-	}
-	if !found {
-		t.Error("expected content in response")
-	}
-}
-
-func TestChatFlow_ToolsWithMultimodal(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	// Response with tool call after analyzing image
-	respData := `{"result":{"response":{"token":"Based on the image, I'll search for this product.\n<tool_call>\n{\"name\":\"search_product\",\"arguments\":\"{\\\"query\\\":\\\"red sneakers\\\"}\"}\n</tool_call>","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{
-			{Role: "system", Content: "You are a shopping assistant."},
-			{
-				Role: "user",
-				Content: []any{
-					map[string]any{"type": "text", "text": "Find this product for me"},
-					map[string]any{
-						"type": "image_url",
-						"image_url": map[string]any{
-							"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-						},
-					},
-				},
-			},
-		},
-		Model: "grok-2-vision",
-		Tools: []Tool{
-			{
-				Type: "function",
-				Function: Function{
-					Name:        "search_product",
-					Description: "Search for a product",
-					Parameters: map[string]any{
-						"type": "object",
-						"properties": map[string]any{
-							"query": map[string]any{"type": "string"},
-						},
-					},
-				},
-			},
-		},
-		ToolChoice: "auto",
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-
-	var events []StreamEvent
-	for e := range ch {
-		if e.Error != nil {
-			t.Fatalf("unexpected error: %v", e.Error)
-		}
-		events = append(events, e)
-	}
-
-	// Verify both multimodal processing and tool call parsing worked
-	var foundToolCalls []ToolCall
-	for _, e := range events {
-		if len(e.ToolCalls) > 0 {
-			foundToolCalls = e.ToolCalls
-		}
-	}
-	if len(foundToolCalls) != 1 {
-		t.Errorf("expected 1 tool call, got %d", len(foundToolCalls))
-	}
-	if len(foundToolCalls) > 0 && foundToolCalls[0].Function.Name != "search_product" {
-		t.Errorf("expected tool name 'search_product', got %q", foundToolCalls[0].Function.Name)
-	}
-}
-
-// mockUsageRecorder implements UsageRecorder for testing.
 type mockUsageRecorder struct {
 	mu      sync.Mutex
 	records []*store.UsageLog
@@ -1035,409 +573,35 @@ func (m *mockUsageRecorder) Record(ctx context.Context, log *store.UsageLog) err
 	return nil
 }
 
-func TestChatFlow_HotReload(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{
-			{ID: 1, Token: "tok1", Pool: "basic"},
-			{ID: 2, Token: "tok2", Pool: "basic"},
-		},
-	}
-
-	callCount := 0
-	// Client always fails with retryable error
-	clientFactory := func(token string) xai.Client {
-		callCount++
-		return &mockXAIClient{chatErr: xai.ErrRateLimited}
-	}
-
-	// Start with MaxTokens=1, PerTokenRetries=1 (only 1 attempt total)
-	currentMax := 1
-	currentPerToken := 1
-	cfg := &ChatFlowConfig{
-		RetryConfig: &RetryConfig{
-			MaxTokens:       6, // fallback, should not be used
-			PerTokenRetries: 2,
-			BaseDelay:       time.Millisecond,
-			MaxDelay:        10 * time.Millisecond,
-			JitterFactor:    0,
-		},
-		RetryConfigProvider: func() *RetryConfig {
-			return &RetryConfig{
-				MaxTokens:       currentMax,
-				PerTokenRetries: currentPerToken,
-				BaseDelay:       time.Millisecond,
-				MaxDelay:        10 * time.Millisecond,
-				JitterFactor:    0,
-			}
-		},
-		ModelResolver: testModelResolver(),
-	}
-	f := NewChatFlow(tokenSvc, clientFactory, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ctx := context.Background()
-	ch, _ := f.Complete(ctx, req)
-	for range ch {
-	}
-
-	// With MaxTokens=1 from provider, should have only 1 attempt
-	if callCount != 1 {
-		t.Errorf("expected 1 attempt from hot-reload provider (MaxTokens=1), got %d", callCount)
-	}
-}
-
-func TestChatFlow_RecordUsageAPIKeyID(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	respData := `{"result":{"response":{"token":"Hello","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	recorder := &mockUsageRecorder{}
-	f.SetUsageRecorder(recorder)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	// Set FlowAPIKeyIDKey in context
-	ctx := context.WithValue(context.Background(), FlowAPIKeyIDKey, uint(42))
-	ch, err := f.Complete(ctx, req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	for range ch {
-	}
-
-	// Wait briefly for async recording
-	time.Sleep(50 * time.Millisecond)
-
-	recorder.mu.Lock()
-	defer recorder.mu.Unlock()
-	if len(recorder.records) != 1 {
-		t.Fatalf("expected 1 usage record, got %d", len(recorder.records))
-	}
-	if recorder.records[0].APIKeyID != 42 {
-		t.Errorf("expected APIKeyID=42, got %d", recorder.records[0].APIKeyID)
-	}
-}
-
-func TestChatFlow_ParseEvent_NoUsage(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-	event := xai.StreamEvent{
-		Data: json.RawMessage(`{"result":{"response":{"token":"hi","isThinking":false},"usage":{"input_tokens":10,"output_tokens":2}}}`),
-	}
-
-	got := f.parseEvent(event)
-	// Upstream usage is no longer extracted — always nil from parseEvent.
-	// Usage is estimated at stream-end in streamEvents instead.
-	if got.Usage != nil {
-		t.Errorf("expected Usage to be nil, got %+v", got.Usage)
-	}
-	if got.Content != "hi" {
-		t.Errorf("Content = %q, want %q", got.Content, "hi")
-	}
-}
-
-func TestChatFlow_ParseEvent_TokenField(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-
-	// Normal content: isThinking=false → goes to Content
-	event := xai.StreamEvent{
-		Data: json.RawMessage(`{"result":{"response":{"token":"Hello world","isThinking":false}}}`),
-	}
-	got := f.parseEvent(event)
-	if got.Content != "Hello world" {
-		t.Errorf("Content = %q, want %q", got.Content, "Hello world")
-	}
-	if got.ReasoningContent != "" {
-		t.Errorf("ReasoningContent = %q, want empty", got.ReasoningContent)
-	}
-	if got.IsThinking {
-		t.Error("IsThinking = true, want false")
-	}
-}
-
-func TestChatFlow_ParseEvent_ThinkingFlag(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-
-	// Thinking content: isThinking=true → goes to ReasoningContent
-	event := xai.StreamEvent{
-		Data: json.RawMessage(`{"result":{"response":{"token":"Let me think...","isThinking":true}}}`),
-	}
-	got := f.parseEvent(event)
-	if got.Content != "" {
-		t.Errorf("Content = %q, want empty", got.Content)
-	}
-	if got.ReasoningContent != "Let me think..." {
-		t.Errorf("ReasoningContent = %q, want %q", got.ReasoningContent, "Let me think...")
-	}
-	if !got.IsThinking {
-		t.Error("IsThinking = false, want true")
-	}
-}
-
-func TestChatFlow_ParseEvent_ModelResponse(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-
-	event := xai.StreamEvent{
-		Data: json.RawMessage(`{"result":{"response":{"token":"","isThinking":false,"modelResponse":{"message":"done","generatedImageUrls":["https://grok.com/img/abc/1.png"]}}}}`),
-	}
-	got := f.parseEvent(event)
-	if !strings.Contains(got.Content, "![abc](https://grok.com/img/abc/1.png)") {
-		t.Errorf("Content missing image markdown, got: %q", got.Content)
-	}
-}
-
-func TestChatFlow_ParseEvent_CardAttachment(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-
-	cardJSON := `{"image":{"original":"https://example.com/photo.jpg","title":"A photo"}}`
-	data := fmt.Sprintf(`{"result":{"response":{"token":"","isThinking":false,"cardAttachment":{"jsonData":%s}}}}`, strconv.Quote(cardJSON))
-	event := xai.StreamEvent{Data: json.RawMessage(data)}
-	got := f.parseEvent(event)
-	if !strings.Contains(got.Content, "![A photo](https://example.com/photo.jpg)") {
-		t.Errorf("Content missing card image, got: %q", got.Content)
-	}
-}
-
-func TestChatFlow_ParseEvent_CardAttachmentSanitizesMarkdownAlt(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{RetryConfig: DefaultRetryConfig()}}
-
-	cardJSON := `{"image":{"original":"https://assets.grok.com/users/u/generated/id/image.png","title":"bad ] title"}}`
-	data := fmt.Sprintf(`{"result":{"response":{"token":"","isThinking":false,"cardAttachment":{"jsonData":%s}}}}`, strconv.Quote(cardJSON))
-	event := xai.StreamEvent{Data: json.RawMessage(data)}
-	got := f.parseEvent(event)
-	if !strings.Contains(got.Content, "![bad title](https://assets.grok.com/users/u/generated/id/image.png)") {
-		t.Errorf("Content has unsafe or missing card image markdown, got: %q", got.Content)
-	}
-}
-
-func TestChatFlow_ParseEvent_FilterTags(t *testing.T) {
-	f := &ChatFlow{cfg: &ChatFlowConfig{
-		RetryConfig: DefaultRetryConfig(),
-		FilterTags:  []string{"xaiartifact", "grok:render"},
+func TestChatFlow_RealUsageNotMarkedEstimated(t *testing.T) {
+	tokenSvc := &mockTokenService{tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}}}
+	grokUp := &mockUpstream{name: "grok", events: []upstream.StreamEvent{
+		{Content: "Hello"},
+		{Usage: &upstream.Usage{PromptTokens: 2, CompletionTokens: 3, TotalTokens: 5}},
 	}}
+	flow := newTestChatFlow(tokenSvc, grokUp, &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()})
+	recorder := &mockUsageRecorder{}
+	flow.SetUsageRecorder(recorder)
 
-	tests := []struct {
-		name  string
-		token string
-	}{
-		{"normal", "hello"},
-		{"xaiartifact open", "<xaiartifact>code</xaiartifact>"},
-		{"grok:render", "<grok:render>stuff"},
-		{"clean token", "no tags here"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			data := fmt.Sprintf(`{"result":{"response":{"token":%s,"isThinking":false}}}`, strconv.Quote(tt.token))
-			got := f.parseEvent(xai.StreamEvent{Data: json.RawMessage(data)})
-			if got.Content != tt.token {
-				t.Errorf("Content = %q, want raw token %q", got.Content, tt.token)
-			}
-		})
-	}
-}
-
-func TestChatFlow_ParallelToolCalls(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	// Response with multiple parallel tool calls (separate tool_call blocks)
-	respData := `{"result":{"response":{"token":"I'll check both locations.\n<tool_call>\n{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"Tokyo\\\"}\"}\n</tool_call>\n<tool_call>\n{\"name\":\"get_weather\",\"arguments\":\"{\\\"location\\\":\\\"London\\\"}\"}\n</tool_call>","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Weather in Tokyo and London?"}},
+	ch, err := flow.Complete(context.Background(), &ChatRequest{
+		Messages: []Message{{Role: "user", Content: "Hi"}},
 		Model:    "grok-2",
-		Tools: []Tool{
-			{
-				Type: "function",
-				Function: Function{
-					Name:        "get_weather",
-					Description: "Get weather",
-					Parameters:  map[string]any{"type": "object"},
-				},
-			},
-		},
-		ParallelToolCalls: true,
-	}
-
-	ctx := context.Background()
-	ch, err := flow.Complete(ctx, req)
+	})
 	if err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
-
-	var events []StreamEvent
-	for e := range ch {
-		events = append(events, e)
-	}
-
-	var foundToolCalls []ToolCall
-	for _, e := range events {
-		if len(e.ToolCalls) > 0 {
-			foundToolCalls = e.ToolCalls
+	for _, event := range drainChat(t, ch) {
+		if event.Error != nil {
+			t.Fatalf("unexpected stream error: %v", event.Error)
 		}
 	}
-	if len(foundToolCalls) != 2 {
-		t.Errorf("expected 2 parallel tool calls, got %d", len(foundToolCalls))
-	}
-}
-
-func TestChatFlow_MultimodalUploadsAsAttachments(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	respData := `{"result":{"response":{"token":"ok","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{{Data: json.RawMessage(respData)}},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	chatFlow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	req := &ChatRequest{
-		Messages: []Message{
-			{
-				Role: "user",
-				Content: []any{
-					map[string]any{"type": "text", "text": "describe this image"},
-					map[string]any{
-						"type": "image_url",
-						"image_url": map[string]any{
-							"url": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
-						},
-					},
-				},
-			},
-		},
-		Model: "grok-2-vision",
-	}
-
-	ch, err := chatFlow.Complete(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	for range ch {
-	}
-
-	client.mu.Lock()
-	defer client.mu.Unlock()
-	if client.lastReq == nil {
-		t.Fatal("expected last request to be captured")
-	}
-	if len(client.lastReq.FileAttachments) == 0 {
-		t.Fatal("expected uploaded file attachments for multimodal request")
-	}
-}
-
-func TestChatFlow_EstimatedTrue_WhenNoUsageFromUpstream(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	// Response WITHOUT usage data — tokens will be estimated
-	respData := `{"result":{"response":{"token":"Hello world response","isThinking":false}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	recorder := &mockUsageRecorder{}
-	f.SetUsageRecorder(recorder)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ch, err := f.Complete(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	for range ch {
-	}
-
-	time.Sleep(50 * time.Millisecond)
 
 	recorder.mu.Lock()
 	defer recorder.mu.Unlock()
 	if len(recorder.records) != 1 {
-		t.Fatalf("expected 1 usage record, got %d", len(recorder.records))
+		t.Fatalf("usage records = %d, want 1", len(recorder.records))
 	}
-	if !recorder.records[0].Estimated {
-		t.Error("expected Estimated=true when upstream provides no usage")
-	}
-}
-
-func TestChatFlow_UsageAlwaysEstimated(t *testing.T) {
-	tokenSvc := &mockTokenService{
-		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
-	}
-
-	// Response with upstream usage data (which we now ignore)
-	respData := `{"result":{"response":{"token":"Hello","isThinking":false},"usage":{"input_tokens":10,"output_tokens":5}}}`
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			{Data: json.RawMessage(respData)},
-		},
-	}
-
-	cfg := &ChatFlowConfig{RetryConfig: DefaultRetryConfig(), ModelResolver: testModelResolver()}
-	f := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, cfg)
-
-	recorder := &mockUsageRecorder{}
-	f.SetUsageRecorder(recorder)
-
-	req := &ChatRequest{
-		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Model:    "grok-2",
-	}
-
-	ch, err := f.Complete(context.Background(), req)
-	if err != nil {
-		t.Fatalf("Complete() error = %v", err)
-	}
-	for range ch {
-	}
-
-	time.Sleep(50 * time.Millisecond)
-
-	recorder.mu.Lock()
-	defer recorder.mu.Unlock()
-	if len(recorder.records) != 1 {
-		t.Fatalf("expected 1 usage record, got %d", len(recorder.records))
-	}
-	// Upstream usage is no longer parsed — always estimated
-	if !recorder.records[0].Estimated {
-		t.Error("expected Estimated=true since upstream usage is no longer parsed")
+	if recorder.records[0].Estimated {
+		t.Fatalf("usage should not be marked estimated when upstream supplied usage")
 	}
 }

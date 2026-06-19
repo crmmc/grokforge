@@ -2,26 +2,26 @@ package flow
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/crmmc/grokforge/internal/store"
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 func TestChatFlow_FilterTagsAcrossChunks(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
 	}
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			streamTokenEvent(`before<xaiarti`),
-			streamTokenEvent(`fact>secret</xaiarti`),
-			streamTokenEvent(`fact>after`),
+	grokUp := &mockUpstream{
+		name: "grok",
+		events: []upstream.StreamEvent{
+			{Content: `before<xaiarti`},
+			{Content: `fact>secret</xaiarti`},
+			{Content: `fact>after`},
 		},
 	}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
+	flow := NewChatFlow(tokenSvc, map[string]upstream.Upstream{"grok": grokUp}, &ChatFlowConfig{
 		RetryConfig: DefaultRetryConfig(),
 		ModelResolver: testModelResolver(),
 		FilterTags:  []string{"xaiartifact"},
@@ -48,14 +48,15 @@ func TestChatFlow_ToolCallsAcrossChunks(t *testing.T) {
 	tokenSvc := &mockTokenService{
 		tokens: []*store.Token{{ID: 1, Token: "tok1", Pool: "basic"}},
 	}
-	client := &mockXAIClient{
-		events: []xai.StreamEvent{
-			streamTokenEvent(`I'll check.<tool_`),
-			streamTokenEvent(`call>{"name":"get_weather","arguments":{"location":"Tokyo"}}`),
-			streamTokenEvent(`</tool_call>done`),
+	grokUp := &mockUpstream{
+		name: "grok",
+		events: []upstream.StreamEvent{
+			{Content: `I'll check.<tool_`},
+			{Content: `call>{"name":"get_weather","arguments":{"location":"Tokyo"}}`},
+			{Content: `</tool_call>done`},
 		},
 	}
-	flow := NewChatFlow(tokenSvc, func(token string) xai.Client { return client }, &ChatFlowConfig{
+	flow := NewChatFlow(tokenSvc, map[string]upstream.Upstream{"grok": grokUp}, &ChatFlowConfig{
 		RetryConfig: DefaultRetryConfig(),
 		ModelResolver: testModelResolver(),
 	})
@@ -96,13 +97,4 @@ func TestChatFlow_ToolCallsAcrossChunks(t *testing.T) {
 	if found[0].Function.Arguments != `{"location":"Tokyo"}` {
 		t.Fatalf("unexpected tool arguments: %q", found[0].Function.Arguments)
 	}
-}
-
-func streamTokenEvent(token string) xai.StreamEvent {
-	payload, err := json.Marshal(token)
-	if err != nil {
-		panic(err)
-	}
-	data := `{"result":{"response":{"token":` + string(payload) + `,"isThinking":false}}}`
-	return xai.StreamEvent{Data: json.RawMessage(data)}
 }

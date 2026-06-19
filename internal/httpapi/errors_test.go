@@ -8,6 +8,7 @@ import (
 
 	"github.com/crmmc/grokforge/internal/flow"
 	"github.com/crmmc/grokforge/internal/token"
+	"github.com/crmmc/grokforge/internal/upstream"
 	"github.com/crmmc/grokforge/internal/xai"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,6 +94,55 @@ func TestMapXAIError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			status, apiErr := MapXAIError(tt.err)
+
+			assert.Equal(t, tt.expectedStatus, status)
+			assert.Equal(t, tt.expectedType, apiErr.Error.Type)
+			assert.Equal(t, tt.expectedCode, apiErr.Error.Code)
+		})
+	}
+}
+
+func TestMapGatewayError_UpstreamSentinels(t *testing.T) {
+	tests := []struct {
+		name           string
+		err            error
+		expectedStatus int
+		expectedType   string
+		expectedCode   string
+	}{
+		{
+			name:           "forbidden maps to 401 auth error",
+			err:            upstream.ErrForbidden,
+			expectedStatus: 401,
+			expectedType:   "authentication_error",
+			expectedCode:   "invalid_api_key",
+		},
+		{
+			name:           "credit exhausted maps to 429",
+			err:            upstream.ErrCreditExhausted,
+			expectedStatus: 429,
+			expectedType:   "rate_limit_error",
+			expectedCode:   "rate_limit_exceeded",
+		},
+		{
+			name:           "network maps to upstream 502",
+			err:            upstream.ErrNetwork,
+			expectedStatus: 502,
+			expectedType:   "server_error",
+			expectedCode:   "upstream_error",
+		},
+		{
+			name:           "stream corrupted maps to upstream 502",
+			err:            upstream.ErrStreamCorrupted,
+			expectedStatus: 502,
+			expectedType:   "server_error",
+			expectedCode:   "upstream_error",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			status, apiErr := MapGatewayError(tt.err)
 
 			assert.Equal(t, tt.expectedStatus, status)
 			assert.Equal(t, tt.expectedType, apiErr.Error.Type)

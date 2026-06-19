@@ -153,9 +153,9 @@ func (h *Handler) toFlowRequest(req *ChatRequest) *flow.ChatRequest {
 			plan := planChatRoute(rm, h.currentConfig())
 			flowReq.UpstreamModel = plan.UpstreamModel
 			flowReq.UpstreamMode = plan.UpstreamMode
+			flowReq.UpstreamName = plan.UpstreamName
 			flowReq.Mode = plan.Mode
 			flowReq.PoolFloor = plan.PoolFloor
-			flowReq.UseConsole = plan.UseConsole
 			flowReq.ConsoleSupportsReasoningEffort = plan.ConsoleSupportsReasoningEffort
 			flowReq.ConsoleWebSearch = plan.ConsoleWebSearch
 			flowReq.ForceThinking = rm.ForceThinking

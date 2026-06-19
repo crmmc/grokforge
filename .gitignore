@@ -19,7 +19,8 @@ docs/reference/
 docs/README.md
 docs/superpowers/
 poc/
-scripts/
+scripts/*
+!scripts/check-upstream-boundaries.sh
 
 # Next.js (web/)
 web/.next/
@@ -30,6 +31,9 @@ web/tsconfig.tsbuildinfo
 
 # Database
 data/
+!internal/upstream/console/test/data/
+internal/upstream/console/test/data/**
+!internal/upstream/console/test/data/normal_stream.txt
 *.db
 *.db-shm
 *.db-wal

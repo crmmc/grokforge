@@ -1,0 +1,7 @@
+event: response.output_text.delta
+data: {"delta":"Hi"}
+
+event: response.completed
+data: {"response":{"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}
+
+data: [DONE]

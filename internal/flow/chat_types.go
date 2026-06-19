@@ -6,7 +6,7 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 // ModeResolver resolves a model request name to its quota mode string.
@@ -43,9 +43,6 @@ type TokenServicer interface {
 	ReleaseToken(id uint)
 }
 
-// XAIClientFactory creates xai.Client instances for a given token.
-type XAIClientFactory func(token string) xai.Client
-
 // ChatFlowConfig holds chat flow configuration.
 type ChatFlowConfig struct {
 	*RetryConfig
@@ -75,14 +72,17 @@ func DefaultChatFlowConfig() *ChatFlowConfig {
 	}
 }
 
-// Message represents a chat message.
-type Message struct {
-	Role       string     `json:"role"`
-	Content    any        `json:"content"` // string or []ContentBlock for multimodal
-	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
-	Name       string     `json:"name,omitempty"`
-	ToolCallID string     `json:"tool_call_id,omitempty"`
-}
+type Message = upstream.Message
+type Usage = upstream.Usage
+type DownloadFunc = upstream.DownloadFunc
+type SearchSource = upstream.SearchSource
+type StreamEvent = upstream.StreamEvent
+type ToolCall = upstream.ToolCall
+type Tool = upstream.Tool
+type Function = upstream.Function
+type FunctionCall = upstream.FunctionCall
+type ContentBlock = upstream.ContentBlock
+type ImageURLBlock = upstream.ImageURLBlock
 
 // ChatRequest represents a chat completion request.
 type ChatRequest struct {
@@ -98,42 +98,11 @@ type ChatRequest struct {
 	ParallelToolCalls              bool      `json:"parallel_tool_calls,omitempty"`
 	UpstreamModel                  string    `json:"-"` // Grok API model name from registry
 	UpstreamMode                   string    `json:"-"` // Grok API model mode from registry
-	UseConsole                     bool      `json:"-"` // route through xAI Console Responses API
+	UpstreamName                   string    `json:"-"` // upstream route name: grok or console
 	PoolFloor                      string    `json:"-"` // effective pool floor for route-aware token picking
 	ForceThinking                  bool      `json:"-"` // Force reasoning_effort=high from registry
 	DeepSearch                     string    `json:"-"` // "default" | "deeper"
 	Mode                           string    `json:"-"` // mode from registry for quota tracking
 	ConsoleSupportsReasoningEffort bool      `json:"-"`
 	ConsoleWebSearch               bool      `json:"-"`
-}
-
-// Usage represents token usage statistics.
-type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
-}
-
-// DownloadFunc downloads content from a URL using an authenticated session.
-type DownloadFunc func(ctx context.Context, url string) ([]byte, error)
-
-// SearchSource represents a single search result citation.
-type SearchSource struct {
-	URL   string `json:"url"`
-	Title string `json:"title"`
-	Type  string `json:"type"` // "web" or "x_post"
-}
-
-// StreamEvent represents a flow-level stream event.
-type StreamEvent struct {
-	Content          string         `json:"content,omitempty"`
-	ReasoningContent string         `json:"reasoning_content,omitempty"`
-	FinishReason     *string        `json:"finish_reason,omitempty"`
-	Usage            *Usage         `json:"usage,omitempty"`
-	ToolCalls        []ToolCall     `json:"tool_calls,omitempty"`
-	Error            error          `json:"-"`
-	IsThinking       bool           `json:"-"`
-	RolloutID        string         `json:"-"`
-	SearchSources    []SearchSource `json:"-"`
-	Downloader       DownloadFunc   `json:"-"`
 }

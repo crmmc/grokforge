@@ -1,4 +1,4 @@
-package flow
+package mediautil
 
 import (
 	"context"
@@ -13,22 +13,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/crmmc/grokforge/internal/upstream"
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp" // WebP decoder
 )
-
-// ContentBlock represents a single content block in a multimodal message.
-type ContentBlock struct {
-	Type     string         `json:"type"`
-	Text     string         `json:"text,omitempty"`
-	ImageURL *ImageURLBlock `json:"image_url,omitempty"`
-}
-
-// ImageURLBlock represents an image URL with optional detail level.
-type ImageURLBlock struct {
-	URL    string `json:"url"`
-	Detail string `json:"detail,omitempty"` // "auto", "low", "high"
-}
 
 // ProcessedContent holds the result of processing multimodal content.
 type ProcessedContent struct {
@@ -38,13 +26,27 @@ type ProcessedContent struct {
 
 // ParseMultimodalContent parses OpenAI-style content into ContentBlocks.
 // Content can be a string or an array of content parts.
-func ParseMultimodalContent(content any) ([]ContentBlock, error) {
+func ParseMultimodalContent(content any) ([]upstream.ContentBlock, error) {
 	switch v := content.(type) {
 	case string:
-		return []ContentBlock{{Type: "text", Text: v}}, nil
+		return []upstream.ContentBlock{{Type: "text", Text: v}}, nil
+
+	case []upstream.ContentBlock:
+		return v, nil
+
+	case []map[string]any:
+		blocks := make([]upstream.ContentBlock, 0, len(v))
+		for _, item := range v {
+			block, err := parseContentPart(item)
+			if err != nil {
+				return nil, err
+			}
+			blocks = append(blocks, block)
+		}
+		return blocks, nil
 
 	case []any:
-		blocks := make([]ContentBlock, 0, len(v))
+		blocks := make([]upstream.ContentBlock, 0, len(v))
 		for _, item := range v {
 			block, err := parseContentPart(item)
 			if err != nil {
@@ -59,44 +61,48 @@ func ParseMultimodalContent(content any) ([]ContentBlock, error) {
 	}
 }
 
-func parseContentPart(item any) (ContentBlock, error) {
+func parseContentPart(item any) (upstream.ContentBlock, error) {
+	if block, ok := item.(upstream.ContentBlock); ok {
+		return block, nil
+	}
+
 	m, ok := item.(map[string]any)
 	if !ok {
-		return ContentBlock{}, fmt.Errorf("content part must be object, got %T", item)
+		return upstream.ContentBlock{}, fmt.Errorf("content part must be object, got %T", item)
 	}
 
 	typ, _ := m["type"].(string)
 	switch typ {
 	case "text":
 		text, _ := m["text"].(string)
-		return ContentBlock{Type: "text", Text: text}, nil
+		return upstream.ContentBlock{Type: "text", Text: text}, nil
 
 	case "image_url":
 		imgURL, ok := m["image_url"].(map[string]any)
 		if !ok {
-			return ContentBlock{}, fmt.Errorf("image_url must be object")
+			return upstream.ContentBlock{}, fmt.Errorf("image_url must be object")
 		}
 		url, _ := imgURL["url"].(string)
 		detail, _ := imgURL["detail"].(string)
-		return ContentBlock{
+		return upstream.ContentBlock{
 			Type: "image_url",
-			ImageURL: &ImageURLBlock{
+			ImageURL: &upstream.ImageURLBlock{
 				URL:    url,
 				Detail: detail,
 			},
 		}, nil
 	case "file", "input_file":
-		return ContentBlock{Type: "text", Text: "[file input]"}, nil
+		return upstream.ContentBlock{Type: "text", Text: "[file input]"}, nil
 	case "input_audio", "audio":
-		return ContentBlock{Type: "text", Text: "[audio input]"}, nil
+		return upstream.ContentBlock{Type: "text", Text: "[audio input]"}, nil
 
 	default:
-		return ContentBlock{}, fmt.Errorf("unknown content type: %s", typ)
+		return upstream.ContentBlock{}, fmt.Errorf("unknown content type: %s", typ)
 	}
 }
 
 // ProcessContent processes content blocks, downloading images as needed.
-func ProcessContent(ctx context.Context, blocks []ContentBlock) (*ProcessedContent, error) {
+func ProcessContent(ctx context.Context, blocks []upstream.ContentBlock) (*ProcessedContent, error) {
 	result := &ProcessedContent{}
 	var textParts []string
 

@@ -22,8 +22,8 @@ func TestPlanChatRoute_DefaultGrokWeb(t *testing.T) {
 
 	plan := planChatRoute(rm, cfg)
 
-	if plan.UseConsole {
-		t.Fatal("UseConsole should be false for unmapped models")
+	if plan.UpstreamName != "grok" {
+		t.Fatalf("UpstreamName = %q, want grok for unmapped models", plan.UpstreamName)
 	}
 	if plan.Model != rm.ID || plan.UpstreamModel != rm.UpstreamModel || plan.UpstreamMode != rm.UpstreamMode || plan.Mode != rm.Mode || plan.PoolFloor != rm.PoolFloor {
 		t.Fatalf("plan = %#v, want web route values from resolved model", plan)
@@ -52,8 +52,8 @@ func TestPlanChatRoute_ConsoleWhenEnabled(t *testing.T) {
 
 	plan := planChatRoute(rm, cfg)
 
-	if !plan.UseConsole {
-		t.Fatal("UseConsole should be true")
+	if plan.UpstreamName != "console" {
+		t.Fatalf("UpstreamName = %q, want console", plan.UpstreamName)
 	}
 	if plan.Model != rm.ID || plan.UpstreamModel != "grok-4.20" || plan.UpstreamMode != "" || plan.Mode != "console" || plan.PoolFloor != modelconfig.PoolBasic {
 		t.Fatalf("plan = %#v, want console route values", plan)
@@ -78,8 +78,8 @@ func TestPlanChatRoute_ConsoleDisabledUsesWeb(t *testing.T) {
 
 	plan := planChatRoute(rm, cfg)
 
-	if plan.UseConsole {
-		t.Fatal("UseConsole should be false when console config is disabled")
+	if plan.UpstreamName != "grok" {
+		t.Fatalf("UpstreamName = %q, want grok when console config is disabled", plan.UpstreamName)
 	}
 	if plan.UpstreamMode != rm.UpstreamMode || plan.Mode != rm.Mode || plan.PoolFloor != rm.PoolFloor {
 		t.Fatalf("plan = %#v, want web route values", plan)
@@ -103,8 +103,8 @@ func TestPlanChatRoute_ConsoleRequiresChatType(t *testing.T) {
 
 	plan := planChatRoute(rm, cfg)
 
-	if plan.UseConsole {
-		t.Fatal("UseConsole should be false for non-chat models")
+	if plan.UpstreamName != "grok" {
+		t.Fatalf("UpstreamName = %q, want grok for non-chat models", plan.UpstreamName)
 	}
 	if plan.UpstreamModel != rm.UpstreamModel || plan.UpstreamMode != rm.UpstreamMode || plan.Mode != rm.Mode || plan.PoolFloor != rm.PoolFloor {
 		t.Fatalf("plan = %#v, want web route values", plan)

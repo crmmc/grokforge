@@ -1,15 +1,14 @@
-package flow
+package grok
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
+	"io"
 	"strings"
-	"time"
 
-	"github.com/crmmc/grokforge/internal/store"
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 const chatAssetsGrokBaseURL = "https://assets.grok.com/"
@@ -55,24 +54,61 @@ type chatXSearchResults struct {
 
 var markdownImageAltReplacer = strings.NewReplacer("[", " ", "]", " ")
 
-func (f *ChatFlow) parseEvent(event xai.StreamEvent) StreamEvent {
-	// Parse the raw JSON from xai event — field names match xAI's actual API:
-	// "token" = text chunk, "isThinking" = boolean flag for reasoning content.
+func (g *GrokUpstream) parseStream(ctx context.Context, token string, body io.Reader, ch chan<- upstream.StreamEvent) error {
+	scanner := bufio.NewScanner(body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	downloader := g.downloadFunc(token)
+
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		line := scanner.Text()
+		if line == "" || strings.HasPrefix(line, ":") {
+			continue
+		}
+
+		var raw string
+		if data, ok := strings.CutPrefix(line, "data: "); ok {
+			if data == "[DONE]" {
+				return nil
+			}
+			raw = data
+		} else if strings.HasPrefix(line, "{") {
+			raw = line
+		} else {
+			continue
+		}
+
+		ev := parseGrokEvent(json.RawMessage(raw))
+		if isEmptyEvent(ev) {
+			continue
+		}
+		ev.Downloader = downloader
+		ch <- ev
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("%w: %v", upstream.ErrNetwork, err)
+	}
+	return nil
+}
+
+func parseGrokEvent(raw json.RawMessage) upstream.StreamEvent {
 	var result chatStreamPayload
-	if err := json.Unmarshal(event.Data, &result); err != nil {
-		return StreamEvent{Error: err}
+	if err := json.Unmarshal(raw, &result); err != nil {
+		return upstream.StreamEvent{Error: err}
 	}
 
 	resp := result.Result.Response
-	if resp.IsThinking {
-		slog.Debug("flow: thinking token received", "len", len(resp.Token))
-	}
-
 	content, reasoning := splitThinkingToken(resp.Token, resp.IsThinking)
 	content = appendModelResponseImages(content, resp.ModelResponse)
 	content = appendCardAttachmentImage(content, resp.CardAttachment)
 
-	return StreamEvent{
+	return upstream.StreamEvent{
 		Content:          content,
 		ReasoningContent: reasoning,
 		IsThinking:       resp.IsThinking,
@@ -166,30 +202,30 @@ func markdownImageAlt(value string) string {
 	return normalized
 }
 
-func collectSearchSources(resp chatStreamResponse) []SearchSource {
+func collectSearchSources(resp chatStreamResponse) []upstream.SearchSource {
 	sources := appendWebSearchSources(nil, resp.WebSearchResults)
 	return appendXSearchSources(sources, resp.XSearchResults)
 }
 
-func appendWebSearchSources(sources []SearchSource, wsr *chatWebSearchResults) []SearchSource {
+func appendWebSearchSources(sources []upstream.SearchSource, wsr *chatWebSearchResults) []upstream.SearchSource {
 	if wsr == nil {
 		return sources
 	}
 	for _, item := range wsr.Results {
 		if item.URL != "" {
-			sources = append(sources, SearchSource{URL: item.URL, Title: item.Title, Type: "web"})
+			sources = append(sources, upstream.SearchSource{URL: item.URL, Title: item.Title, Type: "web"})
 		}
 	}
 	return sources
 }
 
-func appendXSearchSources(sources []SearchSource, xsr *chatXSearchResults) []SearchSource {
+func appendXSearchSources(sources []upstream.SearchSource, xsr *chatXSearchResults) []upstream.SearchSource {
 	if xsr == nil {
 		return sources
 	}
 	for _, item := range xsr.Results {
 		if item.PostID != "" && item.Username != "" {
-			sources = append(sources, SearchSource{
+			sources = append(sources, upstream.SearchSource{
 				URL:   fmt.Sprintf("https://x.com/%s/status/%s", item.Username, item.PostID),
 				Title: normalizeXTitle(item.Username, item.Text),
 				Type:  "x_post",
@@ -199,52 +235,20 @@ func appendXSearchSources(sources []SearchSource, xsr *chatXSearchResults) []Sea
 	return sources
 }
 
-// estimatePromptTokens estimates input token count from request messages.
-func (f *ChatFlow) estimatePromptTokens(req *ChatRequest) int {
-	var chars int
-	for _, m := range req.Messages {
-		chars += len(m.Role)
-		switch c := m.Content.(type) {
-		case string:
-			chars += len(c)
-		}
-	}
-	return estimateTokens(chars)
-}
-
-// recordUsage records an API usage log entry via the buffer (non-blocking).
-func (f *ChatFlow) recordUsage(apiKeyID uint, tokenID uint, model, endpoint string, status int, latency time.Duration, ttft time.Duration, tokensInput, tokensOutput int, estimated bool) {
-	if f.usageLog == nil {
-		return
-	}
-	_ = f.usageLog.Record(context.Background(), &store.UsageLog{
-		APIKeyID:     apiKeyID,
-		TokenID:      tokenID,
-		Model:        model,
-		Endpoint:     endpoint,
-		Status:       status,
-		DurationMs:   latency.Milliseconds(),
-		TTFTMs:       int(ttft.Milliseconds()),
-		CacheTokens:  0,
-		TokensInput:  tokensInput,
-		TokensOutput: tokensOutput,
-		Estimated:    estimated,
-		CreatedAt:    time.Now(),
-	})
-}
-
-// normalizeXTitle builds a display title for an X/Twitter post.
-// Uses the first 50 chars of text, falling back to "𝕏/@username".
 func normalizeXTitle(username, text string) string {
-	// Normalize whitespace
 	text = strings.Join(strings.Fields(text), " ")
 	if text == "" {
 		return "𝕏/@" + username
 	}
-	// Truncate to 50 runes
 	runes := []rune(text)
 	if len(runes) > 50 {
 		return string(runes[:50]) + "…"
 	}
 	return text
+}
+
+func isEmptyEvent(ev upstream.StreamEvent) bool {
+	return ev.Content == "" && ev.ReasoningContent == "" && ev.FinishReason == nil &&
+		ev.Usage == nil && len(ev.ToolCalls) == 0 && ev.Error == nil &&
+		!ev.IsThinking && ev.RolloutID == "" && len(ev.SearchSources) == 0
 }

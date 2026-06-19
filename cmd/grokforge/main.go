@@ -24,6 +24,10 @@ import (
 	"github.com/crmmc/grokforge/internal/registry"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
+	"github.com/crmmc/grokforge/internal/upstream"
+	"github.com/crmmc/grokforge/internal/upstream/console"
+	"github.com/crmmc/grokforge/internal/upstream/grok"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 	"github.com/crmmc/grokforge/internal/xai"
 )
 
@@ -34,6 +38,7 @@ var (
 
 const serverWriteTimeout = 330 * time.Second
 const tokenFlushInterval = 30 * time.Second
+const upstreamStaticStatsigID = "ZTpUeXBlRXJyb3I6IENhbm5vdCByZWFkIHByb3BlcnRpZXMgb2YgdW5kZWZpbmVkIChyZWFkaW5nICdjaGlsZE5vZGVzJyk="
 
 func main() {
 	// Parse flags
@@ -173,46 +178,77 @@ func main() {
 	logging.Info("video flow ready")
 
 	// Create ChatFlow
+	chatDoer := transport.NewDynamicStatelessDoer(func() transport.Options {
+		current := runtimeCfg.Get()
+		return transport.Options{
+			RequestTimeout:     time.Duration(current.Proxy.Timeout) * time.Second,
+			Browser:            current.Proxy.Browser,
+			ProxyURL:           current.Proxy.BaseProxyURL,
+			SkipProxySSLVerify: current.Proxy.SkipProxySSLVerify,
+		}
+	})
+	browserProvider := func() string { return runtimeCfg.Get().Proxy.Browser }
+	userAgentProvider := func() string { return runtimeCfg.Get().Proxy.UserAgent }
+	statsigIDProvider := func() string {
+		if runtimeCfg.Get().App.DynamicStatsig {
+			return ""
+		}
+		return upstreamStaticStatsigID
+	}
+	grokOpts := grok.Options{
+		BuildCookieString: func(tok string) string {
+			current := runtimeCfg.Get()
+			return grok.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
+		},
+		BrowserProfile: browserProvider,
+		UserAgent:      userAgentProvider,
+		StatsigID:      statsigIDProvider,
+	}
+	consoleOpts := console.Options{
+		BuildCookieString: func(tok string) string {
+			current := runtimeCfg.Get()
+			return console.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
+		},
+		BrowserProfile: browserProvider,
+		UserAgent:      userAgentProvider,
+		StatsigID:      statsigIDProvider,
+	}
+	upstreams := map[string]upstream.Upstream{
+		"grok":    grok.New(grok.DefaultURL, chatDoer, grokOpts),
+		"console": console.New(console.DefaultURL, chatDoer, consoleOpts),
+	}
 	chatFlow := flow.NewChatFlow(
 		tokenSvc,
-		func(tok string) xai.Client {
-			client, err := newXAIClient(runtimeCfg, tok, true)
-			if err != nil {
-				logging.Error("failed to create xai client", "error", err)
-				return nil
-			}
-			return client
-		},
+		upstreams,
 		&flow.ChatFlowConfig{
 			RetryConfig: flow.DefaultRetryConfig(),
 			RetryConfigProvider: func() *flow.RetryConfig {
 				current := runtimeCfg.Get()
 				retry := current.Retry
 				return &flow.RetryConfig{
-					MaxTokens:               retry.MaxTokens,
-					PerTokenRetries:         retry.PerTokenRetries,
-					BaseDelay:               time.Duration(retry.RetryBackoffBase * float64(time.Second)),
-					MaxDelay:                time.Duration(retry.RetryBackoffMax * float64(time.Second)),
-					JitterFactor:            0.25,
-					BackoffFactor:           retry.RetryBackoffFactor,
-					ResetSessionStatusCodes: append([]int(nil), retry.ResetSessionStatusCodes...),
-					RetryBudget:             time.Duration(retry.RetryBudget * float64(time.Second)),
+					MaxTokens:       retry.MaxTokens,
+					PerTokenRetries: retry.PerTokenRetries,
+					BaseDelay:       time.Duration(retry.RetryBackoffBase * float64(time.Second)),
+					MaxDelay:        time.Duration(retry.RetryBackoffMax * float64(time.Second)),
+					JitterFactor:    0.25,
+					BackoffFactor:   retry.RetryBackoffFactor,
+					RetryBudget:     time.Duration(retry.RetryBudget * float64(time.Second)),
 				}
 			},
 			ModelResolver: reg,
-			ResolveUpstream: func(name string) (string, string, bool) {
-				rm, ok := reg.Resolve(name)
-				if !ok {
-					return "", "", false
-				}
-				return rm.UpstreamModel, rm.UpstreamMode, true
-			},
 			AppConfigProvider: func() *config.AppConfig {
 				return &runtimeCfg.Get().App
 			},
 			FilterTagsProvider: func() []string {
 				current := runtimeCfg.Get()
 				return append([]string(nil), current.App.FilterTags...)
+			},
+			ResolveUpstream: func(name string) (string, string, bool) {
+				rm, ok := reg.Resolve(name)
+				if !ok {
+					return "", "", false
+				}
+				return rm.UpstreamModel, rm.UpstreamMode, true
 			},
 		},
 	)

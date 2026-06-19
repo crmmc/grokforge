@@ -8,7 +8,7 @@ import (
 
 type chatRoutePlan struct {
 	Model                          string
-	UseConsole                     bool
+	UpstreamName                   string
 	UpstreamModel                  string
 	UpstreamMode                   string
 	Mode                           string
@@ -23,6 +23,7 @@ func planChatRoute(rm *registry.ResolvedModel, cfg *config.Config) chatRoutePlan
 	}
 
 	plan := chatRoutePlan{
+		UpstreamName:  "grok",
 		Model:         rm.ID,
 		UpstreamModel: rm.UpstreamModel,
 		UpstreamMode:  rm.UpstreamMode,
@@ -31,7 +32,7 @@ func planChatRoute(rm *registry.ResolvedModel, cfg *config.Config) chatRoutePlan
 	}
 
 	if cfg != nil && cfg.Console.Enabled && rm.Type == modelconfig.TypeChat && rm.ConsoleUpstreamModel != "" {
-		plan.UseConsole = true
+		plan.UpstreamName = "console"
 		plan.UpstreamModel = rm.ConsoleUpstreamModel
 		plan.UpstreamMode = ""
 		plan.Mode = rm.ConsoleMode

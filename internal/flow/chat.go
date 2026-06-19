@@ -9,13 +9,13 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	tkn "github.com/crmmc/grokforge/internal/token"
-	"github.com/crmmc/grokforge/internal/xai"
+	"github.com/crmmc/grokforge/internal/upstream"
 )
 
 // ChatFlow orchestrates chat completion with retry logic.
 type ChatFlow struct {
 	tokenSvc         TokenServicer
-	clientFactory    XAIClientFactory
+	upstreams        map[string]upstream.Upstream
 	cfg              *ChatFlowConfig
 	usageLog         UsageRecorder
 	apiKeyUsageInc   func(ctx context.Context, apiKeyID uint)
@@ -23,14 +23,14 @@ type ChatFlow struct {
 }
 
 // NewChatFlow creates a new chat flow orchestrator.
-func NewChatFlow(tokenSvc TokenServicer, clientFactory XAIClientFactory, cfg *ChatFlowConfig) *ChatFlow {
+func NewChatFlow(tokenSvc TokenServicer, upstreams map[string]upstream.Upstream, cfg *ChatFlowConfig) *ChatFlow {
 	if cfg == nil {
 		cfg = DefaultChatFlowConfig()
 	}
 	return &ChatFlow{
-		tokenSvc:      tokenSvc,
-		clientFactory: clientFactory,
-		cfg:           cfg,
+		tokenSvc:  tokenSvc,
+		upstreams: upstreams,
+		cfg:       cfg,
 	}
 }
 
@@ -85,7 +85,7 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 		"model", req.Model, "pools", pools,
 		"msg_count", len(req.Messages), "stream", req.Stream,
 		"has_tools", len(req.Tools) > 0,
-		"use_console", req.UseConsole)
+		"upstream", req.UpstreamName)
 	outCh := make(chan StreamEvent, 64)
 
 	SafeGo("chat_execute_with_retry", func() {
@@ -96,7 +96,7 @@ func (f *ChatFlow) Complete(ctx context.Context, req *ChatRequest) (<-chan Strea
 }
 
 func (f *ChatFlow) poolsForRequest(req *ChatRequest) ([]string, bool) {
-	if req != nil && req.UseConsole && req.PoolFloor != "" {
+	if req != nil && req.PoolFloor != "" {
 		return tkn.GetPoolsForFloor(req.PoolFloor)
 	}
 	if req == nil || f.cfg == nil || f.cfg.ModelResolver == nil {
@@ -119,7 +119,14 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 	var lastErr error
 	tokenRetries := 0
 	var currentToken *store.Token
-	var client xai.Client
+	up, upstreamName, err := f.resolveUpstream(req)
+	if err != nil {
+		outCh <- StreamEvent{Error: err}
+		return
+	}
+	if cfg == nil {
+		cfg = DefaultRetryConfig()
+	}
 
 	for attempt := 0; attempt < cfg.MaxTokens*cfg.PerTokenRetries; attempt++ {
 		if retryBudgetExceeded(budgetDeadline) {
@@ -174,32 +181,16 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 				"priority", tok.Priority, "attempt", attempt)
 			currentToken = tok
 			tokenRetries = 0
-			client = f.clientFactory(tok.Token)
-			if client == nil {
-				f.tokenSvc.ReleaseToken(tok.ID)
-				outCh <- StreamEvent{Error: errors.New("chat client is nil")}
-				return
-			}
 		}
 
 		// Build and execute route-specific upstream request.
-		eventCh, err := f.startChatRequest(ctx, req, client)
+		eventCh, err := up.Chat(ctx, currentToken.Token, toUpstreamRequest(req, f.appConfig()))
 		if err != nil {
-			var buildErr chatRequestBuildError
-			if errors.As(err, &buildErr) {
-				f.tokenSvc.ReleaseToken(currentToken.ID)
-				outCh <- StreamEvent{Error: buildErr.err}
-				return
-			}
 			lastErr = err
+			f.triggerCFRefresh(err)
 			slog.Debug("flow: chat execution error",
 				"attempt", attempt, "token_id", currentToken.ID,
-				"error", err, "token_retries", tokenRetries)
-			if resetErr := f.resetSessionIfNeeded(err, cfg, client); resetErr != nil {
-				f.tokenSvc.ReleaseToken(currentToken.ID)
-				outCh <- StreamEvent{Error: resetErr}
-				return
-			}
+				"upstream", upstreamName, "error", err, "token_retries", tokenRetries)
 			tokenRetries++
 			sameTokenRetry := shouldRetrySameToken(err, cfg, tokenRetries)
 			if sameTokenRetry {
@@ -253,22 +244,12 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 		}
 
 		// Stream events
-		var success bool
-		var usage *Usage
-		var estimated bool
-		var ttft time.Duration
-		var streamErr error
-		if req.UseConsole {
-			success, usage, estimated, ttft, streamErr = f.streamConsoleEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
-		} else {
-			success, usage, estimated, ttft, streamErr = f.streamEvents(ctx, eventCh, outCh, client.DownloadURL, req.Tools)
-		}
+		success, usage, estimated, ttft, streamErr := f.consumeUpstreamEvents(ctx, eventCh, outCh, req.Tools)
 		if success {
 			// Estimate prompt tokens from request messages if not set by upstream.
-			if usage != nil && usage.PromptTokens == 0 {
+			if estimated && usage != nil && usage.PromptTokens == 0 {
 				usage.PromptTokens = f.estimatePromptTokens(req)
 				usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
-				estimated = true
 			}
 			f.tokenSvc.ReportSuccess(currentToken.ID)
 			var tokIn, tokOut int
@@ -291,6 +272,7 @@ func (f *ChatFlow) executeWithRetry(ctx context.Context, req *ChatRequest, pools
 		// Stream failed — capture error for potential final report
 		if streamErr != nil {
 			lastErr = streamErr
+			f.triggerCFRefresh(streamErr)
 			tokenRetries++
 			sameTokenRetry := shouldRetrySameToken(streamErr, cfg, tokenRetries)
 			if sameTokenRetry {
@@ -355,19 +337,19 @@ func (f *ChatFlow) handleErrorKeepInflight(tokenID uint, mode string, err error,
 
 func (f *ChatFlow) handleError(tokenID uint, mode string, err error, cfg *RetryConfig, keepInflight bool) {
 	reason := truncateReason(err.Error())
-	if errors.Is(err, xai.ErrInvalidToken) {
+	if errors.Is(err, upstream.ErrInvalidToken) {
 		slog.Debug("flow: marking token expired (401)", "token_id", tokenID)
 		f.tokenSvc.MarkExpired(tokenID, reason)
 		return
 	}
-	if errors.Is(err, xai.ErrForbidden) {
+	if errors.Is(err, upstream.ErrForbidden) {
 		slog.Debug("flow: 403 without token penalty", "token_id", tokenID)
 		if !keepInflight {
 			f.tokenSvc.ReleaseToken(tokenID)
 		}
 		return
 	}
-	if errors.Is(err, xai.ErrCFChallenge) {
+	if errors.Is(err, upstream.ErrCFChallenge) {
 		// CF challenge — token is fine, don't penalize
 		slog.Debug("flow: CF challenge, no token penalty", "token_id", tokenID)
 		if !keepInflight {
@@ -408,23 +390,10 @@ func truncateReason(s string) string {
 	return s[:256]
 }
 
-func (f *ChatFlow) resetSessionIfNeeded(err error, cfg *RetryConfig, client xai.Client) error {
-	if client == nil || !ShouldResetSession(err, cfg) {
-		return nil
+func (f *ChatFlow) triggerCFRefresh(err error) {
+	if upstream.NeedsCFRefresh(err) && f.cfRefreshTrigger != nil {
+		SafeGo("chat_cf_refresh_trigger", func() { f.cfRefreshTrigger() })
 	}
-	// Trigger CF refresh only on CF challenge (not token-level 403).
-	if errors.Is(err, xai.ErrCFChallenge) && f.cfRefreshTrigger != nil {
-		SafeGo("chat_cf_refresh_trigger", func() {
-			f.cfRefreshTrigger()
-		})
-	}
-	slog.Debug("flow: resetting session due to error", "error", err)
-	if resetErr := client.ResetSession(); resetErr != nil {
-		slog.Warn("flow: session reset failed", "error", resetErr)
-		return nil
-	}
-	slog.Debug("flow: session reset successful")
-	return nil
 }
 
 func retryBudgetDeadline(cfg *RetryConfig) time.Time {
