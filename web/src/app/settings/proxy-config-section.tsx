@@ -2,18 +2,8 @@ import { Input, Label, Select, SelectOption, Switch } from '@/components/ui'
 import { ConfigSection } from './config-section'
 import type { Dictionary } from '@/lib/i18n/dictionaries'
 import type { UseFormRegister, UseFormWatch, UseFormSetValue } from 'react-hook-form'
+import type { ProxyBrowsersResponse } from '@/types'
 import type { GeneralInput } from './general-config-form.schema'
-
-// 浏览器指纹 → User-Agent 映射（必须成对）
-export const BROWSER_UA_MAP: Record<string, string> = {
-  chrome_133: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
-  chrome_144: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
-  chrome_146: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-  firefox_135: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0',
-  firefox_147: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0',
-}
-
-const DEFAULT_UA = BROWSER_UA_MAP['chrome_146']
 
 interface ProxyConfigSectionProps {
   t: Dictionary
@@ -23,10 +13,11 @@ interface ProxyConfigSectionProps {
   proxyEnabled: boolean
   cfAutoRefresh: boolean
   setCfAutoRefresh: (v: boolean) => void
+  proxyBrowsers: ProxyBrowsersResponse
 }
 
 export function ProxyConfigSection({
-  t, register, watch, setValue, proxyEnabled, cfAutoRefresh, setCfAutoRefresh,
+  t, register, watch, setValue, proxyEnabled, cfAutoRefresh, setCfAutoRefresh, proxyBrowsers,
 }: ProxyConfigSectionProps) {
   const timeoutFieldId = cfAutoRefresh ? 'proxy.timeout.flaresolverr' : 'proxy.timeout.manual'
 
@@ -115,18 +106,16 @@ export function ProxyConfigSection({
                 disabled={cfAutoRefresh}
                 {...register('proxy.browser', {
                   onChange: (e: React.ChangeEvent<HTMLSelectElement>) => {
-                    const ua = BROWSER_UA_MAP[e.target.value]
-                    if (ua) {
-                      setValue('proxy.user_agent', ua, { shouldDirty: true })
+                    const selected = proxyBrowsers.browsers.find((option) => option.browser === e.target.value)
+                    if (selected) {
+                      setValue('proxy.user_agent', selected.user_agent, { shouldDirty: true })
                     }
                   },
                 })}
               >
-                <SelectOption value="chrome_133">Chrome 133</SelectOption>
-                <SelectOption value="chrome_144">Chrome 144</SelectOption>
-                <SelectOption value="chrome_146">Chrome 146</SelectOption>
-                <SelectOption value="firefox_135">Firefox 135</SelectOption>
-                <SelectOption value="firefox_147">Firefox 147</SelectOption>
+                {proxyBrowsers.browsers.map((option) => (
+                  <SelectOption key={option.browser} value={option.browser}>{option.label}</SelectOption>
+                ))}
               </Select>
               {cfAutoRefresh && <p className="text-xs text-muted">{t.config.managedByFlaresolverr}</p>}
             </div>
@@ -134,7 +123,7 @@ export function ProxyConfigSection({
               <Label htmlFor="proxy.user_agent">{t.config.userAgent}</Label>
               <Input
                 id="proxy.user_agent"
-                placeholder={DEFAULT_UA}
+                placeholder={proxyBrowsers.default_user_agent}
                 disabled={cfAutoRefresh}
                 {...register('proxy.user_agent')}
               />

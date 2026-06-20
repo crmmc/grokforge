@@ -11,6 +11,7 @@ import (
 	"github.com/crmmc/grokforge/internal/config"
 	"github.com/crmmc/grokforge/internal/store"
 	"github.com/crmmc/grokforge/internal/token"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 // handlePutConfig returns a handler that updates hot-reloadable config fields.
@@ -25,6 +26,11 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 		}
 
 		imageFormat, err := validateImageFormatUpdate(&req, cfg.Image.Format)
+		if err != nil {
+			WriteError(w, 400, "invalid_request", "invalid_value", err.Error())
+			return
+		}
+		proxyBrowser, proxyBrowserUA, err := validateProxyBrowserUpdate(&req)
 		if err != nil {
 			WriteError(w, 400, "invalid_request", "invalid_value", err.Error())
 			return
@@ -138,12 +144,10 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				cfg.Proxy.CFClearance = *req.Proxy.CFClearance
 			}
 			if req.Proxy.Browser != nil {
-				cfg.Proxy.Browser = *req.Proxy.Browser
+				cfg.Proxy.Browser = proxyBrowser
 				// Auto-pair UA when browser changes and UA is not explicitly provided.
-				if req.Proxy.UserAgent == nil {
-					if pairedUA, ok := config.BrowserUAMap[*req.Proxy.Browser]; ok {
-						cfg.Proxy.UserAgent = pairedUA
-					}
+				if req.Proxy.UserAgent == nil && proxyBrowserUA != "" {
+					cfg.Proxy.UserAgent = proxyBrowserUA
 				}
 			}
 			if req.Proxy.UserAgent != nil {
@@ -327,12 +331,10 @@ func handlePutConfig(cfg *config.Config, configStore *store.ConfigStore) http.Ha
 				dbUpdates["proxy.cf_clearance"] = *req.Proxy.CFClearance
 			}
 			if req.Proxy.Browser != nil {
-				dbUpdates["proxy.browser"] = *req.Proxy.Browser
+				dbUpdates["proxy.browser"] = proxyBrowser
 				// Auto-pair UA when browser changes and UA is not explicitly provided.
-				if req.Proxy.UserAgent == nil {
-					if pairedUA, ok := config.BrowserUAMap[*req.Proxy.Browser]; ok {
-						dbUpdates["proxy.user_agent"] = pairedUA
-					}
+				if req.Proxy.UserAgent == nil && proxyBrowserUA != "" {
+					dbUpdates["proxy.user_agent"] = proxyBrowserUA
 				}
 			}
 			if req.Proxy.UserAgent != nil {
@@ -435,6 +437,18 @@ func validateImageFormatUpdate(req *ConfigUpdateRequest, currentFormat string) (
 		return "", err
 	}
 	return format, nil
+}
+
+func validateProxyBrowserUpdate(req *ConfigUpdateRequest) (string, string, error) {
+	if req.Proxy == nil || req.Proxy.Browser == nil {
+		return "", "", nil
+	}
+	profile := transport.ResolveProfile(*req.Proxy.Browser)
+	if profile == "" {
+		return "", "", fmt.Errorf("unsupported proxy.browser %q", *req.Proxy.Browser)
+	}
+	ua, _ := transport.UserAgentForProfile(profile)
+	return profile, ua, nil
 }
 
 // filterEmptyStrings filters empty strings and trims whitespace from a string slice.

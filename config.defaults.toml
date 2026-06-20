@@ -100,10 +100,10 @@ refresh_interval = 3600
 timeout = 300
 # Cloudflare Clearance Cookie
 cf_clearance = ""
-# TLS fingerprint browser profile
-browser = "chrome_146"
+# curl-impersonate browser profile
+browser = "chrome136"
 # User-Agent string (must match browser profile)
-user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36"
 
 # ==================== Retry Policy ====================
 [retry]

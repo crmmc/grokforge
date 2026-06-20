@@ -10,7 +10,7 @@ import { ProxyConfigSection } from './proxy-config-section'
 import { RetryConfigSection } from './retry-config-section'
 import { SecurityLimitsSection } from './security-limits-section'
 import { generalSchema } from './general-config-form.schema'
-import type { ConfigResponse } from '@/types'
+import type { ConfigResponse, ProxyBrowsersResponse } from '@/types'
 import { useTranslation } from '@/lib/i18n/context'
 import { useState } from 'react'
 import type { GeneralInput } from './general-config-form.schema'
@@ -36,11 +36,12 @@ function normalizeAppConfig(app: ConfigResponse['app']): GeneralInput['app'] {
 
 interface GeneralConfigFormProps {
   config: ConfigResponse
+  proxyBrowsers: ProxyBrowsersResponse
   onSubmit: (data: Partial<ConfigResponse>) => void
   isPending: boolean
 }
 
-export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfigFormProps) {
+export function GeneralConfigForm({ config, proxyBrowsers, onSubmit, isPending }: GeneralConfigFormProps) {
   const { t } = useTranslation()
   const {
     register,
@@ -141,6 +142,7 @@ export function GeneralConfigForm({ config, onSubmit, isPending }: GeneralConfig
       <ProxyConfigSection
         t={t} register={register} watch={watch} setValue={setValue}
         proxyEnabled={proxyEnabled} cfAutoRefresh={cfAutoRefresh} setCfAutoRefresh={setCfAutoRefresh}
+        proxyBrowsers={proxyBrowsers}
       />
 
       <RetryConfigSection t={t} register={register} watch={watch} setValue={setValue} />

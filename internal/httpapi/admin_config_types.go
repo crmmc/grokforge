@@ -55,6 +55,18 @@ type ProxyConfigResponse struct {
 	UserAgent          string `json:"user_agent"`
 }
 
+type ProxyBrowsersResponse struct {
+	DefaultBrowser   string               `json:"default_browser"`
+	DefaultUserAgent string               `json:"default_user_agent"`
+	Browsers         []ProxyBrowserOption `json:"browsers"`
+}
+
+type ProxyBrowserOption struct {
+	Browser   string `json:"browser"`
+	Label     string `json:"label"`
+	UserAgent string `json:"user_agent"`
+}
+
 // ImageConfigResponse is the API response for image config.
 type ImageConfigResponse struct {
 	NSFW                    bool   `json:"nsfw"`

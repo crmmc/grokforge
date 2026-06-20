@@ -1,6 +1,10 @@
 package xai
 
-import "time"
+import (
+	"time"
+
+	"github.com/crmmc/grokforge/internal/upstream/transport"
+)
 
 // Options configures the xai.Client behavior.
 type Options struct {
@@ -20,7 +24,7 @@ type Options struct {
 	// UserAgent is the User-Agent header value.
 	UserAgent string
 
-	// Browser is the TLS client profile name (e.g. "chrome_133", "firefox_135").
+	// Browser is the curl-impersonate profile name (e.g. "chrome136", "firefox135").
 	Browser string
 
 	// ProxyURL is the optional proxy server URL (single proxy).
@@ -48,7 +52,8 @@ func DefaultOptions() *Options {
 		RequestTimeout:     0, // rely on context deadline; no client-level timeout
 		RetryInterval:      1 * time.Second,
 		MaxRetry:           3,
-		UserAgent:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+		UserAgent:          transport.DefaultUserAgent(),
+		Browser:            transport.DefaultProfile,
 		ProxyURL:           "",
 		AssetProxyURL:      "",
 		DynamicStatsig:     true,

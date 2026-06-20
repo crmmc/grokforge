@@ -5,10 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 
-	fhttp "github.com/bogdanfinn/fhttp"
 	"github.com/crmmc/grokforge/internal/upstream"
 )
 
@@ -24,7 +24,7 @@ func (g *GrokUpstream) downloadFunc(token string) upstream.DownloadFunc {
 }
 
 func (g *GrokUpstream) downloadURL(ctx context.Context, token, rawURL string) ([]byte, error) {
-	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodGet, normalizeAssetURL(rawURL), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, normalizeAssetURL(rawURL), nil)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
@@ -35,7 +35,7 @@ func (g *GrokUpstream) downloadURL(ctx context.Context, token, rawURL string) ([
 		return nil, g.mapError(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != fhttp.StatusOK {
+	if resp.StatusCode != http.StatusOK {
 		return nil, g.mapHTTPError(resp)
 	}
 

@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { Settings, Loader2, AlertCircle } from 'lucide-react'
-import { useConfig, useUpdateConfig } from '@/lib/hooks'
+import { useConfig, useProxyBrowsers, useUpdateConfig } from '@/lib/hooks'
 import { Alert, AlertDescription, Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui'
 import { useToast } from '@/components/ui'
 import { useTranslation } from '@/lib/i18n/context'
@@ -24,7 +24,8 @@ const ModelCatalogTable = dynamic(
 )
 
 export default function SettingsPage() {
-  const { data: config, isLoading, error } = useConfig()
+  const { data: config, isLoading: configLoading, error: configError } = useConfig()
+  const { data: proxyBrowsers, isLoading: proxyBrowsersLoading, error: proxyBrowsersError } = useProxyBrowsers()
   const updateConfig = useUpdateConfig()
   const { toast } = useToast()
   const { t } = useTranslation()
@@ -47,7 +48,7 @@ export default function SettingsPage() {
     })
   }
 
-  if (isLoading) {
+  if (configLoading || proxyBrowsersLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin text-muted" />
@@ -55,12 +56,12 @@ export default function SettingsPage() {
     )
   }
 
-  if (error || !config) {
+  if (configError || proxyBrowsersError || !config || !proxyBrowsers) {
     return (
       <Alert variant="destructive">
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
-          {t.common.loadFailed}{': '}{error?.message || t.common.unknownError}
+          {t.common.loadFailed}{': '}{configError?.message || proxyBrowsersError?.message || t.common.unknownError}
         </AlertDescription>
       </Alert>
     )
@@ -90,6 +91,7 @@ export default function SettingsPage() {
           <TabsContent value="general" className="m-0 focus-visible:outline-none">
             <GeneralConfigForm
               config={config}
+              proxyBrowsers={proxyBrowsers}
               onSubmit={handleSubmit}
               isPending={updateConfig.isPending}
             />

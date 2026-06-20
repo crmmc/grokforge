@@ -16,11 +16,10 @@ func TestNewStatelessDoer_ConstructsDefault(t *testing.T) {
 	if client == nil {
 		t.Fatal("NewStatelessDoer returned nil client")
 	}
-	client.CloseIdleConnections()
 }
 
 func TestDynamicStatelessDoer_ClientForRebuildsOnlyWhenOptionsChange(t *testing.T) {
-	opts := Options{Browser: "chrome_146"}
+	opts := Options{Browser: DefaultProfile}
 	d := NewDynamicStatelessDoer(func() Options { return opts })
 
 	first, err := d.clientFor(d.provide())
@@ -43,32 +42,27 @@ func TestDynamicStatelessDoer_ClientForRebuildsOnlyWhenOptionsChange(t *testing.
 	if third == first {
 		t.Fatal("changed options should rebuild client")
 	}
-
-	first.CloseIdleConnections()
-	third.CloseIdleConnections()
 }
 
-func TestResolveBrowserProfile_MatchesCompactAndUnderscoreNames(t *testing.T) {
-	compact := resolveBrowserProfile("chrome136")
-	underscore := resolveBrowserProfile("chrome_136")
-	if compact.GetClientHelloStr() != underscore.GetClientHelloStr() {
-		t.Fatalf("chrome136=%q chrome_136=%q", compact.GetClientHelloStr(), underscore.GetClientHelloStr())
+func TestResolveProfile_MatchesCompactAndUnderscoreNames(t *testing.T) {
+	if got := ResolveProfile("chrome136"); got != "chrome136" {
+		t.Fatalf("ResolveProfile(chrome136)=%q", got)
 	}
-
-	knownCompact := resolveBrowserProfile("chrome146")
-	knownUnderscore := resolveBrowserProfile("chrome_146")
-	if knownCompact.GetClientHelloStr() != knownUnderscore.GetClientHelloStr() {
-		t.Fatalf("chrome146=%q chrome_146=%q", knownCompact.GetClientHelloStr(), knownUnderscore.GetClientHelloStr())
+	if got := ResolveProfile("chrome_136"); got != "chrome136" {
+		t.Fatalf("ResolveProfile(chrome_136)=%q", got)
 	}
-	if knownUnderscore.GetClientHelloStr() == "" {
-		t.Fatal("resolved profile should expose a client hello identifier")
+	if got := ResolveProfile("edge120"); got != "" {
+		t.Fatalf("ResolveProfile(edge120)=%q", got)
+	}
+	if ua := DefaultUserAgent(); ua == "" {
+		t.Fatal("DefaultUserAgent is empty")
 	}
 }
 
 func TestTransportDoesNotDependOnInternalXAI(t *testing.T) {
-	source, err := os.ReadFile("tlsclient.go")
+	source, err := os.ReadFile("client.go")
 	if err != nil {
-		t.Fatalf("read tlsclient.go: %v", err)
+		t.Fatalf("read client.go: %v", err)
 	}
 	if strings.Contains(string(source), "internal/xai") {
 		t.Fatal("transport source must not import internal/xai")

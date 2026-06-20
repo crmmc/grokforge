@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api-client'
-import type { SystemStatus, UsageStats, ConfigResponse } from '@/types'
+import type { SystemStatus, UsageStats, ConfigResponse, ProxyBrowsersResponse } from '@/types'
 
 export const systemKeys = {
   status: ['system', 'status'] as const,
   config: ['system', 'config'] as const,
   fullConfig: ['config'] as const,
+  proxyBrowsers: ['proxy', 'browsers'] as const,
   usage: (period: string) => ['system', 'usage', period] as const,
 }
 
@@ -28,6 +29,13 @@ export function useConfig() {
   return useQuery({
     queryKey: systemKeys.fullConfig,
     queryFn: () => api.get<ConfigResponse>('/config'),
+  })
+}
+
+export function useProxyBrowsers() {
+  return useQuery({
+    queryKey: systemKeys.proxyBrowsers,
+    queryFn: () => api.get<ProxyBrowsersResponse>('/proxy/browsers'),
   })
 }
 

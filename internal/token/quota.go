@@ -7,9 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-
-	http "github.com/bogdanfinn/fhttp"
-	tls_client "github.com/bogdanfinn/tls-client"
+	"net/http"
+	"time"
 )
 
 var (
@@ -86,10 +85,7 @@ func fetchRateLimits(ctx context.Context, authToken, baseURL, upstreamName strin
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Cookie", "sso="+authToken)
 
-	client, err := tls_client.NewHttpClient(nil, tls_client.WithTimeoutSeconds(rateLimitsClientTimeoutSeconds))
-	if err != nil {
-		return nil, err
-	}
+	client := &http.Client{Timeout: time.Duration(rateLimitsClientTimeoutSeconds) * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err

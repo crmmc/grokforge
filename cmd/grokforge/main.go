@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,6 +112,7 @@ func main() {
 		}
 		logging.Info("applied database config overrides", "count", len(dbOverrides))
 	}
+	ensureProxyBrowserUserAgent(cfg)
 	bootstrapAppKey, bootstrapGenerated, err := config.EnsureAdminAppKey(cfg, nil)
 	if err != nil {
 		logging.Error("failed to prepare admin app key", "error", err)
@@ -448,6 +450,31 @@ func buildXAIOptions(cfg *config.Config) []xai.ClientOption {
 		opts = append(opts, xai.WithCFCookies(cfg.Proxy.CFCookies))
 	}
 	return opts
+}
+
+func ensureProxyBrowserUserAgent(cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	originalBrowser := cfg.Proxy.Browser
+	originalUA := cfg.Proxy.UserAgent
+
+	profile := transport.EffectiveProfile(cfg.Proxy.Browser, cfg.Proxy.UserAgent)
+	cfg.Proxy.Browser = profile
+
+	if strings.TrimSpace(cfg.Proxy.UserAgent) == "" {
+		if ua, ok := transport.UserAgentForProfile(profile); ok {
+			cfg.Proxy.UserAgent = ua
+		} else {
+			cfg.Proxy.UserAgent = transport.DefaultUserAgent()
+		}
+	}
+
+	if originalBrowser != cfg.Proxy.Browser || originalUA != cfg.Proxy.UserAgent {
+		logging.Info("proxy browser profile resolved",
+			"configured_browser", originalBrowser,
+			"effective_browser", cfg.Proxy.Browser)
+	}
 }
 
 func newXAIClient(runtime *config.Runtime, token string, noRetry bool) (xai.Client, error) {

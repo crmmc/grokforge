@@ -57,6 +57,18 @@ export interface ProxyConfigResponse {
   user_agent: string;
 }
 
+export interface ProxyBrowserOption {
+  browser: string;
+  label: string;
+  user_agent: string;
+}
+
+export interface ProxyBrowsersResponse {
+  default_browser: string;
+  default_user_agent: string;
+  browsers: ProxyBrowserOption[];
+}
+
 export interface RetryConfigResponse {
   max_tokens: number;
   per_token_retries: number;

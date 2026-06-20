@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"net/http"
 	"regexp"
 	"strings"
 
-	http "github.com/bogdanfinn/fhttp"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 	"github.com/google/uuid"
 )
 
@@ -241,7 +242,7 @@ func buildHeadersWithOrigin(token string, opts *Options, statsigID, origin, refe
 		"x-xai-request-id": {uuid.New().String()},
 	}
 
-	// Header order — must list all headers for tls-client fingerprint ordering
+	// Header order must list all headers so libcurl sends them in browser-like order.
 	order := []string{
 		"accept", "accept-encoding", "accept-language",
 		"baggage", "content-type", "cookie", "origin",
@@ -270,6 +271,6 @@ func buildHeadersWithOrigin(token string, opts *Options, statsigID, origin, refe
 		"user-agent", "x-statsig-id", "x-xai-request-id",
 	)
 
-	h[http.HeaderOrderKey] = order
+	h[transport.HeaderOrderKey] = order
 	return h
 }

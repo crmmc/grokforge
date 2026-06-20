@@ -3,19 +3,19 @@ package xai
 import (
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 
-	http "github.com/bogdanfinn/fhttp"
-	tls_client "github.com/bogdanfinn/tls-client"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
-// client implements the Client interface using tls-client.
+// client implements the Client interface using curl-impersonate transport.
 type client struct {
 	token     string
 	opts      *Options
-	http      tls_client.HttpClient
-	assetHTTP tls_client.HttpClient
+	http      transport.Doer
+	assetHTTP transport.Doer
 	statsigID string
 	mu        sync.Mutex
 	closed    bool
@@ -43,7 +43,7 @@ func NewClient(token string, opts ...ClientOption) (Client, error) {
 	return c, nil
 }
 
-// initHTTPClients creates the underlying tls-client HTTP clients.
+// initHTTPClients creates the underlying curl-impersonate HTTP clients.
 func (c *client) initHTTPClients() error {
 	httpClient, err := c.newHTTPClient(c.opts.ProxyURL)
 	if err != nil {
@@ -62,28 +62,16 @@ func (c *client) initHTTPClients() error {
 	return nil
 }
 
-// newTLSClient creates a tls-client HTTP client with the given options and proxy.
-func newTLSClient(opts *Options, proxyURL string) (tls_client.HttpClient, error) {
-	jar := tls_client.NewCookieJar()
-	profile := ResolveBrowserProfile(opts.Browser)
-
-	tlsOpts := []tls_client.HttpClientOption{
-		tls_client.WithTimeoutSeconds(int(opts.RequestTimeout.Seconds())),
-		tls_client.WithClientProfile(profile),
-		tls_client.WithCookieJar(jar),
-		tls_client.WithNotFollowRedirects(),
-	}
-	if opts.SkipProxySSLVerify {
-		tlsOpts = append(tlsOpts, tls_client.WithInsecureSkipVerify())
-	}
-
-	if proxyURL != "" {
-		tlsOpts = append(tlsOpts, tls_client.WithProxyUrl(proxyURL))
-	}
-
-	httpClient, err := tls_client.NewHttpClient(nil, tlsOpts...)
+func newTransportDoer(opts *Options, proxyURL string) (transport.Doer, error) {
+	profile := transport.EffectiveProfile(opts.Browser, opts.UserAgent)
+	httpClient, err := transport.NewStatelessDoer(transport.Options{
+		RequestTimeout:     opts.RequestTimeout,
+		Browser:            profile,
+		ProxyURL:           proxyURL,
+		SkipProxySSLVerify: opts.SkipProxySSLVerify,
+	})
 	if err != nil {
-		slog.Debug("xai: tls-client init failed", "error", err, "browser", opts.Browser)
+		slog.Debug("xai: curl-impersonate init failed", "error", err, "browser", profile)
 		return nil, err
 	}
 
@@ -95,9 +83,9 @@ func newTLSClient(opts *Options, proxyURL string) (tls_client.HttpClient, error)
 			maskedProxy = proxyURL[:30] + "..."
 		}
 	}
-	slog.Debug("xai: tls-client initialized",
+	slog.Debug("xai: curl-impersonate transport initialized",
 		"browser_profile", opts.Browser,
-		"tls_profile", profile,
+		"effective_profile", profile,
 		"proxy", maskedProxy,
 		"timeout_sec", int(opts.RequestTimeout.Seconds()),
 		"skip_proxy_ssl_verify", opts.SkipProxySSLVerify)
@@ -105,19 +93,22 @@ func newTLSClient(opts *Options, proxyURL string) (tls_client.HttpClient, error)
 	return httpClient, nil
 }
 
-func (c *client) newHTTPClient(proxyURL string) (tls_client.HttpClient, error) {
-	return newTLSClient(c.opts, proxyURL)
+func (c *client) newHTTPClient(proxyURL string) (transport.Doer, error) {
+	return newTransportDoer(c.opts, proxyURL)
 }
 
-// setProxy switches the underlying HTTP client's proxy.
+// setProxy switches the underlying HTTP client's proxy by rebuilding clients.
 func (c *client) setProxy(proxyURL string) error {
-	if c.http == nil {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
 		return ErrStreamClosed
 	}
-	return c.http.SetProxy(proxyURL)
+	c.opts.ProxyURL = proxyURL
+	return c.initHTTPClients()
 }
 
-// ResetSession rebuilds the HTTP client and cookie jar.
+// ResetSession rebuilds the HTTP clients.
 func (c *client) ResetSession() error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -126,7 +117,7 @@ func (c *client) ResetSession() error {
 		return ErrStreamClosed
 	}
 
-	slog.Debug("xai: resetting session (clearing cookies, rebuilding TLS client)")
+	slog.Debug("xai: resetting session (rebuilding curl-impersonate transport)")
 	return c.initHTTPClients()
 }
 
@@ -164,7 +155,7 @@ func (c *client) doAssetRequest(req *http.Request) (*http.Response, error) {
 	return c.doRequestWithClient(req, httpClient)
 }
 
-func (c *client) doRequestWithClient(req *http.Request, httpClient tls_client.HttpClient) (*http.Response, error) {
+func (c *client) doRequestWithClient(req *http.Request, httpClient transport.Doer) (*http.Response, error) {
 	// Set anti-bot headers
 	headers := buildHeaders(c.token, c.opts, c.statsigID)
 	return c.doRequestWithClientAndHeaders(req, httpClient, headers)
@@ -182,10 +173,13 @@ func (c *client) doConsoleRequest(req *http.Request) (*http.Response, error) {
 	return c.doRequestWithClientAndHeaders(req, httpClient, headers)
 }
 
-func (c *client) doRequestWithClientAndHeaders(req *http.Request, httpClient tls_client.HttpClient, headers http.Header) (*http.Response, error) {
+func (c *client) doRequestWithClientAndHeaders(req *http.Request, httpClient transport.Doer, headers http.Header) (*http.Response, error) {
+	if req.Header == nil {
+		req.Header = make(http.Header)
+	}
 	for k, v := range headers {
-		if k == http.HeaderOrderKey {
-			req.Header[http.HeaderOrderKey] = v
+		if k == transport.HeaderOrderKey {
+			req.Header[transport.HeaderOrderKey] = v
 		} else {
 			req.Header.Set(k, v[0])
 		}
@@ -193,7 +187,7 @@ func (c *client) doRequestWithClientAndHeaders(req *http.Request, httpClient tls
 
 	// Dump all outgoing headers at DEBUG level
 	var hdrDump strings.Builder
-	for _, key := range headers[http.HeaderOrderKey] {
+	for _, key := range headers[transport.HeaderOrderKey] {
 		val := req.Header.Get(key)
 		// Mask sensitive Cookie value
 		if key == "cookie" && len(val) > 40 {

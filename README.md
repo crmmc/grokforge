@@ -252,7 +252,7 @@ Admin panel changes take effect immediately without restart.
 | `base_proxy_url` | `""` | Upstream proxy (HTTP/HTTPS/SOCKS5) |
 | `asset_proxy_url` | `""` | Asset proxy (image downloads, etc.) |
 | `cf_clearance` | `""` | Cloudflare clearance cookie |
-| `browser` | `"chrome_146"` | TLS fingerprint browser profile |
+| `browser` | `"chrome136"` | curl-impersonate browser profile |
 | `enabled` | `false` | Enable CF auto-refresh |
 | `flaresolverr_url` | `""` | FlareSolverr service URL |
 | `refresh_interval` | `3600` | CF refresh interval (seconds) |

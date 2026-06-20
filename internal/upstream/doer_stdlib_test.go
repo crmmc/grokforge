@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	fhttp "github.com/bogdanfinn/fhttp"
 )
 
 func TestStdlibDoer_RoundTrip(t *testing.T) {
@@ -20,7 +18,7 @@ func TestStdlibDoer_RoundTrip(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	req, _ := fhttp.NewRequest("GET", srv.URL, nil)
+	req, _ := http.NewRequest("GET", srv.URL, nil)
 	req.Header.Set("X-Test", "v1")
 
 	d := &StdlibDoer{Client: srv.Client()}

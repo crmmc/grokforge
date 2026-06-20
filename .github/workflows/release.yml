@@ -34,19 +34,23 @@ jobs:
 
   build-unix-binaries:
     name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     needs: build-frontend
     strategy:
       matrix:
         include:
           - goos: linux
             goarch: amd64
+            runner: ubuntu-latest
           - goos: linux
             goarch: arm64
+            runner: ubuntu-24.04-arm
           - goos: darwin
             goarch: amd64
+            runner: macos-13
           - goos: darwin
             goarch: arm64
+            runner: macos-14
     steps:
       - uses: actions/checkout@v4
 
@@ -59,9 +63,13 @@ jobs:
           name: frontend-dist
           path: web/out/
 
+      - name: Install Linux cgo dependencies
+        if: matrix.goos == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc libc6-dev libcurl4-openssl-dev
+
       - name: Build binary
         env:
-          CGO_ENABLED: "0"
+          CGO_ENABLED: "1"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
         run: |

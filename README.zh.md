@@ -252,7 +252,7 @@ base_proxy_url = ""                # 可选：代理地址
 | `base_proxy_url` | `""` | 上游代理（HTTP/HTTPS/SOCKS5） |
 | `asset_proxy_url` | `""` | 资产代理（图片下载等） |
 | `cf_clearance` | `""` | Cloudflare clearance cookie |
-| `browser` | `"chrome_146"` | TLS 指纹浏览器型号 |
+| `browser` | `"chrome136"` | curl-impersonate 浏览器指纹型号 |
 | `enabled` | `false` | 启用 CF 自动刷新 |
 | `flaresolverr_url` | `""` | FlareSolverr 服务地址 |
 | `refresh_interval` | `3600` | CF 刷新间隔（秒） |

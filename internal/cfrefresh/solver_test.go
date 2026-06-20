@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 func makeOKResponse(cookies []flaresolverrCookie, userAgent string) flaresolverrResponse {
@@ -53,8 +55,8 @@ func TestSolveCFChallenge_Success(t *testing.T) {
 	if result.CFClearance != "abc123" {
 		t.Errorf("expected cf_clearance abc123, got %s", result.CFClearance)
 	}
-	if result.Browser != "chrome133" {
-		t.Errorf("expected browser chrome133, got %s", result.Browser)
+	if result.Browser != "chrome" {
+		t.Errorf("expected browser chrome, got %s", result.Browser)
 	}
 	if result.Cookies != "cf_clearance=abc123; __cf_bm=xyz" {
 		t.Errorf("unexpected cookies: %s", result.Cookies)
@@ -135,10 +137,11 @@ func TestExtractBrowserProfile(t *testing.T) {
 		ua   string
 		want string
 	}{
-		{"Mozilla/5.0 Chrome/133.0.0.0 Safari/537.36", "chrome133"},
-		{"Mozilla/5.0 Chrome/120.0.6099.234 Safari/537.36", "chrome120"},
-		{"Mozilla/5.0 (Firefox)", "chrome120"},
-		{"", "chrome120"},
+		{"Mozilla/5.0 Chrome/136.0.0.0 Safari/537.36", "chrome136"},
+		{"Mozilla/5.0 Chrome/133.0.0.0 Safari/537.36", "chrome"},
+		{"Mozilla/5.0 Firefox/135.0", "firefox135"},
+		{"Mozilla/5.0 (Firefox)", transport.DefaultProfile},
+		{"", transport.DefaultProfile},
 	}
 	for _, tt := range tests {
 		got := extractBrowserProfile(tt.ua)

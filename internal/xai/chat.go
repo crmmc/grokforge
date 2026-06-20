@@ -9,11 +9,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	http "github.com/bogdanfinn/fhttp"
 )
 
 const (

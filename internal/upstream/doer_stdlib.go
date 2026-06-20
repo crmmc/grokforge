@@ -3,34 +3,25 @@ package upstream
 import (
 	"net/http"
 
-	fhttp "github.com/bogdanfinn/fhttp"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
-// StdlibDoer 把 *fhttp.Request 转为标准 *http.Request 执行。仅测试使用。
+// StdlibDoer executes standard library HTTP requests. It is only used in tests.
 type StdlibDoer struct{ Client *http.Client }
 
-func (d *StdlibDoer) Do(req *fhttp.Request) (*fhttp.Response, error) {
-	stdReq, err := http.NewRequestWithContext(req.Context(), req.Method, req.URL.String(), req.Body)
-	if err != nil {
-		return nil, err
-	}
+func (d *StdlibDoer) Do(req *http.Request) (*http.Response, error) {
+	clone := req.Clone(req.Context())
+	clone.Body = req.Body
+	clone.Header = make(http.Header, len(req.Header))
 	for k, vs := range req.Header {
-		if k == fhttp.HeaderOrderKey || k == fhttp.PHeaderOrderKey {
-			continue // tls-client 专用排序键，标准库忽略
+		if k == transport.HeaderOrderKey {
+			continue
 		}
-		for _, v := range vs {
-			stdReq.Header.Add(k, v)
-		}
+		clone.Header[k] = append([]string(nil), vs...)
 	}
-	stdResp, err := d.Client.Do(stdReq)
-	if err != nil {
-		return nil, err
+	client := d.Client
+	if client == nil {
+		client = http.DefaultClient
 	}
-	resp := &fhttp.Response{
-		StatusCode: stdResp.StatusCode,
-		Header:     fhttp.Header(stdResp.Header),
-		Body:       stdResp.Body,
-		Request:    req,
-	}
-	return resp, nil
+	return client.Do(clone)
 }

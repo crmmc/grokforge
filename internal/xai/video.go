@@ -7,11 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"time"
-
-	http "github.com/bogdanfinn/fhttp"
 )
 
 // Video API endpoints.

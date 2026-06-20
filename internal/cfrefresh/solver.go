@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 const grokURL = "https://grok.com"
@@ -38,13 +39,13 @@ type flaresolverrProxyField struct {
 
 // flaresolverrResponse is the JSON response from FlareSolverr.
 type flaresolverrResponse struct {
-	Status   string                `json:"status"`
-	Message  string                `json:"message"`
-	Solution flaresolverrSolution  `json:"solution"`
+	Status   string               `json:"status"`
+	Message  string               `json:"message"`
+	Solution flaresolverrSolution `json:"solution"`
 }
 
 type flaresolverrSolution struct {
-	UserAgent string              `json:"userAgent"`
+	UserAgent string               `json:"userAgent"`
 	Cookies   []flaresolverrCookie `json:"cookies"`
 }
 
@@ -135,13 +136,9 @@ func extractCookieValue(cookies []flaresolverrCookie, name string) string {
 	return ""
 }
 
-var chromeVersionRe = regexp.MustCompile(`Chrome/(\d+)`)
-
-// extractBrowserProfile extracts "chromeNNN" from a user-agent string.
 func extractBrowserProfile(userAgent string) string {
-	m := chromeVersionRe.FindStringSubmatch(userAgent)
-	if len(m) >= 2 {
-		return "chrome" + m[1]
+	if profile := transport.BrowserFromUserAgent(userAgent); profile != "" {
+		return profile
 	}
-	return "chrome120"
+	return transport.DefaultProfile
 }

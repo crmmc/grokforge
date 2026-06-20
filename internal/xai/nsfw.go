@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 
-	http "github.com/bogdanfinn/fhttp"
-	tls_client "github.com/bogdanfinn/tls-client"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 // ---------- Endpoints ----------
@@ -24,7 +24,7 @@ const (
 // ---------- nsfwHTTPClient interface ----------
 
 // nsfwHTTPClient is the minimal interface NsfwClient needs for HTTP calls.
-// In production this is satisfied by tls_client.HttpClient; in tests by a mock.
+// In production this is satisfied by the curl-impersonate transport; in tests by a mock.
 type nsfwHTTPClient interface {
 	Do(req *http.Request) (*http.Response, error)
 }
@@ -46,9 +46,9 @@ func NewNsfwClient(token string, opts ...ClientOption) (*NsfwClient, error) {
 		opt(options)
 	}
 
-	httpClient, err := newTLSClient(options, options.ProxyURL)
+	httpClient, err := newTransportDoer(options, options.ProxyURL)
 	if err != nil {
-		return nil, fmt.Errorf("nsfw: failed to create tls client: %w", err)
+		return nil, fmt.Errorf("nsfw: failed to create curl-impersonate transport: %w", err)
 	}
 
 	c := &NsfwClient{
@@ -64,9 +64,6 @@ func NewNsfwClient(token string, opts ...ClientOption) (*NsfwClient, error) {
 
 // Close releases resources held by the NsfwClient.
 func (c *NsfwClient) Close() {
-	if closer, ok := c.http.(tls_client.HttpClient); ok {
-		closer.CloseIdleConnections()
-	}
 }
 
 // AcceptTOS calls the upstream AcceptTOS endpoint.
@@ -162,7 +159,7 @@ type headerOverride struct {
 func (c *NsfwClient) applyHeaders(req *http.Request, ov headerOverride) {
 	base := buildHeaders(c.token, c.opts, c.statsigID)
 	for k, v := range base {
-		if k == http.HeaderOrderKey {
+		if k == transport.HeaderOrderKey {
 			continue
 		}
 		req.Header.Set(k, v[0])
@@ -181,8 +178,8 @@ func (c *NsfwClient) applyHeaders(req *http.Request, ov headerOverride) {
 		req.Header.Set("Sec-Fetch-Site", ov.secFetchSite)
 	}
 
-	order := make([]string, len(base[http.HeaderOrderKey]))
-	copy(order, base[http.HeaderOrderKey])
+	order := make([]string, len(base[transport.HeaderOrderKey]))
+	copy(order, base[transport.HeaderOrderKey])
 
 	if ov.grpcWeb {
 		req.Header.Set("x-grpc-web", "1")
@@ -192,7 +189,7 @@ func (c *NsfwClient) applyHeaders(req *http.Request, ov headerOverride) {
 		order = append(order, "x-grpc-web", "x-user-agent", "cache-control", "pragma")
 	}
 
-	req.Header[http.HeaderOrderKey] = order
+	req.Header[transport.HeaderOrderKey] = order
 }
 
 // ---------- gRPC response handling ----------

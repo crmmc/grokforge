@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
-
-	http "github.com/bogdanfinn/fhttp"
 )
 
 const uploadFileAPI = "https://grok.com/rest/app-chat/upload-file"

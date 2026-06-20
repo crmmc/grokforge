@@ -223,13 +223,26 @@ func TestApplyDBOverrides_RejectsInvalidValue(t *testing.T) {
 	}
 }
 
-func TestApplyDBOverrides_RequiresProxyBrowserPair(t *testing.T) {
+func TestApplyDBOverrides_AllowsProxyBrowserAndUserAgentIndependently(t *testing.T) {
 	cfg := DefaultConfig()
 
 	err := cfg.ApplyDBOverrides(map[string]string{
 		"proxy.user_agent": "Mozilla/5.0",
 	})
-	if err == nil || !strings.Contains(err.Error(), "must be overridden together") {
-		t.Fatalf("expected paired proxy override error, got %v", err)
+	if err != nil {
+		t.Fatalf("proxy.user_agent should be allowed without proxy.browser: %v", err)
+	}
+	if cfg.Proxy.UserAgent != "Mozilla/5.0" {
+		t.Fatalf("proxy.user_agent override was not applied, got %q", cfg.Proxy.UserAgent)
+	}
+
+	err = cfg.ApplyDBOverrides(map[string]string{
+		"proxy.browser": "firefox135",
+	})
+	if err != nil {
+		t.Fatalf("proxy.browser should be allowed without proxy.user_agent: %v", err)
+	}
+	if cfg.Proxy.Browser != "firefox135" {
+		t.Fatalf("proxy.browser override was not applied, got %q", cfg.Proxy.Browser)
 	}
 }

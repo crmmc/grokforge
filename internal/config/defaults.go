@@ -1,17 +1,9 @@
 package config
 
+import "github.com/crmmc/grokforge/internal/upstream/transport"
+
 func boolPtr(v bool) *bool {
 	return &v
-}
-
-// BrowserUAMap maps browser fingerprint names to their paired User-Agent strings.
-// Browser and UA must always be used as a pair.
-var BrowserUAMap = map[string]string{
-	"chrome_133":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-	"chrome_144":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36",
-	"chrome_146":  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
-	"firefox_135": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0",
-	"firefox_147": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:147.0) Gecko/20100101 Firefox/147.0",
 }
 
 // DefaultConfig returns the default configuration.
@@ -63,8 +55,8 @@ func DefaultConfig() *Config {
 			RefreshInterval:    3600,
 			Timeout:            300,
 			CFClearance:        "",
-			Browser:            "chrome_146",
-			UserAgent:          "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
+			Browser:            transport.DefaultProfile,
+			UserAgent:          transport.DefaultUserAgent(),
 		},
 		Retry: RetryConfig{
 			MaxTokens:               5,

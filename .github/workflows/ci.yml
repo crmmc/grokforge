@@ -35,6 +35,9 @@ jobs:
         with:
           go-version-file: go.mod
 
+      - name: Install cgo build dependencies
+        run: sudo apt-get update && sudo apt-get install -y gcc libc6-dev libcurl4-openssl-dev
+
       - name: Create frontend stub for embed
         run: mkdir -p web/out && touch web/out/.gitkeep
 

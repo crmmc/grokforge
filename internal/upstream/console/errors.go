@@ -4,10 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 
-	fhttp "github.com/bogdanfinn/fhttp"
 	"github.com/crmmc/grokforge/internal/upstream"
 )
 
@@ -19,20 +19,20 @@ func (c *ConsoleUpstream) mapError(err error) error {
 	return err
 }
 
-func (c *ConsoleUpstream) mapHTTPError(resp *fhttp.Response) error {
+func (c *ConsoleUpstream) mapHTTPError(resp *http.Response) error {
 	contentType := resp.Header.Get("Content-Type")
 	switch resp.StatusCode {
-	case fhttp.StatusUnauthorized:
+	case http.StatusUnauthorized:
 		return upstream.ErrInvalidToken
-	case fhttp.StatusPaymentRequired:
+	case http.StatusPaymentRequired:
 		return upstream.ErrCreditExhausted
-	case fhttp.StatusForbidden:
+	case http.StatusForbidden:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		if isCFChallenge(contentType, string(body)) {
 			return upstream.ErrCFChallenge
 		}
 		return upstream.ErrForbidden
-	case fhttp.StatusTooManyRequests:
+	case http.StatusTooManyRequests:
 		return upstream.ErrRateLimited
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))

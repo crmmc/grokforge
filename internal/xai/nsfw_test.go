@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 	"testing"
-
-	http "github.com/bogdanfinn/fhttp"
 )
 
 // mockHTTPClient records requests and returns canned responses.
@@ -235,9 +234,9 @@ func TestDoGRPCCall_RejectsNoTrailer(t *testing.T) {
 
 func TestEnableNSFW_FullSequence(t *testing.T) {
 	responses := []*http.Response{
-		grpcOKResponse(),  // AcceptTOS
-		restOKResponse(),  // SetBirthDate
-		grpcOKResponse(),  // SetNSFW
+		grpcOKResponse(), // AcceptTOS
+		restOKResponse(), // SetBirthDate
+		grpcOKResponse(), // SetNSFW
 	}
 	seqMock := &sequentialMock{responses: responses}
 	c := &NsfwClient{

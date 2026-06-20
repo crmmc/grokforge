@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	fhttp "github.com/bogdanfinn/fhttp"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 func TestBuildHeaders_Chromium(t *testing.T) {
@@ -41,7 +41,7 @@ func TestBuildHeaders_Chromium(t *testing.T) {
 	if h.Get("Sec-Ch-Ua") == "" {
 		t.Error("expected Sec-Ch-Ua for chromium")
 	}
-	if got := h[fhttp.HeaderOrderKey]; len(got) != 2 || got[0] != "user-agent" || got[1] != "cookie" {
+	if got := h[transport.HeaderOrderKey]; len(got) != 2 || got[0] != "user-agent" || got[1] != "cookie" {
 		t.Errorf("HeaderOrderKey = %v", got)
 	}
 }
@@ -50,7 +50,9 @@ func TestBuildHeaders_FirefoxSkipsClientHints(t *testing.T) {
 	g := New("", nil, Options{
 		BuildCookieString: func(tok string) string { return BuildCookie(tok, "", "") },
 		BrowserProfile:    func() string { return "firefox135" },
-		UserAgent:         func() string { return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0" },
+		UserAgent: func() string {
+			return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:135.0) Gecko/20100101 Firefox/135.0"
+		},
 	})
 
 	h := g.buildHeaders("tok-abc")
@@ -58,11 +60,10 @@ func TestBuildHeaders_FirefoxSkipsClientHints(t *testing.T) {
 	if h.Get("Sec-Ch-Ua") != "" {
 		t.Errorf("Sec-Ch-Ua = %q, want empty for firefox", h.Get("Sec-Ch-Ua"))
 	}
-	if got := h[fhttp.HeaderOrderKey]; len(got) == 0 {
+	if got := h[transport.HeaderOrderKey]; len(got) == 0 {
 		t.Fatal("HeaderOrderKey is empty")
 	}
 	if h.Get("Cookie") != "sso=tok-abc; sso-rw=tok-abc" {
 		t.Errorf("Cookie = %q", h.Get("Cookie"))
 	}
 }
-

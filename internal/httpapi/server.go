@@ -222,6 +222,7 @@ func (s *Server) setupRoutes() {
 				r.Get("/config", handleGetConfig(s.cfg))
 				r.Put("/config", handlePutConfig(s.cfg, s.configStore))
 			}
+			r.Get("/proxy/browsers", handleGetProxyBrowsers())
 
 			// Token endpoints
 			if s.tokenStore != nil {

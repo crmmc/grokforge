@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/crmmc/grokforge/internal/config"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 )
 
 func TestAdminConfig_GetConfig(t *testing.T) {
@@ -98,6 +99,84 @@ func TestAdminConfig_PutConfig_ConsoleConfig(t *testing.T) {
 	}
 	if !resp.Console.Enabled || !resp.Console.WebSearch {
 		t.Fatalf("response console config = %+v, want enabled web_search", resp.Console)
+	}
+}
+
+func TestAdminConfig_PutConfig_ProxyBrowserPairsUserAgent(t *testing.T) {
+	cfg := config.DefaultConfig()
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"proxy":{"browser":"firefox135"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Proxy.Browser != "firefox135" {
+		t.Fatalf("proxy.browser = %q, want firefox135", cfg.Proxy.Browser)
+	}
+	if cfg.Proxy.UserAgent != transport.ProfileUAMap["firefox135"] {
+		t.Fatalf("proxy.user_agent = %q, want paired firefox135 UA", cfg.Proxy.UserAgent)
+	}
+}
+
+func TestAdminConfig_PutConfig_RejectsUnsupportedProxyBrowser(t *testing.T) {
+	cfg := config.DefaultConfig()
+	handler := handlePutConfig(cfg, nil)
+
+	body := `{"proxy":{"browser":"edge120"}}`
+	req := httptest.NewRequest(http.MethodPut, "/admin/config", bytes.NewBufferString(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if cfg.Proxy.Browser == "edge120" {
+		t.Fatalf("unsupported proxy.browser should not be applied")
+	}
+}
+
+func TestHandleGetProxyBrowsers(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/admin/proxy/browsers", nil)
+	rec := httptest.NewRecorder()
+
+	handleGetProxyBrowsers().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+	var resp ProxyBrowsersResponse
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.DefaultBrowser != transport.DefaultProfile {
+		t.Fatalf("default_browser = %q, want %q", resp.DefaultBrowser, transport.DefaultProfile)
+	}
+	if resp.DefaultUserAgent != transport.DefaultUserAgent() {
+		t.Fatalf("default_user_agent mismatch")
+	}
+	seenChrome136 := false
+	seenEdge120 := false
+	for _, option := range resp.Browsers {
+		if option.Browser == "chrome136" && option.UserAgent == transport.ProfileUAMap["chrome136"] {
+			seenChrome136 = true
+		}
+		if option.Browser == "edge120" {
+			seenEdge120 = true
+		}
+	}
+	if !seenChrome136 {
+		t.Fatalf("expected chrome136 option in response: %+v", resp.Browsers)
+	}
+	if seenEdge120 {
+		t.Fatalf("unsupported edge120 should not be exposed")
 	}
 }
 

@@ -307,9 +307,6 @@ func (c *Config) ApplyDBOverrides(kvs map[string]string) error {
 func validateProxyOverrides(kvs map[string]string) error {
 	browser, hasBrowser := kvs["proxy.browser"]
 	userAgent, hasUserAgent := kvs["proxy.user_agent"]
-	if hasBrowser != hasUserAgent {
-		return fmt.Errorf("config: proxy.browser and proxy.user_agent must be overridden together")
-	}
 	if hasBrowser && strings.TrimSpace(browser) == "" {
 		return fmt.Errorf("config: proxy.browser override cannot be empty")
 	}

@@ -12,7 +12,7 @@ func TestExtractMajorVersion(t *testing.T) {
 		want  string
 	}{
 		{"chrome136", "136"},
-		{"chrome_133", "133"},
+		{"chrome133a", "133"},
 		{"firefox135", "135"},
 		{"", ""},
 		{"noversion", ""},

@@ -6,10 +6,11 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math/rand"
+	"net/http"
 	"regexp"
 	"strings"
 
-	fhttp "github.com/bogdanfinn/fhttp"
+	"github.com/crmmc/grokforge/internal/upstream/transport"
 	"github.com/google/uuid"
 )
 
@@ -158,14 +159,14 @@ func genStatsigID() string {
 	return base64.StdEncoding.EncodeToString([]byte(msg))
 }
 
-func (c *ConsoleUpstream) buildHeaders(token string) fhttp.Header {
+func (c *ConsoleUpstream) buildHeaders(token string) http.Header {
 	statsigID := c.statsigID()
 	if statsigID == "" {
 		statsigID = genStatsigID()
 	}
 
 	hints := buildClientHints(c.browserProfile(), c.userAgent())
-	h := fhttp.Header{
+	h := http.Header{
 		"Accept":           {"*/*"},
 		"Accept-Encoding":  {"gzip, deflate, br, zstd"},
 		"Accept-Language":  {"zh-CN,zh;q=0.9,en;q=0.8"},
@@ -210,15 +211,15 @@ func (c *ConsoleUpstream) buildHeaders(token string) fhttp.Header {
 	)
 
 	if override := c.headerOrder(); len(override) > 0 {
-		h[fhttp.HeaderOrderKey] = override
+		h[transport.HeaderOrderKey] = override
 	} else {
-		h[fhttp.HeaderOrderKey] = order
+		h[transport.HeaderOrderKey] = order
 	}
 	return h
 }
 
-func (c *ConsoleUpstream) buildRequest(ctx context.Context, token string, body []byte) (*fhttp.Request, error) {
-	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodPost, c.baseURL, bytes.NewReader(body))
+func (c *ConsoleUpstream) buildRequest(ctx context.Context, token string, body []byte) (*http.Request, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

@@ -6,9 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
-
-	fhttp "github.com/bogdanfinn/fhttp"
 )
 
 const maxJSONResponseSize = 1 << 20
@@ -44,7 +43,7 @@ func (g *GrokUpstream) uploadFile(ctx context.Context, token, fileName, fileMime
 		return "", "", fmt.Errorf("upload file: marshal request: %w", err)
 	}
 
-	req, err := fhttp.NewRequestWithContext(ctx, fhttp.MethodPost, g.uploadURL(), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, g.uploadURL(), bytes.NewReader(body))
 	if err != nil {
 		return "", "", fmt.Errorf("upload file: create request: %w", err)
 	}
@@ -57,7 +56,7 @@ func (g *GrokUpstream) uploadFile(ctx context.Context, token, fileName, fileMime
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != fhttp.StatusOK {
+	if resp.StatusCode != http.StatusOK {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxJSONResponseSize))
 		return "", "", fmt.Errorf("upload file: status %d, body: %s", resp.StatusCode, string(respBody))
 	}
