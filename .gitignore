@@ -3,15 +3,11 @@ bin/
 /grokforge
 *.exe
 
-# PRD tracking (internal)
-PRD_Tracking/
-
 # Claude Code
 .claude/
 
 # Development docs (internal)
 CLAUDE.md
-.planning/
 bugs.md
 docs/archive/
 docs/designs/
@@ -40,9 +36,9 @@ internal/upstream/console/test/data/**
 
 # Config (user-specific)
 config.toml
+cwconfig.json
 
 # IDE
-.idea/
 .vscode/
 *.swp
 *.swo
@@ -68,10 +64,7 @@ tmp/
 # Logs
 logs/
 
-# AI Assistant configs
-.opencode/
-
-# Cleanup-managed local artifacts
+# Local caches and runtime artifacts
 .cache/
 e2e_temp/
 e2e_test_temp/
