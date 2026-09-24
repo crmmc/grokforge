@@ -52,13 +52,15 @@ type rateLimitEntry struct {
 	windowStart atomic.Int64 // unix timestamp
 }
 
+// apiKeyRateLimitWindowFn resolves the fixed per-minute API key rate-limit window.
+// It is a named function (instead of an inline closure) so tests can invoke it.
+func apiKeyRateLimitWindowFn() time.Duration { return apiKeyRateLimitWindow }
+
 // APIKeyAuth returns a middleware that authenticates requests via API key DB lookup.
 // Enforces daily_limit and rate_limit, returning 429 when exceeded.
 func APIKeyAuth(akStore APIKeyStoreInterface) func(http.Handler) http.Handler {
 	var rateLimitMap sync.Map // map[uint]*rateLimitEntry
-	startRateLimitCleanup("apikey_rate_limit_cleanup", &rateLimitMap, func() time.Duration {
-		return apiKeyRateLimitWindow
-	})
+	startRateLimitCleanup("apikey_rate_limit_cleanup", &rateLimitMap, apiKeyRateLimitWindowFn)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

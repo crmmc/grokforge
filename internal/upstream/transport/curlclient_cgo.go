@@ -66,38 +66,44 @@ func curlPerform(req *http.Request, opts Options, headers []string, body []byte)
 		errCh <- err
 	}()
 
-	select {
-	case <-state.headerReady:
-		state.mu.Lock()
-		statusCode := state.statusCode
-		header := state.header.Clone()
-		headerErr := state.headerErr
-		state.mu.Unlock()
-		if headerErr != nil {
-			_ = reader.CloseWithError(headerErr)
-			return nil, headerErr
-		}
-		if statusCode == 0 {
-			statusCode = http.StatusOK
-		}
-		return responseFromParts(req, statusCode, header, reader), nil
-	case err := <-errCh:
-		if err != nil {
-			return nil, err
-		}
-		state.mu.Lock()
-		statusCode := state.statusCode
-		header := state.header.Clone()
-		state.mu.Unlock()
-		if statusCode == 0 {
-			statusCode = http.StatusOK
-		}
-		return responseFromParts(req, statusCode, header, reader), nil
-	case <-req.Context().Done():
-		err := req.Context().Err()
-		state.signalHeaders(err)
+	if err := awaitCurlResult(state, errCh, req.Context()); err != nil {
 		_ = reader.CloseWithError(err)
 		return nil, err
+	}
+
+	state.mu.Lock()
+	headerErr := state.headerErr
+	statusCode := state.statusCode
+	header := state.header.Clone()
+	state.mu.Unlock()
+	if headerErr != nil {
+		_ = reader.CloseWithError(headerErr)
+		return nil, headerErr
+	}
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	return responseFromParts(req, statusCode, header, reader), nil
+}
+
+// awaitCurlResult waits until the worker goroutine has produced the response
+// headers or exited, or the request context is done, and returns the error to
+// propagate (nil when headers are ready). The worker always signals
+// headerReady before sending on errCh, so both channels carry the same
+// completion; errCh stays as a defensive fallback for a worker that exits
+// without signaling. The context-cancel branch mirrors the worker's failure
+// path so late header callbacks observe the cancellation.
+func awaitCurlResult(state *curlState, errCh <-chan error, ctx context.Context) error {
+	select {
+	case <-state.headerReady:
+		return nil
+	case err := <-errCh:
+		state.signalHeaders(err)
+		return err
+	case <-ctx.Done():
+		err := ctx.Err()
+		state.signalHeaders(err)
+		return err
 	}
 }
 

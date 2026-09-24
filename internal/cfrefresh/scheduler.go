@@ -18,15 +18,27 @@ const (
 	triggerCooldown    = 60 * time.Second // minimum gap between triggered refreshes
 )
 
+// configWriter is the minimal persistence seam used by the scheduler.
+// *store.ConfigStore satisfies it implicitly.
+type configWriter interface {
+	SetMany(kvs map[string]string) error
+}
+
 // Scheduler periodically refreshes CF clearance via FlareSolverr.
 type Scheduler struct {
 	runtime     *config.Runtime
-	configStore *store.ConfigStore
+	configStore configWriter
 	stopOnce    sync.Once
 	stopped     chan struct{}
 	done        chan struct{}
 	triggerCh   chan struct{} // external trigger (e.g. on 403)
 	lastRefresh atomic.Int64  // unix seconds of last successful refresh
+
+	// Injection seams for deterministic testing. All nil in production;
+	// helpers below fall back to the real implementations.
+	solveFn   func(flaresolverrURL string, timeout int, proxyURL string) (*SolveResult, error)
+	nextDelay func() time.Duration // overrides the refresh timer duration when set
+	nowFn     func() time.Time     // overrides time.Now for cooldown checks when set
 }
 
 // NewScheduler creates a CF refresh scheduler.
@@ -38,6 +50,27 @@ func NewScheduler(runtime *config.Runtime, configStore *store.ConfigStore) *Sche
 		done:        make(chan struct{}),
 		triggerCh:   make(chan struct{}, 1),
 	}
+}
+
+func (s *Scheduler) solver() func(flaresolverrURL string, timeout int, proxyURL string) (*SolveResult, error) {
+	if s.solveFn != nil {
+		return s.solveFn
+	}
+	return SolveCFChallenge
+}
+
+func (s *Scheduler) refreshDelay() time.Duration {
+	if s.nextDelay != nil {
+		return s.nextDelay()
+	}
+	return time.Duration(s.getInterval()) * time.Second
+}
+
+func (s *Scheduler) since(t time.Time) time.Duration {
+	if s.nowFn != nil {
+		return s.nowFn().Sub(t)
+	}
+	return time.Since(t)
 }
 
 // Start launches the background refresh goroutine.
@@ -61,7 +94,7 @@ func (s *Scheduler) TriggerRefresh() {
 	}
 	// Debounce: skip if last refresh was within cooldown period.
 	last := s.lastRefresh.Load()
-	if last > 0 && time.Since(time.Unix(last, 0)) < triggerCooldown {
+	if last > 0 && s.since(time.Unix(last, 0)) < triggerCooldown {
 		logging.Debug("cf_refresh: trigger ignored (cooldown)")
 		return
 	}
@@ -87,8 +120,7 @@ func (s *Scheduler) run() {
 	}
 
 	for {
-		interval := s.getInterval()
-		timer := time.NewTimer(time.Duration(interval) * time.Second)
+		timer := time.NewTimer(s.refreshDelay())
 
 		select {
 		case <-s.stopped:
@@ -120,7 +152,7 @@ func (s *Scheduler) refreshOnce() {
 	logging.Info("cf_refresh: refreshing cf_clearance...",
 		"flaresolverr_url", flareURL, "timeout", timeout)
 
-	result, err := SolveCFChallenge(flareURL, timeout, proxyURL)
+	result, err := s.solver()(flareURL, timeout, proxyURL)
 	if err != nil {
 		logging.Error("cf_refresh: refresh failed", "error", err)
 		return
