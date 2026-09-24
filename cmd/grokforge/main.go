@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
@@ -37,26 +38,56 @@ var (
 	buildTime = "unknown"
 )
 
+// signalNotify is indirected so tests can trigger the graceful shutdown path
+// by sending on the injected channel instead of delivering real OS signals.
+var signalNotify = signal.Notify
+
+// osExit is indirected so the http-server failure branch can be exercised in
+// tests without terminating the test process.
+var osExit = os.Exit
+
+// adminKeyEntropy is the randomness source for the bootstrap admin app key.
+// nil means crypto/rand, which is what production uses.
+var adminKeyEntropy io.Reader
+
+// xaiClientConstructor is indirected so the client-factory failure branches
+// can be exercised in tests; production always uses xai.NewClient.
+var xaiClientConstructor = xai.NewClient
+
 const serverWriteTimeout = 330 * time.Second
 const tokenFlushInterval = 30 * time.Second
 const upstreamStaticStatsigID = "ZTpUeXBlRXJyb3I6IENhbm5vdCByZWFkIHByb3BlcnRpZXMgb2YgdW5kZWZpbmVkIChyZWFkaW5nICdjaGlsZE5vZGVzJyk="
 
 func main() {
+	if err := run(os.Args[1:], os.Stdout, os.Stderr); err != nil {
+		os.Exit(1)
+	}
+}
+
+// run boots GrokForge end to end: flag parsing, configuration, storage,
+// background schedulers, flows and the HTTP server, then blocks until an
+// interrupt signal arrives and performs the graceful shutdown sequence.
+// All user-facing output (logging, stderr diagnostics, version banner) is
+// produced inside; the returned error is only an exit-code signal for main.
+func run(argv []string, stdout, stderr io.Writer) error {
 	// Parse flags
-	configPath := flag.String("config", "config.toml", "path to config file")
-	showVersion := flag.Bool("version", false, "show version and exit")
-	flag.Parse()
+	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError)
+	configPath := fs.String("config", "config.toml", "path to config file")
+	showVersion := fs.Bool("version", false, "show version and exit")
+	// ExitOnError terminates the process on parse errors (including -h),
+	// matching the previous flag.Parse() behavior.
+	_ = fs.Parse(argv)
 
 	if *showVersion {
-		fmt.Printf("grokforge %s (built %s)\n", version, buildTime)
-		os.Exit(0)
+		fmt.Fprintf(stdout, "grokforge %s (built %s)\n", version, buildTime)
+		return nil
 	}
 
 	// Load configuration
 	cfg, err := config.Load(*configPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		os.Exit(1)
+		fmt.Fprintf(stderr, "failed to load config: %v\n", err)
+		return err
 	}
 
 	// Setup logging
@@ -70,15 +101,13 @@ func main() {
 	// Open database
 	db, err := store.Open(cfg)
 	if err != nil {
-		logging.Error("failed to open database", "error", err)
-		os.Exit(1)
+		return startupError("failed to open database", err)
 	}
 	defer store.Close(db)
 
 	// Run migrations
 	if err := store.AutoMigrate(db); err != nil {
-		logging.Error("failed to migrate database", "error", err)
-		os.Exit(1)
+		return startupError("failed to migrate database", err)
 	}
 	logging.Info("database ready", "driver", cfg.App.DBDriver)
 
@@ -90,8 +119,7 @@ func main() {
 	}
 	modelSpecs, modeSpecs, err := modelconfig.Load(modelconfig.EmbeddedFS, modelsFile)
 	if err != nil {
-		logging.Error("failed to load model catalog", "error", err)
-		os.Exit(1)
+		return startupError("failed to load model catalog", err)
 	}
 	catalogSource := "embedded"
 	if modelsFile != "" {
@@ -107,16 +135,14 @@ func main() {
 		logging.Error("failed to load config overrides from database", "error", err)
 	} else if len(dbOverrides) > 0 {
 		if err := cfg.ApplyDBOverrides(dbOverrides); err != nil {
-			logging.Error("failed to apply config overrides from database", "error", err)
-			os.Exit(1)
+			return startupError("failed to apply config overrides from database", err)
 		}
 		logging.Info("applied database config overrides", "count", len(dbOverrides))
 	}
 	ensureProxyBrowserUserAgent(cfg)
-	bootstrapAppKey, bootstrapGenerated, err := config.EnsureAdminAppKey(cfg, nil)
+	bootstrapAppKey, bootstrapGenerated, err := config.EnsureAdminAppKey(cfg, adminKeyEntropy)
 	if err != nil {
-		logging.Error("failed to prepare admin app key", "error", err)
-		os.Exit(1)
+		return startupError("failed to prepare admin app key", err)
 	}
 	if bootstrapGenerated {
 		logTemporaryBootstrapAdminPassword(bootstrapAppKey)
@@ -126,6 +152,8 @@ func main() {
 	runtimeCfg := config.NewRuntime(cfg)
 	rootCtx, rootCancel := context.WithCancel(context.Background())
 	defer rootCancel()
+
+	wiring := &runtimeWiring{runtime: runtimeCfg, reg: reg}
 
 	// Start CF refresh scheduler (FlareSolverr auto-refresh)
 	cfScheduler := cfrefresh.NewScheduler(runtimeCfg, configStore)
@@ -138,12 +166,10 @@ func main() {
 	scheduler := token.NewScheduler(tokenSvc.Manager(), modeSpecs, "https://grok.com")
 	tokenSvc.SetRefreshRequester(scheduler)
 	if err := tokenSvc.LoadTokens(rootCtx); err != nil {
-		logging.Error("failed to load tokens", "error", err)
-		os.Exit(1)
+		return startupError("failed to load tokens", err)
 	}
 	if err := tokenSvc.FlushDirty(rootCtx); err != nil {
-		logging.Error("failed to persist normalized tokens", "error", err)
-		os.Exit(1)
+		return startupError("failed to persist normalized tokens", err)
 	}
 	logging.Info("token service ready", "stats", tokenSvc.Stats())
 
@@ -159,61 +185,30 @@ func main() {
 	// Create video flow
 	videoFlow := flow.NewVideoFlow(
 		tokenSvc,
-		func(tok string) flow.VideoClient {
-			client, err := newXAIClient(runtimeCfg, tok, false)
-			if err != nil {
-				logging.Error("failed to create xai client", "error", err)
-				return nil
-			}
-			return client
-		},
+		wiring.newVideoClient,
 		&flow.VideoFlowConfig{
 			TimeoutSeconds:      300,
 			PollIntervalSeconds: 5,
 			ModelResolver:       reg,
 		},
 	)
-	videoFlow.SetAppConfigProvider(func() *config.AppConfig {
-		return &runtimeCfg.Get().App
-	})
+	videoFlow.SetAppConfigProvider(wiring.appConfig)
 	videoFlow.SetModeResolver(reg)
 	logging.Info("video flow ready")
 
 	// Create ChatFlow
-	chatDoer := transport.NewDynamicStatelessDoer(func() transport.Options {
-		current := runtimeCfg.Get()
-		return transport.Options{
-			RequestTimeout:     time.Duration(current.Proxy.Timeout) * time.Second,
-			Browser:            current.Proxy.Browser,
-			ProxyURL:           current.Proxy.BaseProxyURL,
-			SkipProxySSLVerify: current.Proxy.SkipProxySSLVerify,
-		}
-	})
-	browserProvider := func() string { return runtimeCfg.Get().Proxy.Browser }
-	userAgentProvider := func() string { return runtimeCfg.Get().Proxy.UserAgent }
-	statsigIDProvider := func() string {
-		if runtimeCfg.Get().App.DynamicStatsig {
-			return ""
-		}
-		return upstreamStaticStatsigID
-	}
+	chatDoer := transport.NewDynamicStatelessDoer(wiring.transportOptions)
 	grokOpts := grok.Options{
-		BuildCookieString: func(tok string) string {
-			current := runtimeCfg.Get()
-			return grok.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
-		},
-		BrowserProfile: browserProvider,
-		UserAgent:      userAgentProvider,
-		StatsigID:      statsigIDProvider,
+		BuildCookieString: wiring.grokCookie,
+		BrowserProfile:    wiring.browserProfile,
+		UserAgent:         wiring.userAgent,
+		StatsigID:         wiring.statsigID,
 	}
 	consoleOpts := console.Options{
-		BuildCookieString: func(tok string) string {
-			current := runtimeCfg.Get()
-			return console.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
-		},
-		BrowserProfile: browserProvider,
-		UserAgent:      userAgentProvider,
-		StatsigID:      statsigIDProvider,
+		BuildCookieString: wiring.consoleCookie,
+		BrowserProfile:    wiring.browserProfile,
+		UserAgent:         wiring.userAgent,
+		StatsigID:         wiring.statsigID,
 	}
 	upstreams := map[string]upstream.Upstream{
 		"grok":    grok.New(grok.DefaultURL, chatDoer, grokOpts),
@@ -223,35 +218,12 @@ func main() {
 		tokenSvc,
 		upstreams,
 		&flow.ChatFlowConfig{
-			RetryConfig: flow.DefaultRetryConfig(),
-			RetryConfigProvider: func() *flow.RetryConfig {
-				current := runtimeCfg.Get()
-				retry := current.Retry
-				return &flow.RetryConfig{
-					MaxTokens:       retry.MaxTokens,
-					PerTokenRetries: retry.PerTokenRetries,
-					BaseDelay:       time.Duration(retry.RetryBackoffBase * float64(time.Second)),
-					MaxDelay:        time.Duration(retry.RetryBackoffMax * float64(time.Second)),
-					JitterFactor:    0.25,
-					BackoffFactor:   retry.RetryBackoffFactor,
-					RetryBudget:     time.Duration(retry.RetryBudget * float64(time.Second)),
-				}
-			},
-			ModelResolver: reg,
-			AppConfigProvider: func() *config.AppConfig {
-				return &runtimeCfg.Get().App
-			},
-			FilterTagsProvider: func() []string {
-				current := runtimeCfg.Get()
-				return append([]string(nil), current.App.FilterTags...)
-			},
-			ResolveUpstream: func(name string) (string, string, bool) {
-				rm, ok := reg.Resolve(name)
-				if !ok {
-					return "", "", false
-				}
-				return rm.UpstreamModel, rm.UpstreamMode, true
-			},
+			RetryConfig:         flow.DefaultRetryConfig(),
+			RetryConfigProvider: wiring.retryConfig,
+			ModelResolver:       reg,
+			AppConfigProvider:   wiring.appConfig,
+			FilterTagsProvider:  wiring.filterTags,
+			ResolveUpstream:     wiring.resolveUpstream,
 		},
 	)
 	logging.Info("chat flow ready")
@@ -270,39 +242,19 @@ func main() {
 
 	// Create API key store
 	apiKeyStore := store.NewAPIKeyStore(db)
+	wiring.apiKeys = apiKeyStore
 
 	// Wire API key usage increment into chat flow (only on success)
-	chatFlow.SetAPIKeyUsageInc(func(ctx context.Context, apiKeyID uint) {
-		_ = apiKeyStore.IncrementUsage(ctx, apiKeyID)
-	})
+	chatFlow.SetAPIKeyUsageInc(wiring.incAPIKeyUsage)
 
 	// Create ImageFlow with per-request token selection
-	imageFlow := flow.NewImageFlow(tokenSvc, func(token string) flow.ImagineGenerator {
-		return newImagineClient(runtimeCfg, token)
-	})
-	imageFlow.SetEditClientFactory(func(token string) flow.ImageEditClient {
-		client, err := newXAIClient(runtimeCfg, token, true)
-		if err != nil {
-			logging.Error("failed to create image edit client", "error", err)
-			return nil
-		}
-		return client
-	})
-	imageFlow.SetAppConfigProvider(func() *config.AppConfig {
-		return &runtimeCfg.Get().App
-	})
-	imageFlow.SetImageConfigProvider(func() *config.ImageConfig {
-		return &runtimeCfg.Get().Image
-	})
+	imageFlow := flow.NewImageFlow(tokenSvc, wiring.newImagineGenerator)
+	imageFlow.SetEditClientFactory(wiring.newImageEditClient)
+	imageFlow.SetAppConfigProvider(wiring.appConfig)
+	imageFlow.SetImageConfigProvider(wiring.imageConfig)
 	imageFlow.SetModelResolver(reg)
 	imageFlow.SetModeResolver(reg)
-	imageFlow.SetEnableProResolver(func(model string) bool {
-		rm, ok := reg.Resolve(model)
-		if !ok {
-			return false
-		}
-		return rm.EnablePro
-	})
+	imageFlow.SetEnableProResolver(wiring.enablePro)
 	imageFlow.SetUsageRecorder(usageBuffer)
 	logging.Info("image flow ready")
 
@@ -360,38 +312,17 @@ func main() {
 
 	// Start server in goroutine
 	flow.SafeGo("http_server_listen", func() {
-		logging.Info("server listening", "addr", addr)
-		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			logging.Error("server error", "error", err)
-			os.Exit(1)
-		}
+		serveHTTP(httpServer)
 	})
 
 	// Start API Key daily usage reset ticker
 	flow.SafeGo("apikey_daily_reset", func() {
-		for {
-			now := time.Now().UTC()
-			nextMidnight := time.Date(now.Year(), now.Month(), now.Day()+1, 0, 0, 0, 0, time.UTC)
-			timer := time.NewTimer(nextMidnight.Sub(now))
-			select {
-			case <-rootCtx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-			if err := apiKeyStore.ResetDailyUsage(context.Background()); err != nil {
-				logging.Error("failed to reset API key daily usage", "error", err)
-			} else {
-				logging.Info("API key daily usage reset complete")
-			}
-			// Quotas are now managed by the recovery scheduler (auto/upstream mode),
-			// no midnight reset needed.
-		}
+		apiKeyDailyResetLoop(rootCtx, apiKeyStore, time.Now)
 	})
 
 	// Wait for interrupt signal
 	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	signalNotify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	logging.Info("shutting down server...")
@@ -419,6 +350,163 @@ func main() {
 	}
 
 	logging.Info("server stopped")
+	return nil
+}
+
+// startupError logs a fatal startup failure and returns it so that run exits
+// with status 1 after its deferred cleanup.
+func startupError(msg string, err error) error {
+	logging.Error(msg, "error", err)
+	return err
+}
+
+// serveHTTP runs the HTTP server until it fails or is shut down. A listen
+// error other than a deliberate shutdown is fatal: it logs and exits the
+// process, matching the previous inline goroutine behavior.
+func serveHTTP(srv *http.Server) {
+	logging.Info("server listening", "addr", srv.Addr)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		logging.Error("server error", "error", err)
+		osExit(1)
+	}
+}
+
+// apiKeyDailyResetLoop resets API key daily usage at each UTC midnight until
+// ctx is canceled. now is injected for deterministic tests.
+func apiKeyDailyResetLoop(ctx context.Context, apiKeyStore *store.APIKeyStore, now func() time.Time) {
+	for {
+		current := now().UTC()
+		nextMidnight := time.Date(current.Year(), current.Month(), current.Day()+1, 0, 0, 0, 0, time.UTC)
+		timer := time.NewTimer(nextMidnight.Sub(current))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+		resetAPIKeyDailyUsage(apiKeyStore)
+	}
+}
+
+func resetAPIKeyDailyUsage(apiKeyStore *store.APIKeyStore) {
+	if err := apiKeyStore.ResetDailyUsage(context.Background()); err != nil {
+		logging.Error("failed to reset API key daily usage", "error", err)
+	} else {
+		logging.Info("API key daily usage reset complete")
+	}
+}
+
+// runtimeWiring groups the provider callbacks that translate the live runtime
+// configuration into flow and upstream options. The methods are used as
+// function values so that each one can be unit-tested in isolation.
+type runtimeWiring struct {
+	runtime *config.Runtime
+	reg     *registry.ModelRegistry
+	apiKeys *store.APIKeyStore
+}
+
+func (w *runtimeWiring) appConfig() *config.AppConfig {
+	return &w.runtime.Get().App
+}
+
+func (w *runtimeWiring) imageConfig() *config.ImageConfig {
+	return &w.runtime.Get().Image
+}
+
+func (w *runtimeWiring) transportOptions() transport.Options {
+	current := w.runtime.Get()
+	return transport.Options{
+		RequestTimeout:     time.Duration(current.Proxy.Timeout) * time.Second,
+		Browser:            current.Proxy.Browser,
+		ProxyURL:           current.Proxy.BaseProxyURL,
+		SkipProxySSLVerify: current.Proxy.SkipProxySSLVerify,
+	}
+}
+
+func (w *runtimeWiring) browserProfile() string {
+	return w.runtime.Get().Proxy.Browser
+}
+
+func (w *runtimeWiring) userAgent() string {
+	return w.runtime.Get().Proxy.UserAgent
+}
+
+func (w *runtimeWiring) statsigID() string {
+	if w.runtime.Get().App.DynamicStatsig {
+		return ""
+	}
+	return upstreamStaticStatsigID
+}
+
+func (w *runtimeWiring) grokCookie(tok string) string {
+	current := w.runtime.Get()
+	return grok.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
+}
+
+func (w *runtimeWiring) consoleCookie(tok string) string {
+	current := w.runtime.Get()
+	return console.BuildCookie(tok, current.Proxy.CFCookies, current.Proxy.CFClearance)
+}
+
+func (w *runtimeWiring) retryConfig() *flow.RetryConfig {
+	current := w.runtime.Get()
+	retry := current.Retry
+	return &flow.RetryConfig{
+		MaxTokens:       retry.MaxTokens,
+		PerTokenRetries: retry.PerTokenRetries,
+		BaseDelay:       time.Duration(retry.RetryBackoffBase * float64(time.Second)),
+		MaxDelay:        time.Duration(retry.RetryBackoffMax * float64(time.Second)),
+		JitterFactor:    0.25,
+		BackoffFactor:   retry.RetryBackoffFactor,
+		RetryBudget:     time.Duration(retry.RetryBudget * float64(time.Second)),
+	}
+}
+
+func (w *runtimeWiring) filterTags() []string {
+	current := w.runtime.Get()
+	return append([]string(nil), current.App.FilterTags...)
+}
+
+func (w *runtimeWiring) resolveUpstream(name string) (string, string, bool) {
+	rm, ok := w.reg.Resolve(name)
+	if !ok {
+		return "", "", false
+	}
+	return rm.UpstreamModel, rm.UpstreamMode, true
+}
+
+func (w *runtimeWiring) enablePro(model string) bool {
+	rm, ok := w.reg.Resolve(model)
+	if !ok {
+		return false
+	}
+	return rm.EnablePro
+}
+
+func (w *runtimeWiring) newVideoClient(tok string) flow.VideoClient {
+	client, err := newXAIClient(w.runtime, tok, false)
+	if err != nil {
+		logging.Error("failed to create xai client", "error", err)
+		return nil
+	}
+	return client
+}
+
+func (w *runtimeWiring) newImagineGenerator(tok string) flow.ImagineGenerator {
+	return newImagineClient(w.runtime, tok)
+}
+
+func (w *runtimeWiring) newImageEditClient(tok string) flow.ImageEditClient {
+	client, err := newXAIClient(w.runtime, tok, true)
+	if err != nil {
+		logging.Error("failed to create image edit client", "error", err)
+		return nil
+	}
+	return client
+}
+
+func (w *runtimeWiring) incAPIKeyUsage(ctx context.Context, apiKeyID uint) {
+	_ = w.apiKeys.IncrementUsage(ctx, apiKeyID)
 }
 
 func buildXAIOptions(cfg *config.Config) []xai.ClientOption {
@@ -482,7 +570,7 @@ func newXAIClient(runtime *config.Runtime, token string, noRetry bool) (xai.Clie
 	if noRetry {
 		opts = append(opts, xai.WithMaxRetry(0))
 	}
-	return xai.NewClient(token, opts...)
+	return xaiClientConstructor(token, opts...)
 }
 
 func newImagineClient(runtime *config.Runtime, token string) flow.ImagineGenerator {

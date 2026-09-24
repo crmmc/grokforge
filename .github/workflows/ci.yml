@@ -1,37 +1,29 @@
-name: CI
+name: Quality Gate
 
 on:
-  push:
-    branches: ["**"]
   pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  frontend:
-    name: Frontend Lint & Build
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-
-      - run: npm ci
-      - run: npx tsc --noEmit
-      - run: npm run build
-
   backend:
-    name: Backend Test
+    name: Backend (gofmt + vet + test/cov95)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
@@ -41,19 +33,99 @@ jobs:
       - name: Create frontend stub for embed
         run: mkdir -p web/out && touch web/out/.gitkeep
 
-      - run: go vet ./...
-      - run: go test -race -count=1 ./...
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l cmd internal)
+          if [ -n "$unformatted" ]; then
+            echo "::error::files not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
 
-      - name: Run govulncheck
-        run: go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...
+      - name: Vet
+        run: go vet ./...
 
-  backend-windows-smoke:
+      # 固定版本:x/vuln v1.8.0+ 要求 go>=1.26,而 runner 工具链随 go.mod 锁在 1.25.9(GOTOOLCHAIN=local);
+      # 漏洞库在扫描时实时拉取,版本固定只影响检查器本身。
+      - name: Govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.1.4 && govulncheck ./...
+
+      # 覆盖率口径:合并 profile 的语句加权 total(与 .trellis 基线同口径)。
+      # 硬门禁 95%,低于即失败;threshold 与门禁提示需同步修改。
+      - name: Test + coverage (>=95%, blocking)
+        run: |
+          go test -race -count=1 -coverprofile=cover.out ./...
+          go tool cover -func=cover.out | tee coverage.txt
+          total=$(awk '/^total:/ {gsub("%", "", $3); print $3}' coverage.txt)
+          echo "total statement coverage: ${total}%"
+          awk -v t="$total" 'BEGIN { exit !(t >= 95) }' || {
+            echo "::error::total coverage ${total}% is below the 95% gate"
+            exit 1
+          }
+
+  frontend:
+    name: Frontend (lint + tsc + build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npx tsc --noEmit
+      - run: npm run build
+
+  security:
+    name: Semgrep (0 findings, blocking)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.8.12"
+
+      # --config auto 的 5 条规则对本仓为已核实误报,显式豁免并保持其余规则 blocking:
+      # 1. math-random-used:math/rand 仅用于重试抖动/加权随机选 token,非密码学用途
+      # 2. cookie-missing-secure:admin cookie 的 Secure 由配置变量注入(本地 HTTP 管理时可关)
+      # 3. no-direct-write-to-responsewriter:SSE 心跳写纯文本,w.Write 是正确用法
+      # 4. missing-ssl-minversion:仅命中 skipProxySSLVerify 分支的 ws dialer,Go1.22+ 默认 TLS1.2
+      # 5. bypass-tls-verification:同上,InsecureSkipVerify 由 skipProxySSLVerify 配置门控(企业 MITM 代理逃生门),非默认行为
+      - name: Semgrep
+        run: >
+          uvx semgrep scan --config auto --error
+          --exclude-rule go.lang.security.audit.crypto.math_random.math-random-used
+          --exclude-rule go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+          --exclude-rule go.lang.security.audit.xss.no-direct-write-to-responsewriter.no-direct-write-to-responsewriter
+          --exclude-rule go.lang.security.audit.crypto.missing-ssl-minversion.missing-ssl-minversion
+          --exclude-rule problem-based-packs.insecure-transport.go-stdlib.bypass-tls-verification.bypass-tls-verification
+          cmd internal web/src
+
+  windows-smoke:
     name: Backend Windows Smoke
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
 
