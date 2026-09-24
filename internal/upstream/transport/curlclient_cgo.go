@@ -5,7 +5,10 @@ package transport
 /*
 #cgo darwin CFLAGS: -I/opt/homebrew/opt/curl/include -I/usr/local/opt/curl/include
 #cgo darwin LDFLAGS: -L/opt/homebrew/opt/curl/lib -L/usr/local/opt/curl/lib -lcurl
-#cgo linux LDFLAGS: -lcurl -ldl
+// --export-dynamic keeps test-only stub symbols (curlstub) visible to the C
+// shim's dlsym(RTLD_DEFAULT) lookup on Linux; macOS flat-namespace dlsym sees
+// the executable's symbols without it.
+#cgo linux LDFLAGS: -lcurl -ldl -Wl,--export-dynamic
 #include "curlclient_cgo.h"
 #include <stdlib.h>
 */

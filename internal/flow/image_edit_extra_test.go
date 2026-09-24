@@ -379,7 +379,9 @@ func TestNormalizeUploadedImageURLTable(t *testing.T) {
 
 func TestExtensionForMIMETable(t *testing.T) {
 	assert.Equal(t, ".png", extensionForMIME("image/png"))
-	assert.Contains(t, []string{".jpg", ".jpeg", ".jpe"}, extensionForMIME("image/jpeg"))
+	// 首选扩展名来自运行平台的 mime 表(darwin 与 linux 对 image/jpeg 的
+	// 排序不同,linux 可能返回 .jfif),断言接受全部规范扩展名。
+	assert.Contains(t, []string{".jpg", ".jpeg", ".jpe", ".jfif"}, extensionForMIME("image/jpeg"))
 	assert.Equal(t, ".bin", extensionForMIME("bogus/type"))
 	assert.Equal(t, ".bin", extensionForMIME(""))
 }

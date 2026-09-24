@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/crmmc/grokforge/web"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -178,6 +179,11 @@ func TestNewSPAHandler_FileStatFailureReturnsNotFound(t *testing.T) {
 }
 
 func TestSPAHandler_ServesEmbeddedBundle(t *testing.T) {
+	// CI 构建只生成 web/out stub(无 index.html),真实 embed 产物仅存在于
+	// 完整前端构建后的本机环境;无产物时跳过。
+	if _, err := fs.Stat(web.StaticFS, "out/index.html"); err != nil {
+		t.Skip("embedded frontend bundle not present (stub build without web/out)")
+	}
 	handler := SPAHandler()
 	require.NotNil(t, handler)
 
