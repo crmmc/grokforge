@@ -93,8 +93,8 @@ func TestRouteBodyLimit(t *testing.T) {
 
 func TestRouteBodyLimit_CustomConfig(t *testing.T) {
 	cfg := config.DefaultConfig()
-	cfg.App.BodyLimit = 512 * 1024       // 512KB
-	cfg.App.ChatBodyLimit = 20 << 20     // 20MB
+	cfg.App.BodyLimit = 512 * 1024   // 512KB
+	cfg.App.ChatBodyLimit = 20 << 20 // 20MB
 
 	if got := routeBodyLimit(cfg, http.MethodPost, "/v1/tokens"); got != 512*1024 {
 		t.Errorf("custom body limit = %d, want %d", got, 512*1024)

@@ -8,13 +8,13 @@ import (
 )
 
 type chatCompletionResponse struct {
-	ID            string                  `json:"id"`
-	Object        string                  `json:"object"`
-	Created       int64                   `json:"created"`
-	Model         string                  `json:"model"`
-	Choices       []chatCompletionChoice  `json:"choices"`
-	Usage         *flow.Usage             `json:"usage,omitempty"`
-	SearchSources []flow.SearchSource     `json:"search_sources,omitempty"`
+	ID            string                 `json:"id"`
+	Object        string                 `json:"object"`
+	Created       int64                  `json:"created"`
+	Model         string                 `json:"model"`
+	Choices       []chatCompletionChoice `json:"choices"`
+	Usage         *flow.Usage            `json:"usage,omitempty"`
+	SearchSources []flow.SearchSource    `json:"search_sources,omitempty"`
 }
 
 type chatCompletionChoice struct {
@@ -30,14 +30,14 @@ type chatCompletionMessage struct {
 }
 
 type chatResponseCollector struct {
-	req         *ChatRequest
-	showThink   bool
-	toolCallsOn bool
-	tools       []flow.Tool
-	think       *thinkCollector
-	toolParser  *toolCallStreamParser
-	toolCalls   []flow.ToolCall
-	lastUsage   *flow.Usage
+	req           *ChatRequest
+	showThink     bool
+	toolCallsOn   bool
+	tools         []flow.Tool
+	think         *thinkCollector
+	toolParser    *toolCallStreamParser
+	toolCalls     []flow.ToolCall
+	lastUsage     *flow.Usage
 	searchSources []flow.SearchSource
 }
 

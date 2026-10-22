@@ -35,7 +35,7 @@ func (c *ImagineClient) streamImages(
 		"type":      "conversation.item.create",
 		"timestamp": time.Now().UnixMilli(),
 		"item": map[string]any{
-			"type": "message",
+			"type":    "message",
 			"content": []map[string]string{{"type": "reset"}},
 		},
 	}

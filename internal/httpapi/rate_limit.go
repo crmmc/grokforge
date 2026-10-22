@@ -16,15 +16,12 @@ const (
 	apiKeyRateLimitWindow    = 60 * time.Second
 )
 
+// timeNow is the clock seam used for deterministic rate-limit window tests.
+var timeNow = time.Now
+
 func buildAdminRateLimit(getConfig func() *config.Config) func(http.Handler) http.Handler {
 	var failMap sync.Map
-	startRateLimitCleanup("admin_failures_cleanup", &failMap, func() time.Duration {
-		cfg := getConfig()
-		if cfg == nil || cfg.App.AdminWindowSec <= 0 {
-			return 0
-		}
-		return time.Duration(cfg.App.AdminWindowSec) * time.Second
-	})
+	startRateLimitCleanup("admin_failures_cleanup", &failMap, adminCleanupExpiry(getConfig))
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -41,7 +38,7 @@ func buildAdminRateLimit(getConfig func() *config.Config) func(http.Handler) htt
 			}
 
 			ip := r.RemoteAddr
-			now := time.Now().Unix()
+			now := timeNow().Unix()
 
 			entryI, _ := failMap.LoadOrStore(ip, &rateLimitEntry{})
 			entry := entryI.(*rateLimitEntry)
@@ -82,29 +79,46 @@ func buildAdminRateLimit(getConfig func() *config.Config) func(http.Handler) htt
 	}
 }
 
-func startRateLimitCleanup(name string, entries *sync.Map, expiry func() time.Duration) {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("rate limit cleanup panic recovered", "name", name, "panic", r)
-			}
-		}()
-
-		ticker := time.NewTicker(rateLimitCleanupInterval)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			window := expiry()
-			if window <= 0 {
-				continue
-			}
-			cleanupRateLimitMap(entries, window)
+// adminCleanupExpiry returns the cleanup expiry resolver for admin failure windows.
+func adminCleanupExpiry(getConfig func() *config.Config) func() time.Duration {
+	return func() time.Duration {
+		cfg := getConfig()
+		if cfg == nil || cfg.App.AdminWindowSec <= 0 {
+			return 0
 		}
+		return time.Duration(cfg.App.AdminWindowSec) * time.Second
+	}
+}
+
+func startRateLimitCleanup(name string, entries *sync.Map, expiry func() time.Duration) {
+	ticker := time.NewTicker(rateLimitCleanupInterval)
+	go func() {
+		defer ticker.Stop()
+		cleanupTickerLoop(name, ticker.C, entries, expiry)
 	}()
 }
 
+// cleanupTickerLoop runs the periodic cleanup until the tick channel is closed.
+// It is extracted from startRateLimitCleanup so tests can drive the loop with a
+// synthetic channel instead of waiting for the 10-minute ticker.
+func cleanupTickerLoop(name string, tick <-chan time.Time, entries *sync.Map, expiry func() time.Duration) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("rate limit cleanup panic recovered", "name", name, "panic", r)
+		}
+	}()
+
+	for range tick {
+		window := expiry()
+		if window <= 0 {
+			continue
+		}
+		cleanupRateLimitMap(entries, window)
+	}
+}
+
 func cleanupRateLimitMap(entries *sync.Map, expiry time.Duration) {
-	cutoff := time.Now().Add(-expiry).Unix()
+	cutoff := timeNow().Add(-expiry).Unix()
 	entries.Range(func(key, value any) bool {
 		entry, ok := value.(*rateLimitEntry)
 		if !ok {
@@ -122,13 +136,7 @@ func cleanupRateLimitMap(entries *sync.Map, expiry time.Duration) {
 // Excludes /health, /healthz, and /_next/static/* paths.
 func buildGlobalRateLimit(getConfig func() *config.Config) func(http.Handler) http.Handler {
 	var reqMap sync.Map
-	startRateLimitCleanup("global_rate_limit_cleanup", &reqMap, func() time.Duration {
-		cfg := getConfig()
-		if cfg == nil || cfg.App.GlobalRateLimitWindow <= 0 {
-			return 0
-		}
-		return time.Duration(cfg.App.GlobalRateLimitWindow) * time.Second
-	})
+	startRateLimitCleanup("global_rate_limit_cleanup", &reqMap, globalCleanupExpiry(getConfig))
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +159,7 @@ func buildGlobalRateLimit(getConfig func() *config.Config) func(http.Handler) ht
 			}
 
 			ip := r.RemoteAddr
-			now := time.Now().Unix()
+			now := timeNow().Unix()
 
 			entryI, _ := reqMap.LoadOrStore(ip, &rateLimitEntry{})
 			entry := entryI.(*rateLimitEntry)
@@ -178,6 +186,17 @@ func buildGlobalRateLimit(getConfig func() *config.Config) func(http.Handler) ht
 			entry.count.Add(1)
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+// globalCleanupExpiry returns the cleanup expiry resolver for global rate-limit windows.
+func globalCleanupExpiry(getConfig func() *config.Config) func() time.Duration {
+	return func() time.Duration {
+		cfg := getConfig()
+		if cfg == nil || cfg.App.GlobalRateLimitWindow <= 0 {
+			return 0
+		}
+		return time.Duration(cfg.App.GlobalRateLimitWindow) * time.Second
 	}
 }
 

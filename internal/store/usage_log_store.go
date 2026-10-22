@@ -142,9 +142,13 @@ type UsagePeriodResult struct {
 	ByAPIKey     []APIKeyUsage         `json:"by_api_key"`
 }
 
+// nowFunc returns the current UTC time. It is a package-level variable so
+// tests can pin the clock deterministically.
+var nowFunc = func() time.Time { return time.Now().UTC() }
+
 // periodToSince converts a period string to a since timestamp.
 func periodToSince(period string) time.Time {
-	now := time.Now().UTC()
+	now := nowFunc()
 	switch period {
 	case "hour":
 		return now.Add(-1 * time.Hour)

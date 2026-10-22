@@ -127,6 +127,11 @@ func ProcessContent(ctx context.Context, blocks []upstream.ContentBlock) (*Proce
 	return result, nil
 }
 
+// downloadAsDataURIFn is the indirection seam used by processImageURL. It
+// defaults to the real downloader; tests may swap it so the HTTP(S) branch can
+// be exercised without dialing non-loopback addresses.
+var downloadAsDataURIFn = downloadAsDataURI
+
 // processImageURL converts an image URL to a data URI.
 // If already a data URI, returns as-is.
 // If HTTP(S) URL, downloads and converts to data URI.
@@ -142,7 +147,7 @@ func processImageURL(ctx context.Context, rawURL string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return downloadAsDataURI(ctx, rawURL, resolvedIPs)
+		return downloadAsDataURIFn(ctx, rawURL, resolvedIPs)
 	}
 
 	return "", fmt.Errorf("unsupported URL scheme: %s", rawURL)

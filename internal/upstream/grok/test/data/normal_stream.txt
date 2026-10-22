@@ -1,0 +1,2 @@
+{"result":{"response":{"token":"Hello","isThinking":false,"rolloutId":"r-1"}}}
+{"result":{"response":{"token":" world","isThinking":false,"rolloutId":"r-1"}}}

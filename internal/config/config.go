@@ -58,10 +58,10 @@ type AppConfig struct {
 	DBDSN          string `toml:"db_dsn"`
 	RequestTimeout int    `toml:"request_timeout"` // default request timeout in seconds (non-LLM routes)
 	// Security settings
-	ReadHeaderTimeout int   `toml:"read_header_timeout"` // seconds, max time to read request headers
-	MaxHeaderBytes    int   `toml:"max_header_bytes"`    // max size of request headers in bytes
-	BodyLimit         int64 `toml:"body_limit"`          // default max request body size in bytes
-	ChatBodyLimit     int64 `toml:"chat_body_limit"`     // max body size for chat completions in bytes
+	ReadHeaderTimeout     int   `toml:"read_header_timeout"`      // seconds, max time to read request headers
+	MaxHeaderBytes        int   `toml:"max_header_bytes"`         // max size of request headers in bytes
+	BodyLimit             int64 `toml:"body_limit"`               // default max request body size in bytes
+	ChatBodyLimit         int64 `toml:"chat_body_limit"`          // max body size for chat completions in bytes
 	AdminMaxFails         int   `toml:"admin_max_fails"`          // max auth failures before temporary IP lockout
 	AdminWindowSec        int   `toml:"admin_window_sec"`         // time window in seconds for counting admin auth failures
 	GlobalRateLimitRPM    int   `toml:"global_rate_limit_rpm"`    // 0 = disabled

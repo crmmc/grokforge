@@ -8,12 +8,12 @@ import (
 )
 
 type chatStreamChunk struct {
-	ID                string             `json:"id"`
-	Object            string             `json:"object"`
-	Created           int64              `json:"created"`
-	Model             string             `json:"model"`
-	Choices           []chatStreamChoice `json:"choices"`
-	SystemFingerprint string             `json:"system_fingerprint,omitempty"`
+	ID                string              `json:"id"`
+	Object            string              `json:"object"`
+	Created           int64               `json:"created"`
+	Model             string              `json:"model"`
+	Choices           []chatStreamChoice  `json:"choices"`
+	SystemFingerprint string              `json:"system_fingerprint,omitempty"`
 	SearchSources     []flow.SearchSource `json:"search_sources,omitempty"`
 }
 

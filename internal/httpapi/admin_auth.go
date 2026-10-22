@@ -27,15 +27,26 @@ func init() {
 func cleanupRevokedSessions() {
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		revokedSessions.Range(func(key, value any) bool {
-			if expiry, ok := value.(time.Time); ok && now.After(expiry) {
-				revokedSessions.Delete(key)
-			}
-			return true
-		})
+	purgeRevokedLoop(ticker.C)
+}
+
+// purgeRevokedLoop consumes tick events until the channel is closed.
+// It is extracted from cleanupRevokedSessions so tests can drive it with a
+// synthetic channel instead of waiting for the 10-minute ticker.
+func purgeRevokedLoop(tick <-chan time.Time) {
+	for range tick {
+		purgeExpiredRevokedSessions(time.Now())
 	}
+}
+
+// purgeExpiredRevokedSessions deletes revocation entries whose session expiry has passed.
+func purgeExpiredRevokedSessions(now time.Time) {
+	revokedSessions.Range(func(key, value any) bool {
+		if expiry, ok := value.(time.Time); ok && now.After(expiry) {
+			revokedSessions.Delete(key)
+		}
+		return true
+	})
 }
 
 // revokeSession adds a session value to the revocation set.

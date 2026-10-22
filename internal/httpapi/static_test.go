@@ -10,9 +10,9 @@ import (
 
 func testSPAHandler() http.Handler {
 	fs := fstest.MapFS{
-		"index.html":                                    {Data: []byte("<!DOCTYPE html><html><body>app</body></html>")},
-		"404.html":                                      {Data: []byte("<!DOCTYPE html><html><body>404</body></html>")},
-		"tokens/index.html":                             {Data: []byte("<!DOCTYPE html><html><body>tokens</body></html>")},
+		"index.html":        {Data: []byte("<!DOCTYPE html><html><body>app</body></html>")},
+		"404.html":          {Data: []byte("<!DOCTYPE html><html><body>404</body></html>")},
+		"tokens/index.html": {Data: []byte("<!DOCTYPE html><html><body>tokens</body></html>")},
 		"_next/static/chunks/webpack-4c5ae21e88beec46.js": {Data: []byte("/* chunk */")},
 	}
 	return NewSPAHandler(fs)

@@ -26,6 +26,11 @@ type Scheduler struct {
 	modeByID map[string]modelconfig.ModeSpec
 	baseURL  string
 
+	// scanInterval is the scan cadence of the run loop; zero falls back to
+	// defaultScanInterval. Injectable so tests can drive the loop without
+	// waiting on wall-clock time.
+	scanInterval time.Duration
+
 	runCtx      context.Context
 	lastRefresh map[uint]map[string]time.Time
 
@@ -73,7 +78,11 @@ func (s *Scheduler) Stop() {
 func (s *Scheduler) run(ctx context.Context) {
 	defer s.wg.Done()
 
-	ticker := time.NewTicker(defaultScanInterval)
+	interval := s.scanInterval
+	if interval <= 0 {
+		interval = defaultScanInterval
+	}
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
